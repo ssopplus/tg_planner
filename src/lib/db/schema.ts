@@ -8,6 +8,7 @@ import {
   json,
   pgEnum,
   index,
+  date,
 } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 
@@ -31,6 +32,8 @@ export const users = pgTable('users', {
   firstName: text('first_name'),
   timezone: text('timezone').default('Europe/Moscow').notNull(),
   digestTime: text('digest_time').default('09:00').notNull(),
+  morningDigestTime: text('morning_digest_time').default('08:00').notNull(),
+  eveningDigestTime: text('evening_digest_time').default('21:00').notNull(),
   settings: json('settings').default({}).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at')
@@ -79,6 +82,8 @@ export const tasks = pgTable(
     priority: priorityEnum('priority').default('MEDIUM').notNull(),
     deadlineAt: timestamp('deadline_at'),
     deadlineType: deadlineTypeEnum('deadline_type'),
+    myDayDate: date('my_day_date'),
+    overdueCount: integer('overdue_count').default(0).notNull(),
     completedAt: timestamp('completed_at'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at')
@@ -108,6 +113,8 @@ export const reminders = pgTable(
     remindAt: timestamp('remind_at').notNull(),
     type: reminderTypeEnum('type').default('TIME').notNull(),
     status: reminderStatusEnum('status').default('PENDING').notNull(),
+    rrule: text('rrule'),
+    isRecurring: boolean('is_recurring').default(false).notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (table) => [

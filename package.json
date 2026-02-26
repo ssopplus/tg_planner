@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3004",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "bot:dev": "tsx --tsconfig tsconfig.json src/bot/dev.ts",
+    "bot:webhook": "tsx --tsconfig tsconfig.json src/bot/set-webhook.ts",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:generate": "drizzle-kit generate",

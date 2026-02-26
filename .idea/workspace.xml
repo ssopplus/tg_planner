@@ -4,38 +4,101 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="56ffb703-0b20-48df-b822-0c4be5cd126f" name="Changes" comment="" />
+    <list default="true" id="56ffb703-0b20-48df-b822-0c4be5cd126f" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/.prettierrc" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/CLAUDE.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/DOMAIN.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/plans/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/plans/STATUS.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/plans/active/2026-02-26_phase-1-mvp.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/plans/active/2026-02-26_phase-2-smart-bot.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/plans/active/2026-02-26_phase-3-mini-app.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/plans/active/2026-02-26_phase-4-shopping.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/plans/active/2026-02-26_phase-5-ai-features.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/plans/active/2026-02-26_phase-6-expansion.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/plans/phase-1-mvp.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/plans/phase-2-smart-bot.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/plans/phase-3-mini-app.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/plans/phase-4-shopping.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/plans/phase-5-ai-features.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/plans/phase-6-expansion.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/drizzle.config.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/drizzle/0000_simple_morlun.sql" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/drizzle/meta/0000_snapshot.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/drizzle/meta/_journal.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/pnpm-lock.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/app/api/cron/reminders/route.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/app/api/telegram/webhook/route.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/bot/handlers/callback.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/bot/handlers/help.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/bot/handlers/message.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/bot/handlers/projects.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/bot/handlers/start.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/bot/handlers/tasks.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/bot/index.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/bot/keyboards/task.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/bot/middleware/user.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/bot/services/pending-store.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/bot/types.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/lib/ai/init.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/lib/ai/openai-provider.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/lib/ai/prompts/parse-task.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/lib/ai/provider.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/lib/ai/types.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/lib/db/index.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/lib/db/schema.ts" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/vercel.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 4
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "ssopplus"
+  }
 }]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/ssopplus/tg_planner.git",
+    "accountId": "b419e045-63fc-4292-99b8-da5a60b4dcdd"
+  }
+}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 4
+}</component>
   <component name="ProjectId" id="3ADGnKnpL8YO4QjL2GFCyshMSPy" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
-    "junie.onboarding.icon.badge.shown": "true",
-    "last_opened_file_path": "/Users/vilch/Vodohod/Projects/tg-planer",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "tasks.servers",
-    "to.speed.mode.migration.done": "true",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/Users/vilch/Vodohod/Projects/tg-planer&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;tasks.servers&quot;,
+    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -50,7 +113,7 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1718629860622</updated>
-      <workItem from="1772119893640" duration="5058000" />
+      <workItem from="1772119893640" duration="10542000" />
     </task>
     <servers>
       <Gitlab url="https://gitlab.streamlabs.ru/gochs">

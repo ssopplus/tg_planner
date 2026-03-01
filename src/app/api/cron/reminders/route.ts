@@ -3,10 +3,13 @@ import { db } from '@/lib/db'
 import { reminders, tasks, users } from '@/lib/db/schema'
 import { eq, and, lte } from 'drizzle-orm'
 import { bot } from '@/bot'
+import { reminderKeyboard } from '@/bot/keyboards/task'
+import { getNextOccurrence } from '@/lib/reminders/rrule-parser'
 
 /**
  * Cron endpoint для отправки напоминаний.
  * Vercel Cron: каждую минуту.
+ * Поддерживает повторяющиеся напоминания (rrule).
  */
 export async function GET(request: Request) {
   // Проверка Vercel Cron секрета
@@ -24,6 +27,9 @@ export async function GET(request: Request) {
       taskTitle: tasks.title,
       taskId: tasks.id,
       telegramId: users.telegramId,
+      userId: reminders.userId,
+      isRecurring: reminders.isRecurring,
+      rrule: reminders.rrule,
     })
     .from(reminders)
     .innerJoin(tasks, eq(reminders.taskId, tasks.id))
@@ -35,10 +41,14 @@ export async function GET(request: Request) {
 
   for (const reminder of pendingReminders) {
     try {
+      // Отправляем с inline-кнопками
       await bot.api.sendMessage(
         reminder.telegramId.toString(),
         `⏰ **Напоминание:** ${reminder.taskTitle}`,
-        { parse_mode: 'Markdown' },
+        {
+          parse_mode: 'Markdown',
+          reply_markup: reminderKeyboard(reminder.taskId),
+        },
       )
 
       // Отмечаем как отправленное
@@ -46,6 +56,21 @@ export async function GET(request: Request) {
         .update(reminders)
         .set({ status: 'SENT' })
         .where(eq(reminders.id, reminder.reminderId))
+
+      // Если повторяющееся — создаём следующее
+      if (reminder.isRecurring && reminder.rrule) {
+        const nextDate = getNextOccurrence(reminder.rrule, now)
+        if (nextDate) {
+          await db.insert(reminders).values({
+            taskId: reminder.taskId,
+            userId: reminder.userId,
+            remindAt: nextDate,
+            type: 'TIME',
+            rrule: reminder.rrule,
+            isRecurring: true,
+          })
+        }
+      }
 
       sent++
     } catch (error) {

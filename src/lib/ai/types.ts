@@ -6,6 +6,7 @@ export interface ParsedTask {
   priority?: 'LOW' | 'MEDIUM' | 'HIGH'
   deadlineAt?: string // ISO date string
   deadlineType?: 'HARD' | 'SOFT'
+  recurrence?: string // Описание повторения на русском
 }
 
 /** Контекст для AI-парсинга */
@@ -17,6 +18,6 @@ export interface ParseContext {
 
 /** Абстракция LLM-провайдера */
 export interface LLMProvider {
-  /** Парсинг задачи из текста на естественном языке */
-  parseTask(text: string, context: ParseContext): Promise<ParsedTask>
+  /** Парсинг задач из текста на естественном языке (может вернуть несколько) */
+  parseTasks(text: string, context: ParseContext): Promise<ParsedTask[]>
 }

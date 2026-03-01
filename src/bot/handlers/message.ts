@@ -2,14 +2,15 @@ import { Context } from 'grammy'
 import { db } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
-import { parseTaskText } from '@/lib/ai/provider'
+import { parseTasksText } from '@/lib/ai/provider'
 import { addPendingTask } from '../services/pending-store'
-import { confirmKeyboard } from '../keyboards/task'
+import { confirmKeyboard, confirmMultiKeyboard } from '../keyboards/task'
 import { BotContext } from '../middleware/user'
+import { formatTaskPreview } from '../services/format'
 
 /**
  * Обработчик текстовых сообщений.
- * Парсит текст через AI, показывает результат с кнопками подтверждения.
+ * Парсит текст через AI (поддерживает несколько задач), показывает результат с кнопками подтверждения.
  */
 export async function handleMessage(ctx: Context) {
   const text = ctx.message?.text
@@ -31,61 +32,83 @@ export async function handleMessage(ctx: Context) {
     return
   }
 
-  // AI-парсинг
+  // AI-парсинг (может вернуть несколько задач)
   const now = new Date()
-  const parsed = await parseTaskText(text, {
+  const parsedTasks = await parseTasksText(text, {
     currentDate: now.toISOString(),
     timezone: dbUser.timezone,
     projects: projectNames,
   })
 
-  // Определяем проект
-  let targetProjectId = defaultProject.id
-  if (parsed.project) {
-    const matched = userProjects.find(
-      (p) => p.name.toLowerCase() === parsed.project!.toLowerCase(),
-    )
-    if (matched) {
-      targetProjectId = matched.id
-    }
+  if (parsedTasks.length === 0) {
+    await ctx.reply('Не удалось распознать задачи. Попробуй ещё раз.')
+    return
   }
-
-  const targetProject = userProjects.find((p) => p.id === targetProjectId)
 
   // Сохраняем в pending store
-  const pendingId = addPendingTask({
-    title: parsed.title,
-    description: parsed.description,
-    projectId: targetProjectId,
-    priority: parsed.priority ?? undefined,
-    deadlineAt: parsed.deadlineAt ? new Date(parsed.deadlineAt) : undefined,
-    deadlineType: parsed.deadlineType ?? undefined,
-  })
+  const pendingIds: string[] = []
 
-  // Формируем сообщение подтверждения
-  const lines: string[] = [`📝 **${parsed.title}**`]
+  for (const parsed of parsedTasks) {
+    let targetProjectId = defaultProject.id
+    if (parsed.project) {
+      const matched = userProjects.find(
+        (p) => p.name.toLowerCase() === parsed.project!.toLowerCase(),
+      )
+      if (matched) targetProjectId = matched.id
+    }
 
-  if (parsed.deadlineAt) {
-    const date = new Date(parsed.deadlineAt)
-    const dateStr = date.toLocaleString('ru-RU', {
-      day: 'numeric',
-      month: 'long',
-      hour: '2-digit',
-      minute: '2-digit',
+    const pendingId = addPendingTask({
+      title: parsed.title,
+      description: parsed.description,
+      projectId: targetProjectId,
+      priority: parsed.priority ?? undefined,
+      deadlineAt: parsed.deadlineAt ? new Date(parsed.deadlineAt) : undefined,
+      deadlineType: parsed.deadlineType ?? undefined,
+      recurrence: parsed.recurrence ?? undefined,
     })
-    const typeStr = parsed.deadlineType === 'HARD' ? '(точный)' : '(примерный)'
-    lines.push(`📅 Срок: ${dateStr} ${typeStr}`)
+
+    pendingIds.push(pendingId)
   }
 
-  if (parsed.priority && parsed.priority !== 'MEDIUM') {
-    const priorityStr = parsed.priority === 'HIGH' ? '🔴 Высокий' : '🟢 Низкий'
-    lines.push(`Приоритет: ${priorityStr}`)
+  if (parsedTasks.length === 1) {
+    // Одна задача — как обычно
+    const parsed = parsedTasks[0]
+    const targetProjectId = pendingIds[0]
+    let projectId = defaultProject.id
+    if (parsed.project) {
+      const matched = userProjects.find(
+        (p) => p.name.toLowerCase() === parsed.project!.toLowerCase(),
+      )
+      if (matched) projectId = matched.id
+    }
+    const targetProject = userProjects.find((p) => p.id === projectId)
+    const preview = formatTaskPreview(parsed, targetProject?.name)
+
+    await ctx.reply(preview, {
+      parse_mode: 'Markdown',
+      reply_markup: confirmKeyboard(pendingIds[0]),
+    })
+  } else {
+    // Несколько задач
+    const lines: string[] = [`📋 Распознано задач: **${parsedTasks.length}**\n`]
+
+    for (let i = 0; i < parsedTasks.length; i++) {
+      const parsed = parsedTasks[i]
+      lines.push(`${i + 1}. **${parsed.title}**`)
+      if (parsed.deadlineAt) {
+        const date = new Date(parsed.deadlineAt)
+        lines.push(
+          `   📅 ${date.toLocaleDateString('ru-RU')} ${date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`,
+        )
+      }
+      if (parsed.recurrence) {
+        lines.push(`   🔁 ${parsed.recurrence}`)
+      }
+    }
+
+    await ctx.reply(lines.join('\n'), {
+      parse_mode: 'Markdown',
+      reply_markup: confirmMultiKeyboard(pendingIds),
+    })
   }
-
-  lines.push(`📁 Проект: ${targetProject?.name ?? 'Входящие'}`)
-
-  await ctx.reply(lines.join('\n'), {
-    parse_mode: 'Markdown',
-    reply_markup: confirmKeyboard(pendingId),
-  })
 }

@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
 import { BotContext } from '../middleware/user'
+import { miniAppKeyboard } from '../keyboards/task'
 
 /**
  * /start — приветствие, создание дефолтного проекта "Входящие"
@@ -25,6 +26,23 @@ export async function handleStart(ctx: Context) {
     })
   }
 
+  // Устанавливаем Menu Button для открытия Mini App
+  const webappUrl = process.env.WEBAPP_URL
+  if (webappUrl && ctx.chat) {
+    try {
+      await ctx.api.setChatMenuButton({
+        chat_id: ctx.chat.id,
+        menu_button: {
+          type: 'web_app',
+          text: '📱 Планировщик',
+          web_app: { url: webappUrl },
+        },
+      })
+    } catch (e) {
+      console.error('Не удалось установить Menu Button:', e)
+    }
+  }
+
   await ctx.reply(
     `Привет, ${dbUser.firstName ?? 'друг'}! 👋\n\n` +
       'Я помогу тебе управлять задачами. Просто напиши задачу текстом, и я разберу её.\n\n' +
@@ -36,6 +54,7 @@ export async function handleStart(ctx: Context) {
       '/tasks — список задач\n' +
       '/projects — проекты\n' +
       '/today — задачи на сегодня\n' +
+      '/app — открыть Mini App\n' +
       '/help — помощь',
     { parse_mode: 'Markdown' },
   )

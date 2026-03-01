@@ -7,6 +7,7 @@ export interface PendingTask {
   priority?: Priority
   deadlineAt?: Date
   deadlineType?: DeadlineType
+  recurrence?: string
   createdAt: number // timestamp для TTL
 }
 

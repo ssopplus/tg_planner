@@ -83,6 +83,7 @@ export const tasks = pgTable(
     deadlineAt: timestamp('deadline_at'),
     deadlineType: deadlineTypeEnum('deadline_type'),
     myDayDate: date('my_day_date'),
+    myDaySortOrder: integer('my_day_sort_order'),
     overdueCount: integer('overdue_count').default(0).notNull(),
     completedAt: timestamp('completed_at'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -123,6 +124,23 @@ export const reminders = pgTable(
   ],
 )
 
+export const subtasks = pgTable(
+  'subtasks',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    taskId: text('task_id')
+      .references(() => tasks.id, { onDelete: 'cascade' })
+      .notNull(),
+    title: text('title').notNull(),
+    isCompleted: boolean('is_completed').default(false).notNull(),
+    sortOrder: integer('sort_order').default(0).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [index('subtasks_task_id_idx').on(table.taskId)],
+)
+
 // === СВЯЗИ ===
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -140,6 +158,11 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   project: one(projects, { fields: [tasks.projectId], references: [projects.id] }),
   user: one(users, { fields: [tasks.userId], references: [users.id] }),
   reminders: many(reminders),
+  subtasks: many(subtasks),
+}))
+
+export const subtasksRelations = relations(subtasks, ({ one }) => ({
+  task: one(tasks, { fields: [subtasks.taskId], references: [tasks.id] }),
 }))
 
 export const remindersRelations = relations(reminders, ({ one }) => ({

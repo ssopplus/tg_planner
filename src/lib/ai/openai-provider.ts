@@ -16,7 +16,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     this.baseUrl = baseUrl
   }
 
-  async parseTask(text: string, context: ParseContext): Promise<ParsedTask> {
+  async parseTasks(text: string, context: ParseContext): Promise<ParsedTask[]> {
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -31,7 +31,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
           { role: 'user', content: buildParseUserMessage(text) },
         ],
         temperature: 0.1,
-        max_tokens: 300,
+        max_tokens: 600,
       }),
     })
 
@@ -46,13 +46,16 @@ export class OpenAICompatibleProvider implements LLMProvider {
       throw new Error('Пустой ответ от LLM')
     }
 
-    const parsed = JSON.parse(content) as ParsedTask
+    const parsed = JSON.parse(content)
+
+    // LLM может вернуть массив напрямую или объект с ключом tasks
+    const tasksArray: ParsedTask[] = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed.tasks)
+        ? parsed.tasks
+        : [parsed]
 
     // Валидация: title обязателен
-    if (!parsed.title || parsed.title.trim() === '') {
-      return { title: text }
-    }
-
-    return parsed
+    return tasksArray.filter((t) => t.title && t.title.trim() !== '')
   }
 }

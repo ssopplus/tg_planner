@@ -166,7 +166,7 @@ export default function TasksPage() {
                 placeholder="Название задачи..."
                 autoFocus
                 onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-[var(--tg-theme-text-color,#000)] text-sm placeholder:text-[var(--tg-theme-hint-color,#8e8e93)] outline-none focus:ring-2 focus:ring-[var(--tg-theme-button-color,#007aff)]/30"
+                className="flex-1 px-4 py-2.5 rounded-xl bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-[var(--tg-theme-text-color,#000)] text-base placeholder:text-[var(--tg-theme-hint-color,#8e8e93)] outline-none focus:ring-2 focus:ring-[var(--tg-theme-button-color,#007aff)]/30"
               />
               <button
                 type="button"

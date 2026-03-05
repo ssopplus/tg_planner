@@ -151,17 +151,13 @@ export default function TasksPage() {
       {/* Bottom sheet для создания задачи */}
       {showForm && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/30"
+          className="fixed inset-0 z-[60] bg-black/30"
           onClick={() => setShowForm(false)}
         >
           <div
-            className="w-full max-w-md bg-[var(--tg-theme-section-bg-color,#fff)] rounded-t-2xl p-4 safe-bottom animate-in slide-in-from-bottom duration-300"
+            className="fixed bottom-[calc(3.5rem+env(safe-area-inset-bottom,0px))] left-3 right-3 z-[60] max-w-md mx-auto bg-[var(--tg-theme-section-bg-color,#fff)] rounded-2xl p-4 shadow-lg animate-in slide-in-from-bottom duration-300"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="w-10 h-1 rounded-full bg-[var(--tg-theme-hint-color,#8e8e93)]/30 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-[var(--tg-theme-text-color,#000)] mb-3">
-              Новая задача
-            </h3>
             <div className="flex gap-2">
               <input
                 type="text"

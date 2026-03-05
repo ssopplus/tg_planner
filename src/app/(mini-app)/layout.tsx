@@ -13,7 +13,7 @@ export default function MiniAppLayout({ children }: { children: React.ReactNode 
   return (
     <>
       <script src="https://telegram.org/js/telegram-web-app.js" />
-      <main className="pb-16 min-h-dvh">{children}</main>
+      <main className="pb-20 min-h-dvh">{children}</main>
       <NavBar />
     </>
   )

@@ -155,7 +155,7 @@ export default function TasksPage() {
           onClick={() => setShowForm(false)}
         >
           <div
-            className="fixed bottom-[calc(3.5rem+env(safe-area-inset-bottom,0px))] left-3 right-3 z-[60] max-w-md mx-auto bg-[var(--tg-theme-section-bg-color,#fff)] rounded-2xl p-4 shadow-lg animate-in slide-in-from-bottom duration-300"
+            className="fixed bottom-[calc(3.5rem+max(env(safe-area-inset-bottom,0px),0.5rem)+0.5rem)] left-3 right-3 z-[60] max-w-md mx-auto bg-[var(--tg-theme-section-bg-color,#fff)] rounded-2xl p-4 shadow-lg animate-in slide-in-from-bottom duration-300"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex gap-2">

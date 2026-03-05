@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
       sortOrder: projects.sortOrder,
       taskCount: sql<number>`(
         select count(*)::int from ${tasks}
-        where ${tasks.projectId} = ${projects.id} and ${tasks.status} = 'TODO'
+        where ${tasks.projectId} = ${projects.id} and ${tasks.status} not in ('DONE', 'ARCHIVED')
       )`,
     })
     .from(projects)

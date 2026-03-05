@@ -1,10 +1,10 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Header } from '@/components/layout/header'
 import { SwipeableTaskCard } from '@/components/tasks/swipeable-task-card'
 import { type TaskCardData } from '@/components/tasks/task-card'
 import { PullToRefresh } from '@/components/ui/pull-to-refresh'
+import { EmptyState } from '@/components/ui/empty-state'
 import { apiFetch } from '@/lib/telegram/webapp'
 
 export default function TodayPage() {
@@ -29,53 +29,52 @@ export default function TodayPage() {
     if (res.ok) setTasks(await res.json())
   }, [])
 
-  const handleReorder = async (ids: string[]) => {
-    const reordered = ids.map((id) => tasks.find((t) => t.id === id)!).filter(Boolean)
-    setTasks(reordered)
-    await apiFetch('/api/today', {
-      method: 'PATCH',
-      body: JSON.stringify({ ids }),
-    })
-  }
-
-  const handleToggle = async (id: string, done: boolean) => {
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: done ? 'DONE' : 'TODO' } : t)))
-    await apiFetch(`/api/tasks/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status: done ? 'DONE' : 'TODO' }),
-    })
-  }
-
-  const handleComplete = async (id: string) => {
+  const handleComplete = useCallback(async (id: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== id))
     await apiFetch(`/api/tasks/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ status: 'DONE' }),
     })
-  }
+  }, [])
 
-  const handleRemoveFromDay = async (id: string) => {
+  const handleRemoveFromDay = useCallback(async (id: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== id))
     await apiFetch(`/api/tasks/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ myDayDate: null }),
     })
-  }
+  }, [])
+
+  const today = new Date()
+  const dateStr = today.toLocaleDateString('ru-RU', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  })
 
   return (
-    <>
-      <Header title="☀️ Мой день" />
+    <div className="bg-[var(--tg-theme-bg-color,#f2f2f7)] min-h-dvh">
       <PullToRefresh onRefresh={handleRefresh}>
-        <div className="px-4 py-2">
+        <header className="px-4 pt-4 pb-2">
+          <h1 className="text-2xl font-bold text-[var(--tg-theme-text-color,#000)]">
+            {'☀️ Мой день'}
+          </h1>
+          <p className="text-sm text-[var(--tg-theme-hint-color,#8e8e93)] mt-0.5 capitalize">
+            {dateStr}
+          </p>
+        </header>
+
+        <div className="px-4 pb-4">
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--tg-theme-button-color,#3b82f6)] border-t-transparent" />
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--tg-theme-button-color,#007aff)] border-t-transparent" />
             </div>
           ) : tasks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-[var(--tg-theme-hint-color,#9ca3af)]">
-              <p className="text-sm">Задач на сегодня нет</p>
-              <p className="mt-1 text-xs">Потяните вниз для обновления</p>
-            </div>
+            <EmptyState
+              icon="🎉"
+              title="Все задачи выполнены!"
+              description="Добавьте задачи в «Мой день» из списка задач"
+            />
           ) : (
             <div className="flex flex-col gap-2">
               {tasks.map((task) => (
@@ -88,8 +87,14 @@ export default function TodayPage() {
               ))}
             </div>
           )}
+
+          {!loading && tasks.length > 0 && (
+            <p className="text-center text-xs text-[var(--tg-theme-hint-color,#8e8e93)] mt-4 px-4">
+              Свайп влево — выполнить · Свайп вправо — убрать из дня
+            </p>
+          )}
         </div>
       </PullToRefresh>
-    </>
+    </div>
   )
 }

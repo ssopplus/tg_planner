@@ -1,26 +1,119 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Telegram theme variables с фоллбэками */
+  --tg-theme-bg-color: #f2f2f7;
+  --tg-theme-secondary-bg-color: #efeff4;
+  --tg-theme-section-bg-color: #ffffff;
+  --tg-theme-text-color: #000000;
+  --tg-theme-hint-color: #8e8e93;
+  --tg-theme-button-color: #007aff;
+  --tg-theme-button-text-color: #ffffff;
+  --tg-theme-link-color: #007aff;
+
+  /* Маппинг TG vars → shadcn vars */
+  --background: var(--tg-theme-bg-color, #f2f2f7);
+  --foreground: var(--tg-theme-text-color, #000000);
+  --card: var(--tg-theme-section-bg-color, #ffffff);
+  --card-foreground: var(--tg-theme-text-color, #000000);
+  --popover: var(--tg-theme-section-bg-color, #ffffff);
+  --popover-foreground: var(--tg-theme-text-color, #000000);
+  --primary: var(--tg-theme-button-color, #007aff);
+  --primary-foreground: var(--tg-theme-button-text-color, #ffffff);
+  --secondary: var(--tg-theme-secondary-bg-color, #efeff4);
+  --secondary-foreground: var(--tg-theme-text-color, #000000);
+  --muted: var(--tg-theme-secondary-bg-color, #efeff4);
+  --muted-foreground: var(--tg-theme-hint-color, #8e8e93);
+  --accent: var(--tg-theme-button-color, #007aff);
+  --accent-foreground: var(--tg-theme-button-text-color, #ffffff);
+  --destructive: #ff3b30;
+  --destructive-foreground: #ffffff;
+  --border: #d1d1d6;
+  --input: #d1d1d6;
+  --ring: var(--tg-theme-button-color, #007aff);
+  --radius: 0.75rem;
+
+  /* Цвета приоритетов */
+  --color-priority-high: #ff3b30;
+  --color-priority-medium: #ff9500;
+  --color-priority-low: #34c759;
+  --color-success: #34c759;
+  --color-warning: #ff9500;
+}
+
+.dark {
+  --tg-theme-bg-color: #1c1c1e;
+  --tg-theme-secondary-bg-color: #2c2c2e;
+  --tg-theme-section-bg-color: #2c2c2e;
+  --tg-theme-text-color: #ffffff;
+  --tg-theme-hint-color: #8e8e93;
+
+  --background: var(--tg-theme-bg-color, #1c1c1e);
+  --foreground: var(--tg-theme-text-color, #ffffff);
+  --card: var(--tg-theme-section-bg-color, #2c2c2e);
+  --card-foreground: var(--tg-theme-text-color, #ffffff);
+  --popover: var(--tg-theme-section-bg-color, #2c2c2e);
+  --popover-foreground: var(--tg-theme-text-color, #ffffff);
+  --border: #38383a;
+  --input: #38383a;
 }
 
 @theme inline {
+  --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono', 'SF Mono', monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    overscroll-behavior-y: contain;
+    user-select: none;
+  }
+  input, textarea, select {
+    user-select: text;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }

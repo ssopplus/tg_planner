@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
-import { TaskCard, type TaskCardData } from './task-card'
+import { useRef, useCallback, useState, type TouchEvent } from 'react'
 import { Check, X } from 'lucide-react'
+import { TaskCard, type TaskCardData } from './task-card'
 
 interface SwipeableTaskCardProps {
   task: TaskCardData
@@ -12,95 +12,125 @@ interface SwipeableTaskCardProps {
 }
 
 const SWIPE_THRESHOLD = 80
+const MAX_SWIPE = 140
 
-/**
- * Карточка задачи со свайп-действиями:
- * - Свайп влево → завершить задачу
- * - Свайп вправо → убрать из дня
- */
 export function SwipeableTaskCard({ task, onComplete, onRemove, showProject }: SwipeableTaskCardProps) {
-  const [offset, setOffset] = useState(0)
-  const [swiping, setSwiping] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
   const startX = useRef(0)
   const startY = useRef(0)
+  const currentX = useRef(0)
   const isHorizontal = useRef<boolean | null>(null)
+  const [swipeOffset, setSwipeOffset] = useState(0)
 
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    startX.current = e.touches[0].clientX
-    startY.current = e.touches[0].clientY
-    isHorizontal.current = null
-    setSwiping(true)
+  const resetSwipe = useCallback(() => {
+    setSwipeOffset(0)
+    if (containerRef.current) {
+      containerRef.current.style.transition = 'transform 0.3s cubic-bezier(.2,.8,.2,1)'
+      containerRef.current.style.transform = ''
+    }
   }, [])
 
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!swiping) return
+  const handleTouchStart = useCallback((e: TouchEvent) => {
+    startX.current = e.touches[0].clientX
+    startY.current = e.touches[0].clientY
+    currentX.current = 0
+    isHorizontal.current = null
+  }, [])
 
-    const dx = e.touches[0].clientX - startX.current
-    const dy = e.touches[0].clientY - startY.current
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    const diffX = e.touches[0].clientX - startX.current
+    const diffY = e.touches[0].clientY - startY.current
 
-    // Определяем направление жеста при первом движении
     if (isHorizontal.current === null) {
-      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
-        isHorizontal.current = Math.abs(dx) > Math.abs(dy)
+      if (Math.abs(diffX) > 8 || Math.abs(diffY) > 8) {
+        isHorizontal.current = Math.abs(diffX) > Math.abs(diffY)
       }
       return
     }
 
     if (!isHorizontal.current) return
 
-    // Ограничение смещения
-    const clampedOffset = Math.max(-SWIPE_THRESHOLD * 1.5, Math.min(SWIPE_THRESHOLD * 1.5, dx))
-    setOffset(clampedOffset)
-  }, [swiping])
+    currentX.current = diffX
+    const clampedX = Math.max(-MAX_SWIPE, Math.min(MAX_SWIPE, diffX))
+    setSwipeOffset(clampedX)
+
+    if (containerRef.current) {
+      containerRef.current.style.transition = 'none'
+      containerRef.current.style.transform = `translateX(${clampedX}px)`
+    }
+  }, [])
 
   const handleTouchEnd = useCallback(() => {
-    setSwiping(false)
-    isHorizontal.current = null
-
-    if (offset < -SWIPE_THRESHOLD) {
-      // Свайп влево → завершить
-      setOffset(-300)
-      setTimeout(() => onComplete?.(task.id), 200)
-    } else if (offset > SWIPE_THRESHOLD) {
-      // Свайп вправо → убрать из дня
-      setOffset(300)
-      setTimeout(() => onRemove?.(task.id), 200)
+    if (currentX.current < -SWIPE_THRESHOLD) {
+      if (containerRef.current) {
+        containerRef.current.style.transition = 'transform 0.25s ease-out, opacity 0.25s ease-out'
+        containerRef.current.style.transform = 'translateX(-100%)'
+        containerRef.current.style.opacity = '0'
+      }
+      setTimeout(() => {
+        onComplete?.(task.id)
+        resetSwipe()
+        if (containerRef.current) {
+          containerRef.current.style.opacity = '1'
+        }
+      }, 250)
+    } else if (currentX.current > SWIPE_THRESHOLD) {
+      if (containerRef.current) {
+        containerRef.current.style.transition = 'transform 0.25s ease-out, opacity 0.25s ease-out'
+        containerRef.current.style.transform = 'translateX(100%)'
+        containerRef.current.style.opacity = '0'
+      }
+      setTimeout(() => {
+        onRemove?.(task.id)
+        resetSwipe()
+        if (containerRef.current) {
+          containerRef.current.style.opacity = '1'
+        }
+      }, 250)
     } else {
-      setOffset(0)
+      resetSwipe()
     }
-  }, [offset, task.id, onComplete, onRemove])
 
-  const leftRevealed = offset > 0
-  const rightRevealed = offset < 0
+    isHorizontal.current = null
+    setSwipeOffset(0)
+  }, [task.id, onComplete, onRemove, resetSwipe])
+
+  const leftReveal = swipeOffset > 0
+  const rightReveal = swipeOffset < 0
 
   return (
     <div className="relative overflow-hidden rounded-xl">
       {/* Фон слева — убрать из дня (свайп вправо) */}
-      <div className="absolute inset-y-0 left-0 flex w-full items-center bg-orange-500 px-4">
-        <div className="flex items-center gap-2 text-white text-sm font-medium">
+      <div
+        className={`absolute inset-0 flex items-center px-5 rounded-xl bg-orange-500 transition-opacity ${
+          leftReveal ? 'opacity-100' : 'opacity-0'
+        }`}
+      >
+        <div className="flex items-center gap-2 text-white">
           <X className="h-5 w-5" />
-          <span>Убрать</span>
+          <span className="text-sm font-medium">Убрать</span>
         </div>
       </div>
 
       {/* Фон справа — завершить (свайп влево) */}
-      <div className="absolute inset-y-0 right-0 flex w-full items-center justify-end bg-green-500 px-4">
-        <div className="flex items-center gap-2 text-white text-sm font-medium">
-          <span>Готово</span>
+      <div
+        className={`absolute inset-0 flex items-center justify-end px-5 rounded-xl bg-green-500 transition-opacity ${
+          rightReveal ? 'opacity-100' : 'opacity-0'
+        }`}
+      >
+        <div className="flex items-center gap-2 text-white">
+          <span className="text-sm font-medium">Готово</span>
           <Check className="h-5 w-5" />
         </div>
       </div>
 
       {/* Карточка */}
       <div
+        ref={containerRef}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        className="relative z-10 transition-transform duration-200"
-        style={{
-          transform: `translateX(${offset}px)`,
-          transitionDuration: swiping ? '0ms' : '200ms',
-        }}
+        className="relative z-10"
       >
         <TaskCard task={task} showProject={showProject} />
       </div>

@@ -1,11 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Badge } from '@/components/ui/badge'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Progress } from '@/components/ui/progress'
-import { Calendar, GripVertical } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { Calendar, ChevronRight } from 'lucide-react'
 
 export interface TaskCardData {
   id: string
@@ -23,62 +19,118 @@ export interface TaskCardData {
 interface TaskCardProps {
   task: TaskCardData
   onToggle?: (id: string, done: boolean) => void
-  draggable?: boolean
   showProject?: boolean
 }
 
-export function TaskCard({ task, onToggle, draggable, showProject = true }: TaskCardProps) {
-  const isDone = task.status === 'DONE'
-  const isOverdue = task.deadlineAt && new Date(task.deadlineAt) < new Date() && !isDone
-  const hasSubtasks = (task.subtaskTotal ?? 0) > 0
-  const subtaskProgress = hasSubtasks
-    ? Math.round(((task.subtaskCompleted ?? 0) / task.subtaskTotal!) * 100)
-    : 0
+const priorityConfig = {
+  HIGH: { label: 'Высокий', className: 'bg-red-500/15 text-red-600' },
+  MEDIUM: { label: 'Средний', className: 'bg-orange-500/15 text-orange-600' },
+  LOW: { label: 'Низкий', className: 'bg-green-500/15 text-green-600' },
+}
 
-  const priorityVariant = task.priority === 'HIGH' ? 'high' : task.priority === 'LOW' ? 'low' : 'medium'
+function isOverdue(deadline: string | null, isDone: boolean): boolean {
+  if (!deadline || isDone) return false
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return new Date(deadline) < today
+}
+
+function formatDate(dateStr: string): string {
+  const date = new Date(dateStr)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const tomorrow = new Date(today)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  const d = new Date(dateStr)
+  d.setHours(0, 0, 0, 0)
+
+  if (d.getTime() === today.getTime()) return 'Сегодня'
+  if (d.getTime() === tomorrow.getTime()) return 'Завтра'
+
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+}
+
+export function TaskCard({ task, onToggle, showProject = true }: TaskCardProps) {
+  const isDone = task.status === 'DONE'
+  const priority = priorityConfig[task.priority]
+  const overdue = isOverdue(task.deadlineAt, isDone)
+  const hasSubtasks = (task.subtaskTotal ?? 0) > 0
 
   return (
-    <div className="flex items-start gap-3 rounded-xl bg-[var(--tg-theme-section-bg-color,#fff)] dark:bg-[var(--tg-theme-section-bg-color,#1c1c1e)] p-3">
-      {draggable && (
-        <GripVertical className="mt-0.5 h-5 w-5 shrink-0 text-[var(--tg-theme-hint-color,#9ca3af)] touch-none cursor-grab" />
-      )}
-
-      <Checkbox
-        checked={isDone}
-        onChange={(checked) => onToggle?.(task.id, checked)}
-        className="mt-0.5"
-      />
-
-      <Link href={`/tasks/${task.id}`} className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className={cn('text-sm font-medium truncate', isDone && 'line-through opacity-50')}>
-            {task.title}
-          </span>
-          <Badge variant={priorityVariant} className="shrink-0">
-            {task.priority === 'HIGH' ? 'Высокий' : task.priority === 'LOW' ? 'Низкий' : 'Средний'}
-          </Badge>
-        </div>
-
-        <div className="mt-1 flex items-center gap-2 text-xs text-[var(--tg-theme-hint-color,#9ca3af)]">
-          {task.deadlineAt && (
-            <span className={cn('flex items-center gap-1', isOverdue && 'text-red-500')}>
-              <Calendar className="h-3 w-3" />
-              {new Date(task.deadlineAt).toLocaleDateString('ru-RU', {
-                day: 'numeric',
-                month: 'short',
-              })}
-            </span>
+    <div className="bg-[var(--tg-theme-section-bg-color,#fff)] rounded-xl px-4 py-3 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+      <div className="flex items-start gap-3">
+        {/* Круглый чекбокс */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onToggle?.(task.id, !isDone)
+          }}
+          className={`mt-0.5 flex-shrink-0 h-5 w-5 rounded-full border-2 transition-all ${
+            isDone
+              ? 'bg-[var(--tg-theme-button-color,#007aff)] border-[var(--tg-theme-button-color,#007aff)]'
+              : 'border-[var(--tg-theme-hint-color,#8e8e93)]'
+          } flex items-center justify-center`}
+          aria-label={isDone ? 'Отметить как невыполненное' : 'Отметить как выполненное'}
+        >
+          {isDone && (
+            <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+              <path
+                d="M1 4L3.5 6.5L9 1"
+                stroke="white"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
           )}
-          {showProject && task.projectName && <span>📁 {task.projectName}</span>}
-          {hasSubtasks && (
-            <span>
-              ✓ {task.subtaskCompleted}/{task.subtaskTotal}
-            </span>
-          )}
-        </div>
+        </button>
 
-        {hasSubtasks && <Progress value={subtaskProgress} className="mt-2" />}
-      </Link>
+        {/* Контент */}
+        <Link href={`/tasks/${task.id}`} className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span
+              className={`text-[15px] font-medium leading-snug ${
+                isDone
+                  ? 'line-through text-[var(--tg-theme-hint-color,#8e8e93)]'
+                  : 'text-[var(--tg-theme-text-color,#000)]'
+              }`}
+            >
+              {task.title}
+            </span>
+            <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded-md ${priority.className}`}>
+              {priority.label}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+            {task.deadlineAt && (
+              <span
+                className={`flex items-center gap-1 text-xs ${overdue ? 'text-red-500 font-medium' : 'text-[var(--tg-theme-hint-color,#8e8e93)]'}`}
+              >
+                <Calendar className="h-3 w-3" />
+                {formatDate(task.deadlineAt)}
+              </span>
+            )}
+            {showProject && task.projectName && (
+              <span className="text-xs text-[var(--tg-theme-hint-color,#8e8e93)]">
+                {task.projectName}
+              </span>
+            )}
+            {hasSubtasks && (
+              <span className="text-xs text-[var(--tg-theme-hint-color,#8e8e93)]">
+                {task.subtaskCompleted}/{task.subtaskTotal}
+              </span>
+            )}
+          </div>
+        </Link>
+
+        {/* Шеврон */}
+        <Link href={`/tasks/${task.id}`} className="flex-shrink-0 mt-1">
+          <ChevronRight className="h-4 w-4 text-[var(--tg-theme-hint-color,#8e8e93)]" />
+        </Link>
+      </div>
     </div>
   )
 }

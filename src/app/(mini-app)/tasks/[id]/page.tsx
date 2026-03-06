@@ -2,7 +2,17 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Calendar, Trash2, Check, Plus, X, FolderOpen } from 'lucide-react'
+import {
+  ArrowLeft,
+  Calendar,
+  Trash2,
+  Check,
+  Plus,
+  X,
+  FolderOpen,
+  ChevronDown,
+  Pencil,
+} from 'lucide-react'
 import { apiFetch } from '@/lib/telegram/webapp'
 
 interface Subtask {
@@ -27,10 +37,22 @@ interface TaskDetail {
   subtasks: Subtask[]
 }
 
+interface ProjectOption {
+  id: string
+  name: string
+  isDefault: boolean
+}
+
 const priorityConfig: Record<string, { label: string; className: string }> = {
   HIGH: { label: 'Высокий', className: 'bg-red-500/15 text-red-600' },
   MEDIUM: { label: 'Средний', className: 'bg-orange-500/15 text-orange-600' },
   LOW: { label: 'Низкий', className: 'bg-green-500/15 text-green-600' },
+}
+
+const statusConfig: Record<string, { label: string; className: string }> = {
+  TODO: { label: 'Сделать', className: 'bg-blue-500/15 text-blue-600' },
+  IN_PROGRESS: { label: 'В работе', className: 'bg-orange-500/15 text-orange-600' },
+  DONE: { label: 'Готово', className: 'bg-green-500/15 text-green-600' },
 }
 
 function formatDate(dateStr: string): string {
@@ -42,6 +64,11 @@ function formatDate(dateStr: string): string {
   })
 }
 
+function toLocalDateString(dateStr: string): string {
+  const d = new Date(dateStr)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export default function TaskDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -49,6 +76,19 @@ export default function TaskDetailPage() {
   const [task, setTask] = useState<TaskDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [newSubtask, setNewSubtask] = useState('')
+
+  // Состояния редактирования
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [editTitle, setEditTitle] = useState('')
+  const [editingDesc, setEditingDesc] = useState(false)
+  const [editDesc, setEditDesc] = useState('')
+  const [showPriorityPicker, setShowPriorityPicker] = useState(false)
+  const [showStatusPicker, setShowStatusPicker] = useState(false)
+  const [showProjectPicker, setShowProjectPicker] = useState(false)
+  const [showDeadlinePicker, setShowDeadlinePicker] = useState(false)
+  const [deadlineInput, setDeadlineInput] = useState('')
+  const [deadlineTypeInput, setDeadlineTypeInput] = useState<string>('HARD')
+  const [projects, setProjects] = useState<ProjectOption[]>([])
 
   const fetchTask = useCallback(async () => {
     try {
@@ -63,15 +103,42 @@ export default function TaskDetailPage() {
     fetchTask()
   }, [fetchTask])
 
-  const handleComplete = useCallback(async () => {
+  const patchTask = useCallback(
+    async (data: Record<string, unknown>) => {
+      await apiFetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      })
+    },
+    [taskId],
+  )
+
+  const fetchProjects = useCallback(async () => {
+    const res = await apiFetch('/api/projects')
+    if (res.ok) setProjects(await res.json())
+  }, [])
+
+  const saveTitle = useCallback(() => {
+    if (!editTitle.trim() || !task || editTitle.trim() === task.title) {
+      setEditingTitle(false)
+      return
+    }
+    setTask({ ...task, title: editTitle.trim() })
+    setEditingTitle(false)
+    patchTask({ title: editTitle.trim() })
+  }, [editTitle, task, patchTask])
+
+  const saveDesc = useCallback(() => {
     if (!task) return
-    const newStatus = task.status === 'DONE' ? 'TODO' : 'DONE'
-    setTask({ ...task, status: newStatus })
-    await apiFetch(`/api/tasks/${taskId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status: newStatus }),
-    })
-  }, [task, taskId])
+    const newDesc = editDesc.trim() || null
+    if (newDesc === task.description) {
+      setEditingDesc(false)
+      return
+    }
+    setTask({ ...task, description: newDesc })
+    setEditingDesc(false)
+    patchTask({ description: newDesc })
+  }, [editDesc, task, patchTask])
 
   const handleDelete = useCallback(async () => {
     await apiFetch(`/api/tasks/${taskId}`, { method: 'DELETE' })
@@ -132,6 +199,7 @@ export default function TaskDetailPage() {
   }
 
   const priority = priorityConfig[task.priority] ?? priorityConfig.MEDIUM
+  const taskStatus = statusConfig[task.status] ?? statusConfig.TODO
   const isOverdue =
     task.deadlineAt && new Date(task.deadlineAt) < new Date() && task.status !== 'DONE'
   const completedSubtasks = task.subtasks.filter((s) => s.isCompleted).length
@@ -156,56 +224,307 @@ export default function TaskDetailPage() {
       </header>
 
       <div className="px-4 pb-24 flex flex-col gap-3">
-        {/* Карточка заголовка */}
+        {/* Название + Описание */}
         <div className="bg-[var(--tg-theme-section-bg-color,#fff)] rounded-xl p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
-          <h2 className="text-xl font-bold text-[var(--tg-theme-text-color,#000)] text-balance">
-            {task.title}
-          </h2>
-          {task.description && (
-            <p className="text-sm text-[var(--tg-theme-hint-color,#8e8e93)] mt-2 leading-relaxed">
-              {task.description}
-            </p>
+          {editingTitle ? (
+            <input
+              type="text"
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') saveTitle()
+                if (e.key === 'Escape') setEditingTitle(false)
+              }}
+              onBlur={saveTitle}
+              autoFocus
+              className="w-full text-xl font-bold bg-transparent text-[var(--tg-theme-text-color,#000)] outline-none border-b-2 border-[var(--tg-theme-button-color,#007aff)] text-base"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setEditTitle(task.title)
+                setEditingTitle(true)
+              }}
+              className="w-full text-left group"
+            >
+              <div className="flex items-start gap-2">
+                <h2 className="text-xl font-bold text-[var(--tg-theme-text-color,#000)] text-balance flex-1">
+                  {task.title}
+                </h2>
+                <Pencil className="h-4 w-4 text-[var(--tg-theme-hint-color,#8e8e93)] opacity-0 group-active:opacity-100 flex-shrink-0 mt-1" />
+              </div>
+            </button>
+          )}
+
+          {editingDesc ? (
+            <textarea
+              value={editDesc}
+              onChange={(e) => setEditDesc(e.target.value)}
+              onBlur={saveDesc}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setEditingDesc(false)
+              }}
+              autoFocus
+              placeholder="Добавьте описание..."
+              rows={3}
+              className="w-full mt-3 text-sm bg-transparent text-[var(--tg-theme-text-color,#000)] outline-none border-b-2 border-[var(--tg-theme-button-color,#007aff)] placeholder:text-[var(--tg-theme-hint-color,#8e8e93)] resize-none text-base"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setEditDesc(task.description ?? '')
+                setEditingDesc(true)
+              }}
+              className="w-full text-left mt-2"
+            >
+              <p className="text-sm leading-relaxed text-[var(--tg-theme-hint-color,#8e8e93)]">
+                {task.description || 'Добавить описание...'}
+              </p>
+            </button>
           )}
         </div>
 
         {/* Мета-информация */}
         <div className="bg-[var(--tg-theme-section-bg-color,#fff)] rounded-xl p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
           <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-[var(--tg-theme-hint-color,#8e8e93)]">Приоритет</span>
-              <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg ${priority.className}`}>
-                {priority.label}
-              </span>
+            {/* Статус */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowStatusPicker(!showStatusPicker)
+                  setShowPriorityPicker(false)
+                  setShowDeadlinePicker(false)
+                  setShowProjectPicker(false)
+                }}
+                className="flex items-center justify-between w-full"
+              >
+                <span className="text-sm text-[var(--tg-theme-hint-color,#8e8e93)]">Статус</span>
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg flex items-center gap-1 ${taskStatus.className}`}>
+                  {taskStatus.label}
+                  <ChevronDown className="h-3 w-3" />
+                </span>
+              </button>
+              {showStatusPicker && (
+                <div className="absolute right-0 top-full mt-1 w-44 bg-[var(--tg-theme-section-bg-color,#fff)] rounded-xl shadow-lg border border-[var(--tg-theme-hint-color,#8e8e93)]/10 overflow-hidden z-10">
+                  {Object.entries(statusConfig).map(([key, cfg]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => {
+                        setTask({ ...task, status: key })
+                        setShowStatusPicker(false)
+                        patchTask({ status: key })
+                      }}
+                      className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 ${
+                        task.status === key
+                          ? 'bg-[var(--tg-theme-button-color,#007aff)]/10 text-[var(--tg-theme-button-color,#007aff)]'
+                          : 'text-[var(--tg-theme-text-color,#000)]'
+                      }`}
+                    >
+                      <span className={`inline-block h-2 w-2 rounded-full ${cfg.className.split(' ')[0]}`} />
+                      {cfg.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {task.deadlineAt && (
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-[var(--tg-theme-hint-color,#8e8e93)]">Дедлайн</span>
-                <span
-                  className={`flex items-center gap-1.5 text-sm font-medium ${
-                    isOverdue ? 'text-red-500' : 'text-[var(--tg-theme-text-color,#000)]'
-                  }`}
-                >
-                  <Calendar className="h-4 w-4" />
-                  {formatDate(task.deadlineAt)}
-                  {isOverdue && (
-                    <span className="text-[10px] bg-red-500/15 text-red-500 px-1.5 py-0.5 rounded-md font-semibold">
-                      Просрочено
-                    </span>
-                  )}
+            {/* Приоритет */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPriorityPicker(!showPriorityPicker)
+                  setShowStatusPicker(false)
+                  setShowDeadlinePicker(false)
+                  setShowProjectPicker(false)
+                }}
+                className="flex items-center justify-between w-full"
+              >
+                <span className="text-sm text-[var(--tg-theme-hint-color,#8e8e93)]">Приоритет</span>
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg flex items-center gap-1 ${priority.className}`}>
+                  {priority.label}
+                  <ChevronDown className="h-3 w-3" />
                 </span>
-              </div>
-            )}
+              </button>
+              {showPriorityPicker && (
+                <div className="absolute right-0 top-full mt-1 w-44 bg-[var(--tg-theme-section-bg-color,#fff)] rounded-xl shadow-lg border border-[var(--tg-theme-hint-color,#8e8e93)]/10 overflow-hidden z-10">
+                  {Object.entries(priorityConfig).map(([key, cfg]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => {
+                        setTask({ ...task, priority: key })
+                        setShowPriorityPicker(false)
+                        patchTask({ priority: key })
+                      }}
+                      className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 ${
+                        task.priority === key
+                          ? 'bg-[var(--tg-theme-button-color,#007aff)]/10 text-[var(--tg-theme-button-color,#007aff)]'
+                          : 'text-[var(--tg-theme-text-color,#000)]'
+                      }`}
+                    >
+                      <span className={`inline-block h-2 w-2 rounded-full ${cfg.className.split(' ')[0]}`} />
+                      {cfg.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
-            {task.projectName && (
-              <div className="flex items-center justify-between">
+            {/* Дедлайн */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeadlineInput(task.deadlineAt ? toLocalDateString(task.deadlineAt) : '')
+                  setDeadlineTypeInput(task.deadlineType ?? 'HARD')
+                  setShowDeadlinePicker(!showDeadlinePicker)
+                  setShowStatusPicker(false)
+                  setShowPriorityPicker(false)
+                  setShowProjectPicker(false)
+                }}
+                className="flex items-center justify-between w-full"
+              >
+                <span className="text-sm text-[var(--tg-theme-hint-color,#8e8e93)]">Срок</span>
+                {task.deadlineAt ? (
+                  <span
+                    className={`flex items-center gap-1.5 text-sm font-medium ${
+                      isOverdue ? 'text-red-500' : 'text-[var(--tg-theme-text-color,#000)]'
+                    }`}
+                  >
+                    <Calendar className="h-4 w-4" />
+                    {formatDate(task.deadlineAt)}
+                    {task.deadlineType && (
+                      <span className="text-[10px] bg-[var(--tg-theme-secondary-bg-color,#efeff4)] px-1.5 py-0.5 rounded-md">
+                        {task.deadlineType === 'HARD' ? 'Жёсткий' : 'Мягкий'}
+                      </span>
+                    )}
+                    {isOverdue && (
+                      <span className="text-[10px] bg-red-500/15 text-red-500 px-1.5 py-0.5 rounded-md font-semibold">
+                        !
+                      </span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-sm text-[var(--tg-theme-hint-color,#8e8e93)]">
+                    <Calendar className="h-4 w-4" />
+                    Не задан
+                  </span>
+                )}
+              </button>
+              {showDeadlinePicker && (
+                <div className="absolute right-0 top-full mt-1 w-64 bg-[var(--tg-theme-section-bg-color,#fff)] rounded-xl shadow-lg border border-[var(--tg-theme-hint-color,#8e8e93)]/10 p-3 z-10">
+                  <input
+                    type="date"
+                    value={deadlineInput}
+                    onChange={(e) => setDeadlineInput(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-sm text-[var(--tg-theme-text-color,#000)] outline-none text-base"
+                  />
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setDeadlineTypeInput('HARD')}
+                      className={`flex-1 text-xs py-1.5 rounded-lg font-medium ${
+                        deadlineTypeInput === 'HARD'
+                          ? 'bg-red-500/15 text-red-600'
+                          : 'bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-[var(--tg-theme-hint-color,#8e8e93)]'
+                      }`}
+                    >
+                      Жёсткий
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeadlineTypeInput('SOFT')}
+                      className={`flex-1 text-xs py-1.5 rounded-lg font-medium ${
+                        deadlineTypeInput === 'SOFT'
+                          ? 'bg-orange-500/15 text-orange-600'
+                          : 'bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-[var(--tg-theme-hint-color,#8e8e93)]'
+                      }`}
+                    >
+                      Мягкий
+                    </button>
+                  </div>
+                  <div className="flex gap-2 mt-3">
+                    {task.deadlineAt && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTask({ ...task, deadlineAt: null, deadlineType: null })
+                          setShowDeadlinePicker(false)
+                          patchTask({ deadlineAt: null, deadlineType: null })
+                        }}
+                        className="flex-1 text-xs py-2 rounded-lg text-red-500 bg-red-500/10 font-medium"
+                      >
+                        Убрать
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!deadlineInput) return
+                        const newDeadline = new Date(deadlineInput + 'T23:59:59').toISOString()
+                        setTask({ ...task, deadlineAt: newDeadline, deadlineType: deadlineTypeInput })
+                        setShowDeadlinePicker(false)
+                        patchTask({ deadlineAt: newDeadline, deadlineType: deadlineTypeInput })
+                      }}
+                      disabled={!deadlineInput}
+                      className="flex-1 text-xs py-2 rounded-lg bg-[var(--tg-theme-button-color,#007aff)] text-[var(--tg-theme-button-text-color,#fff)] font-medium disabled:opacity-40"
+                    >
+                      Сохранить
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Проект */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowProjectPicker(!showProjectPicker)
+                  setShowStatusPicker(false)
+                  setShowPriorityPicker(false)
+                  setShowDeadlinePicker(false)
+                  if (!showProjectPicker) fetchProjects()
+                }}
+                className="flex items-center justify-between w-full"
+              >
                 <span className="text-sm text-[var(--tg-theme-hint-color,#8e8e93)]">Проект</span>
                 <span className="flex items-center gap-1.5 text-sm font-medium text-[var(--tg-theme-text-color,#000)]">
                   <FolderOpen className="h-4 w-4" />
-                  {task.projectName}
+                  {task.projectName ?? 'Не выбран'}
+                  <ChevronDown className="h-3 w-3 text-[var(--tg-theme-hint-color,#8e8e93)]" />
                 </span>
-              </div>
-            )}
+              </button>
+              {showProjectPicker && projects.length > 0 && (
+                <div className="absolute right-0 top-full mt-1 w-56 bg-[var(--tg-theme-section-bg-color,#fff)] rounded-xl shadow-lg border border-[var(--tg-theme-hint-color,#8e8e93)]/10 overflow-hidden z-10">
+                  {projects.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
+                        setTask({ ...task, projectId: p.id, projectName: p.name })
+                        setShowProjectPicker(false)
+                        patchTask({ projectId: p.id })
+                      }}
+                      className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 ${
+                        task.projectId === p.id
+                          ? 'bg-[var(--tg-theme-button-color,#007aff)]/10 text-[var(--tg-theme-button-color,#007aff)]'
+                          : 'text-[var(--tg-theme-text-color,#000)]'
+                      }`}
+                    >
+                      <FolderOpen className="h-4 w-4 flex-shrink-0" />
+                      <span className="truncate">{p.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -222,7 +541,6 @@ export default function TaskDetailPage() {
             )}
           </div>
 
-          {/* Прогресс-бар */}
           {totalSubtasks > 0 && (
             <div className="h-1.5 bg-[var(--tg-theme-secondary-bg-color,#efeff4)] rounded-full mb-3 overflow-hidden">
               <div
@@ -232,7 +550,6 @@ export default function TaskDetailPage() {
             </div>
           )}
 
-          {/* Список подзадач */}
           <div className="flex flex-col gap-1.5">
             {task.subtasks.map((subtask) => (
               <div key={subtask.id} className="flex items-center gap-3 py-2 px-1 group">
@@ -268,7 +585,6 @@ export default function TaskDetailPage() {
             ))}
           </div>
 
-          {/* Добавить подзадачу */}
           <div className="flex gap-2 mt-2">
             <input
               type="text"
@@ -276,7 +592,7 @@ export default function TaskDetailPage() {
               onChange={(e) => setNewSubtask(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddSubtask()}
               placeholder="Добавить подзадачу..."
-              className="flex-1 px-3 py-2 rounded-lg bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-sm text-[var(--tg-theme-text-color,#000)] placeholder:text-[var(--tg-theme-hint-color,#8e8e93)] outline-none"
+              className="flex-1 px-3 py-2 rounded-lg bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-sm text-[var(--tg-theme-text-color,#000)] placeholder:text-[var(--tg-theme-hint-color,#8e8e93)] outline-none text-base"
             />
             <button
               type="button"
@@ -290,23 +606,15 @@ export default function TaskDetailPage() {
           </div>
         </div>
 
-        {/* Кнопки действий */}
-        <div className="flex flex-col gap-2 mt-1">
-          <button
-            type="button"
-            onClick={handleComplete}
-            className="w-full py-3 rounded-xl bg-[var(--tg-theme-button-color,#007aff)] text-[var(--tg-theme-button-text-color,#fff)] font-semibold text-base flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
-          >
-            <Check className="h-5 w-5" />
-            {task.status === 'DONE' ? 'Вернуть в работу' : 'Выполнено'}
-          </button>
+        {/* Удалить */}
+        <div className="mt-1">
           <button
             type="button"
             onClick={handleDelete}
             className="w-full py-3 rounded-xl bg-red-500/10 text-red-500 font-semibold text-base flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
           >
             <Trash2 className="h-5 w-5" />
-            Удалить
+            Удалить задачу
           </button>
         </div>
       </div>

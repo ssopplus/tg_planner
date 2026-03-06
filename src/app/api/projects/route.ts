@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { projects, tasks } from '@/lib/db/schema'
-import { eq, and, sql } from 'drizzle-orm'
+import { eq, and, sql, notInArray, count } from 'drizzle-orm'
 import { authorizeMiniApp } from '@/lib/telegram/auth'
 
 /** GET /api/projects */
@@ -16,13 +16,18 @@ export async function GET(request: NextRequest) {
       type: projects.type,
       isDefault: projects.isDefault,
       sortOrder: projects.sortOrder,
-      taskCount: sql<number>`(
-        select count(*)::int from ${tasks}
-        where ${tasks.projectId} = ${projects.id} and ${tasks.status}::text not in ('DONE', 'ARCHIVED')
-      )`,
+      taskCount: count(tasks.id),
     })
     .from(projects)
+    .leftJoin(
+      tasks,
+      and(
+        eq(tasks.projectId, projects.id),
+        notInArray(tasks.status, ['DONE', 'ARCHIVED']),
+      ),
+    )
     .where(eq(projects.userId, user.id))
+    .groupBy(projects.id)
     .orderBy(projects.sortOrder)
 
   return NextResponse.json(userProjects)

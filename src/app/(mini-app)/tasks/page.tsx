@@ -1,11 +1,17 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { Plus, List, Columns3 } from 'lucide-react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { Plus, List, Columns3, FolderOpen, ChevronDown } from 'lucide-react'
 import { TaskCard, type TaskCardData } from '@/components/tasks/task-card'
 import { KanbanBoard } from '@/components/tasks/kanban-board'
 import { EmptyState } from '@/components/ui/empty-state'
 import { apiFetch } from '@/lib/telegram/webapp'
+
+interface ProjectOption {
+  id: string
+  name: string
+  isDefault: boolean
+}
 
 type SortMode = 'deadline' | 'priority' | 'created'
 type ViewMode = 'list' | 'kanban'
@@ -23,6 +29,9 @@ export default function TasksPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [showForm, setShowForm] = useState(false)
   const [newTitle, setNewTitle] = useState('')
+  const [projects, setProjects] = useState<ProjectOption[]>([])
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [showProjectPicker, setShowProjectPicker] = useState(false)
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -56,18 +65,38 @@ export default function TasksPage() {
     })
   }, [])
 
+  const fetchProjects = useCallback(async () => {
+    const res = await apiFetch('/api/projects')
+    if (res.ok) {
+      const data: ProjectOption[] = await res.json()
+      setProjects(data)
+      if (!selectedProjectId) {
+        const def = data.find((p) => p.isDefault)
+        setSelectedProjectId(def?.id ?? data[0]?.id ?? null)
+      }
+    }
+  }, [selectedProjectId])
+
+  const openForm = useCallback(() => {
+    setShowForm(true)
+    fetchProjects()
+  }, [fetchProjects])
+
   const handleAdd = useCallback(async () => {
     if (!newTitle.trim()) return
     const res = await apiFetch('/api/tasks', {
       method: 'POST',
-      body: JSON.stringify({ title: newTitle.trim() }),
+      body: JSON.stringify({
+        title: newTitle.trim(),
+        ...(selectedProjectId && { projectId: selectedProjectId }),
+      }),
     })
     if (res.ok) {
       setNewTitle('')
       setShowForm(false)
       fetchTasks()
     }
-  }, [newTitle, fetchTasks])
+  }, [newTitle, selectedProjectId, fetchTasks])
 
   return (
     <div className="bg-[var(--tg-theme-bg-color,#f2f2f7)] min-h-dvh">
@@ -158,7 +187,7 @@ export default function TasksPage() {
             className="fixed bottom-[calc(3.5rem+max(env(safe-area-inset-bottom,0px),0.5rem)+0.5rem)] left-3 right-3 z-[60] max-w-md mx-auto bg-[var(--tg-theme-section-bg-color,#fff)] rounded-2xl p-4 shadow-lg animate-in slide-in-from-bottom duration-300"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
               <input
                 type="text"
                 value={newTitle}
@@ -166,16 +195,53 @@ export default function TasksPage() {
                 placeholder="Название задачи..."
                 autoFocus
                 onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-[var(--tg-theme-text-color,#000)] text-base placeholder:text-[var(--tg-theme-hint-color,#8e8e93)] outline-none focus:ring-2 focus:ring-[var(--tg-theme-button-color,#007aff)]/30"
+                className="min-w-0 flex-1 px-3 py-2.5 rounded-xl bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-[var(--tg-theme-text-color,#000)] text-base placeholder:text-[var(--tg-theme-hint-color,#8e8e93)] outline-none focus:ring-2 focus:ring-[var(--tg-theme-button-color,#007aff)]/30"
               />
               <button
                 type="button"
                 onClick={handleAdd}
                 disabled={!newTitle.trim()}
-                className="px-5 py-2.5 rounded-xl bg-[var(--tg-theme-button-color,#007aff)] text-[var(--tg-theme-button-text-color,#fff)] text-sm font-medium disabled:opacity-40 transition-opacity active:scale-95"
+                className="flex-shrink-0 h-10 w-10 rounded-xl bg-[var(--tg-theme-button-color,#007aff)] text-[var(--tg-theme-button-text-color,#fff)] disabled:opacity-40 transition-opacity active:scale-95 flex items-center justify-center"
+                aria-label="Добавить"
               >
-                Добавить
+                <Plus className="h-5 w-5" />
               </button>
+            </div>
+            {/* Выбор проекта */}
+            <div className="relative mt-2">
+              <button
+                type="button"
+                onClick={() => setShowProjectPicker(!showProjectPicker)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-xs text-[var(--tg-theme-text-color,#000)] transition-colors"
+              >
+                <FolderOpen className="h-3.5 w-3.5 text-[var(--tg-theme-hint-color,#8e8e93)]" />
+                <span className="truncate max-w-[200px]">
+                  {projects.find((p) => p.id === selectedProjectId)?.name ?? 'Входящие'}
+                </span>
+                <ChevronDown className={`h-3 w-3 text-[var(--tg-theme-hint-color,#8e8e93)] transition-transform ${showProjectPicker ? 'rotate-180' : ''}`} />
+              </button>
+              {showProjectPicker && projects.length > 0 && (
+                <div className="absolute bottom-full left-0 mb-1 w-56 bg-[var(--tg-theme-section-bg-color,#fff)] rounded-xl shadow-lg border border-[var(--tg-theme-hint-color,#8e8e93)]/10 overflow-hidden z-10">
+                  {projects.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedProjectId(p.id)
+                        setShowProjectPicker(false)
+                      }}
+                      className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 transition-colors ${
+                        p.id === selectedProjectId
+                          ? 'bg-[var(--tg-theme-button-color,#007aff)]/10 text-[var(--tg-theme-button-color,#007aff)]'
+                          : 'text-[var(--tg-theme-text-color,#000)]'
+                      }`}
+                    >
+                      <FolderOpen className="h-4 w-4 flex-shrink-0" />
+                      <span className="truncate">{p.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -185,7 +251,7 @@ export default function TasksPage() {
       {!showForm && (
         <button
           type="button"
-          onClick={() => setShowForm(true)}
+          onClick={openForm}
           className="fixed bottom-20 right-4 z-40 h-14 w-14 rounded-full bg-[var(--tg-theme-button-color,#007aff)] text-[var(--tg-theme-button-text-color,#fff)] shadow-lg flex items-center justify-center active:scale-90 transition-transform"
           aria-label="Добавить задачу"
         >

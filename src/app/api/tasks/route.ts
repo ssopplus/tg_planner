@@ -82,15 +82,33 @@ export async function POST(request: NextRequest) {
   const body = await request.json()
   const { title, projectId, priority, deadlineAt, deadlineType, description } = body
 
-  if (!title || !projectId) {
-    return NextResponse.json({ error: 'title и projectId обязательны' }, { status: 400 })
+  if (!title) {
+    return NextResponse.json({ error: 'title обязателен' }, { status: 400 })
+  }
+
+  // Если projectId не передан — используем дефолтный проект пользователя
+  let resolvedProjectId = projectId
+  if (!resolvedProjectId) {
+    let [defaultProject] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(and(eq(projects.userId, user.id), eq(projects.isDefault, true)))
+      .limit(1)
+
+    if (!defaultProject) {
+      ;[defaultProject] = await db
+        .insert(projects)
+        .values({ userId: user.id, name: 'Входящие', isDefault: true })
+        .returning({ id: projects.id })
+    }
+    resolvedProjectId = defaultProject.id
   }
 
   const [task] = await db
     .insert(tasks)
     .values({
       userId: user.id,
-      projectId,
+      projectId: resolvedProjectId,
       title,
       description: description ?? null,
       priority: priority ?? 'MEDIUM',

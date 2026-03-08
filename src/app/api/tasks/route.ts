@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     const statuses = status.split(',') as ('TODO' | 'IN_PROGRESS' | 'DONE' | 'ARCHIVED')[]
     conditions.push(inArray(tasks.status, statuses))
   } else {
-    conditions.push(eq(tasks.status, 'TODO'))
+    conditions.push(inArray(tasks.status, ['TODO', 'IN_PROGRESS']))
   }
 
   const userTasks = await db

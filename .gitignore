@@ -46,3 +46,4 @@ next-env.d.ts
 /.claude/
 /commit.txt
 /docs/scrins/
+/.mcp.json

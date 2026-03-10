@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { tasks, projects, subtasks } from '@/lib/db/schema'
-import { eq, and, or, lte, lt, sql, inArray } from 'drizzle-orm'
+import { eq, and, or, lte, sql, inArray } from 'drizzle-orm'
 import { authorizeMiniApp } from '@/lib/telegram/auth'
 
 /** GET /api/today — задачи «Моего дня» */
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
     .where(
       and(
         eq(tasks.userId, user.id),
-        eq(tasks.status, 'TODO'),
+        inArray(tasks.status, ['TODO', 'IN_PROGRESS']),
         or(
           eq(tasks.myDayDate, todayStr),
           lte(tasks.deadlineAt, endOfDay),

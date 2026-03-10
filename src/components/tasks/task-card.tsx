@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Calendar, ChevronRight } from 'lucide-react'
+import { Calendar, ChevronRight, Sun } from 'lucide-react'
 
 export interface TaskCardData {
   id: string
@@ -14,11 +14,13 @@ export interface TaskCardData {
   status: string
   subtaskTotal?: number
   subtaskCompleted?: number
+  myDayDate?: string | null
 }
 
 interface TaskCardProps {
   task: TaskCardData
   onToggle?: (id: string, done: boolean) => void
+  onMyDayToggle?: (id: string, add: boolean) => void
   showProject?: boolean
 }
 
@@ -50,11 +52,32 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
 }
 
-export function TaskCard({ task, onToggle, showProject = true }: TaskCardProps) {
+function checkMyDay(task: TaskCardData): { inMyDay: boolean; isManual: boolean } {
+  const today = new Date()
+  const todayStr = today.toISOString().split('T')[0]
+  const isDone = task.status === 'DONE'
+
+  // Вручную добавлена
+  if (task.myDayDate === todayStr) return { inMyDay: true, isManual: true }
+
+  // Автоматически: дедлайн сегодня или просрочено
+  if (task.deadlineAt && !isDone) {
+    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59)
+    if (new Date(task.deadlineAt) <= endOfDay) return { inMyDay: true, isManual: false }
+  }
+
+  // Автоматически: HIGH приоритет без дедлайна
+  if (task.priority === 'HIGH' && !task.deadlineAt && !isDone) return { inMyDay: true, isManual: false }
+
+  return { inMyDay: false, isManual: false }
+}
+
+export function TaskCard({ task, onToggle, onMyDayToggle, showProject = true }: TaskCardProps) {
   const isDone = task.status === 'DONE'
   const priority = priorityConfig[task.priority]
   const overdue = isOverdue(task.deadlineAt, isDone)
   const hasSubtasks = (task.subtaskTotal ?? 0) > 0
+  const { inMyDay, isManual } = checkMyDay(task)
 
   return (
     <div className="bg-[var(--tg-theme-section-bg-color,#fff)] rounded-xl px-4 py-3 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
@@ -125,6 +148,35 @@ export function TaskCard({ task, onToggle, showProject = true }: TaskCardProps) 
             )}
           </div>
         </Link>
+
+        {/* Иконка «Мой день» */}
+        {onMyDayToggle && (
+          inMyDay && !isManual ? (
+            /* Авто-добавлена (дедлайн/приоритет) — не убрать */
+            <div className="flex-shrink-0 mt-0.5 p-1 -m-1">
+              <Sun className="h-4.5 w-4.5 text-amber-400/60 fill-amber-400/60" />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                onMyDayToggle(task.id, !inMyDay)
+              }}
+              className="flex-shrink-0 mt-0.5 p-1 -m-1 active:scale-90 transition-transform"
+              aria-label={inMyDay ? 'Убрать из «Мой день»' : 'Добавить в «Мой день»'}
+            >
+              <Sun
+                className={`h-4.5 w-4.5 transition-colors ${
+                  inMyDay
+                    ? 'text-amber-500 fill-amber-500'
+                    : 'text-[var(--tg-theme-hint-color,#8e8e93)]'
+                }`}
+              />
+            </button>
+          )
+        )}
 
         {/* Шеврон */}
         <Link href={`/tasks/${task.id}`} className="flex-shrink-0 mt-1">

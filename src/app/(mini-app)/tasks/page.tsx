@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Plus, List, Columns3, FolderOpen, ChevronDown } from 'lucide-react'
+import { Plus, List, Columns3, FolderOpen, ChevronDown, Check, ArrowUpDown } from 'lucide-react'
 import { TaskCard, type TaskCardData } from '@/components/tasks/task-card'
 import { KanbanBoard } from '@/components/tasks/kanban-board'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -16,10 +16,10 @@ interface ProjectOption {
 type SortMode = 'deadline' | 'priority' | 'created'
 type ViewMode = 'list' | 'kanban'
 
-const sortButtons: { mode: SortMode; label: string }[] = [
+const sortOptions: { mode: SortMode; label: string }[] = [
   { mode: 'deadline', label: 'По сроку' },
-  { mode: 'priority', label: 'Приоритет' },
-  { mode: 'created', label: 'По дате' },
+  { mode: 'priority', label: 'По приоритету' },
+  { mode: 'created', label: 'По дате создания' },
 ]
 
 export default function TasksPage() {
@@ -32,27 +32,89 @@ export default function TasksPage() {
   const [projects, setProjects] = useState<ProjectOption[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [showProjectPicker, setShowProjectPicker] = useState(false)
+  const [filterProjectIds, setFilterProjectIds] = useState<string[]>([])
+  const [showFilter, setShowFilter] = useState(false)
+  const [showSort, setShowSort] = useState(false)
+  const settingsLoaded = useRef(false)
+
+  // Загрузка сохранённых настроек
+  useEffect(() => {
+    apiFetch('/api/settings').then(async (res) => {
+      if (!res.ok) return
+      const data = await res.json()
+      const s = data.settings as Record<string, unknown> | undefined
+      if (s?.tasksSortMode && typeof s.tasksSortMode === 'string') {
+        setSortMode(s.tasksSortMode as SortMode)
+      }
+      if (s?.tasksViewMode && typeof s.tasksViewMode === 'string') {
+        setViewMode(s.tasksViewMode as ViewMode)
+      }
+      if (Array.isArray(s?.tasksFilterProjectIds)) {
+        setFilterProjectIds(s.tasksFilterProjectIds as string[])
+      }
+      settingsLoaded.current = true
+    })
+  }, [])
+
+  // Сохранение настроек при изменении (после первой загрузки)
+  useEffect(() => {
+    if (!settingsLoaded.current) return
+    apiFetch('/api/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        settings: {
+          tasksSortMode: sortMode,
+          tasksViewMode: viewMode,
+          tasksFilterProjectIds: filterProjectIds,
+        },
+      }),
+    })
+  }, [sortMode, viewMode, filterProjectIds])
 
   const fetchTasks = useCallback(async () => {
     try {
       const statusParam = viewMode === 'kanban' ? '&status=TODO,IN_PROGRESS,DONE' : ''
-      const res = await apiFetch(`/api/tasks?sort=${sortMode}${statusParam}`)
+      const projectParam = filterProjectIds.length > 0 ? `&project_ids=${filterProjectIds.join(',')}` : ''
+      const res = await apiFetch(`/api/tasks?sort=${sortMode}${statusParam}${projectParam}`)
       if (res.ok) setTasks(await res.json())
     } finally {
       setLoading(false)
     }
-  }, [sortMode, viewMode])
+  }, [sortMode, viewMode, filterProjectIds])
 
   useEffect(() => {
     setLoading(true)
     fetchTasks()
   }, [fetchTasks])
 
+  // Загрузка проектов при монтировании (для фильтра)
+  useEffect(() => {
+    apiFetch('/api/projects').then(async (res) => {
+      if (res.ok) {
+        const data: ProjectOption[] = await res.json()
+        setProjects(data)
+        if (!selectedProjectId) {
+          const def = data.find((p) => p.isDefault)
+          setSelectedProjectId(def?.id ?? data[0]?.id ?? null)
+        }
+      }
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleToggle = useCallback(async (id: string, done: boolean) => {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: done ? 'DONE' : 'TODO' } : t)))
     await apiFetch(`/api/tasks/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ status: done ? 'DONE' : 'TODO' }),
+    })
+  }, [])
+
+  const handleMyDayToggle = useCallback(async (id: string, add: boolean) => {
+    const todayStr = new Date().toISOString().split('T')[0]
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, myDayDate: add ? todayStr : null } : t)))
+    await apiFetch(`/api/tasks/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ myDayDate: add ? todayStr : null }),
     })
   }, [])
 
@@ -65,22 +127,9 @@ export default function TasksPage() {
     })
   }, [])
 
-  const fetchProjects = useCallback(async () => {
-    const res = await apiFetch('/api/projects')
-    if (res.ok) {
-      const data: ProjectOption[] = await res.json()
-      setProjects(data)
-      if (!selectedProjectId) {
-        const def = data.find((p) => p.isDefault)
-        setSelectedProjectId(def?.id ?? data[0]?.id ?? null)
-      }
-    }
-  }, [selectedProjectId])
-
   const openForm = useCallback(() => {
     setShowForm(true)
-    fetchProjects()
-  }, [fetchProjects])
+  }, [])
 
   const handleAdd = useCallback(async () => {
     if (!newTitle.trim()) return
@@ -130,27 +179,131 @@ export default function TasksPage() {
         </div>
       </header>
 
-      {/* Кнопки сортировки — только в режиме списка */}
-      {viewMode === 'list' && (
-        <div className="px-4 pb-3">
-          <div className="flex gap-2">
-            {sortButtons.map(({ mode, label }) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setSortMode(mode)}
-                className={`text-xs font-medium px-3 py-1.5 rounded-full transition-all ${
-                  sortMode === mode
-                    ? 'bg-[var(--tg-theme-button-color,#007aff)] text-[var(--tg-theme-button-text-color,#fff)]'
-                    : 'bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-[var(--tg-theme-hint-color,#8e8e93)]'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+      {/* Панель фильтров: сортировка + проекты */}
+      <div className="px-4 pb-3 flex gap-2 relative">
+        {/* Сортировка — только в списке */}
+        {viewMode === 'list' && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => { setShowSort(!showSort); setShowFilter(false) }}
+              className="text-xs font-medium px-3 py-1.5 rounded-full transition-all flex items-center gap-1.5 bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-[var(--tg-theme-hint-color,#8e8e93)]"
+            >
+              <ArrowUpDown className="h-3.5 w-3.5" />
+              <span>{sortOptions.find((s) => s.mode === sortMode)?.label}</span>
+              <ChevronDown className={`h-3 w-3 transition-transform ${showSort ? 'rotate-180' : ''}`} />
+            </button>
+            {showSort && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowSort(false)} />
+                <div className="absolute left-0 top-full mt-1 z-50 w-48 bg-[var(--tg-theme-section-bg-color,#fff)] rounded-xl shadow-lg border border-[var(--tg-theme-hint-color,#8e8e93)]/10 overflow-hidden">
+                  {sortOptions.map(({ mode, label }) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => { setSortMode(mode); setShowSort(false) }}
+                      className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2.5 transition-colors ${
+                        sortMode === mode
+                          ? 'bg-[var(--tg-theme-button-color,#007aff)]/10 text-[var(--tg-theme-button-color,#007aff)]'
+                          : 'text-[var(--tg-theme-text-color,#000)]'
+                      }`}
+                    >
+                      {sortMode === mode && <Check className="h-3.5 w-3.5" />}
+                      {sortMode !== mode && <div className="w-3.5" />}
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Фильтр по проектам */}
+        {projects.length > 1 && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => { setShowFilter(!showFilter); setShowSort(false) }}
+              className={`text-xs font-medium px-3 py-1.5 rounded-full transition-all flex items-center gap-1.5 ${
+                filterProjectIds.length > 0
+                  ? 'bg-[var(--tg-theme-button-color,#007aff)]/15 text-[var(--tg-theme-button-color,#007aff)]'
+                  : 'bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-[var(--tg-theme-hint-color,#8e8e93)]'
+              }`}
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+              <span className="truncate max-w-[150px]">
+                {filterProjectIds.length === 0
+                  ? 'Все проекты'
+                  : filterProjectIds.length === 1
+                    ? projects.find((p) => p.id === filterProjectIds[0])?.name ?? 'Проект'
+                    : `${filterProjectIds.length} проекта`}
+              </span>
+              <ChevronDown className={`h-3 w-3 transition-transform ${showFilter ? 'rotate-180' : ''}`} />
+              {filterProjectIds.length > 0 && (
+                <span className="ml-0.5 h-4 w-4 rounded-full bg-[var(--tg-theme-button-color,#007aff)] text-[var(--tg-theme-button-text-color,#fff)] text-[10px] flex items-center justify-center font-semibold">
+                  {filterProjectIds.length}
+                </span>
+              )}
+            </button>
+            {showFilter && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowFilter(false)} />
+                <div className="absolute left-0 top-full mt-1 z-50 w-56 bg-[var(--tg-theme-section-bg-color,#fff)] rounded-xl shadow-lg border border-[var(--tg-theme-hint-color,#8e8e93)]/10 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setFilterProjectIds([])}
+                    className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2.5 transition-colors ${
+                      filterProjectIds.length === 0
+                        ? 'bg-[var(--tg-theme-button-color,#007aff)]/10 text-[var(--tg-theme-button-color,#007aff)]'
+                        : 'text-[var(--tg-theme-text-color,#000)]'
+                    }`}
+                  >
+                    <div className={`h-4.5 w-4.5 rounded border-2 flex items-center justify-center transition-all ${
+                      filterProjectIds.length === 0
+                        ? 'bg-[var(--tg-theme-button-color,#007aff)] border-[var(--tg-theme-button-color,#007aff)]'
+                        : 'border-[var(--tg-theme-hint-color,#8e8e93)]'
+                    }`}>
+                      {filterProjectIds.length === 0 && <Check className="h-3 w-3 text-white" />}
+                    </div>
+                    <span className="font-medium">Все проекты</span>
+                  </button>
+                  <div className="h-px bg-[var(--tg-theme-hint-color,#8e8e93)]/10" />
+                  {projects.map((p) => {
+                    const selected = filterProjectIds.includes(p.id)
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          setFilterProjectIds((prev) =>
+                            selected ? prev.filter((id) => id !== p.id) : [...prev, p.id],
+                          )
+                        }}
+                        className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2.5 transition-colors ${
+                          selected
+                            ? 'bg-[var(--tg-theme-button-color,#007aff)]/10 text-[var(--tg-theme-button-color,#007aff)]'
+                            : 'text-[var(--tg-theme-text-color,#000)]'
+                        }`}
+                      >
+                        <div className={`h-4.5 w-4.5 rounded border-2 flex items-center justify-center transition-all ${
+                          selected
+                            ? 'bg-[var(--tg-theme-button-color,#007aff)] border-[var(--tg-theme-button-color,#007aff)]'
+                            : 'border-[var(--tg-theme-hint-color,#8e8e93)]'
+                        }`}>
+                          {selected && <Check className="h-3 w-3 text-white" />}
+                        </div>
+                        <FolderOpen className="h-4 w-4 flex-shrink-0" />
+                        <span className="truncate">{p.name}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Контент */}
       {loading ? (
@@ -170,7 +323,7 @@ export default function TasksPage() {
           ) : (
             <div className="flex flex-col gap-2">
               {tasks.map((task) => (
-                <TaskCard key={task.id} task={task} onToggle={handleToggle} />
+                <TaskCard key={task.id} task={task} onToggle={handleToggle} onMyDayToggle={handleMyDayToggle} />
               ))}
             </div>
           )}

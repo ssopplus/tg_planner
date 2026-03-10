@@ -11,13 +11,18 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url)
   const projectId = searchParams.get('project_id')
+  const projectIds = searchParams.get('project_ids')
   const status = searchParams.get('status')
   const sort = searchParams.get('sort') ?? 'deadline'
   const page = parseInt(searchParams.get('page') ?? '1')
   const limit = parseInt(searchParams.get('limit') ?? '50')
 
   const conditions = [eq(tasks.userId, user.id)]
-  if (projectId) conditions.push(eq(tasks.projectId, projectId))
+  if (projectIds) {
+    conditions.push(inArray(tasks.projectId, projectIds.split(',')))
+  } else if (projectId) {
+    conditions.push(eq(tasks.projectId, projectId))
+  }
   if (status) {
     const statuses = status.split(',') as ('TODO' | 'IN_PROGRESS' | 'DONE' | 'ARCHIVED')[]
     conditions.push(inArray(tasks.status, statuses))

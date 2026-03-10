@@ -149,10 +149,10 @@ export default function TodayPage() {
 
       {/* Bottom-sheet выбора задач */}
       {showPicker && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/30" onClick={closePicker}>
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/30" onClick={closePicker}>
           <div
-            className="w-full max-w-md bg-[var(--tg-theme-section-bg-color,#fff)] rounded-t-2xl safe-bottom animate-in slide-in-from-bottom duration-300"
-            style={{ maxHeight: '70vh' }}
+            className="w-full max-w-md bg-[var(--tg-theme-section-bg-color,#fff)] rounded-t-2xl animate-in slide-in-from-bottom duration-300"
+            style={{ maxHeight: '70vh', marginBottom: 'calc(3.5rem + max(env(safe-area-inset-bottom, 0px), 0.5rem))' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="w-10 h-1 rounded-full bg-[var(--tg-theme-hint-color,#8e8e93)]/30 mx-auto mt-3 mb-2" />
@@ -177,7 +177,7 @@ export default function TodayPage() {
             </div>
 
             {/* Список задач */}
-            <div className="overflow-y-auto px-4 pb-4" style={{ maxHeight: 'calc(70vh - 130px)' }}>
+            <div className="overflow-y-auto px-4 pb-4" style={{ maxHeight: 'calc(70vh - 120px)' }}>
               {pickerLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--tg-theme-button-color,#007aff)] border-t-transparent" />

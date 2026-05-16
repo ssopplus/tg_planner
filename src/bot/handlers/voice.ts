@@ -2,7 +2,7 @@ import { Context } from 'grammy'
 import { db } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
-import { transcribeAudio } from '@/lib/speech/whisper'
+import { transcribeAudio, buildSTTChain, STTUnavailableError } from '@/lib/speech'
 import { parseTasksText } from '@/lib/ai/provider'
 import { addPendingTask } from '../services/pending-store'
 import { confirmKeyboard, confirmMultiKeyboard } from '../keyboards/task'
@@ -19,9 +19,10 @@ export async function handleVoice(ctx: Context) {
 
   const { dbUser } = ctx as BotContext
 
-  const apiKey = process.env.WHISPER_API_KEY ?? process.env.LLM_API_KEY
-  if (!apiKey) {
-    await ctx.reply('Голосовые сообщения не поддерживаются — не настроен API ключ.')
+  if (buildSTTChain().length === 0) {
+    await ctx.reply(
+      'Голосовые сообщения не поддерживаются — не настроен ни один STT-провайдер (GROQ_API_KEY / ASSEMBLYAI_API_KEY).',
+    )
     return
   }
 
@@ -35,8 +36,8 @@ export async function handleVoice(ctx: Context) {
     const response = await fetch(fileUrl)
     const audioBuffer = Buffer.from(await response.arrayBuffer())
 
-    // Транскрипция
-    const transcription = await transcribeAudio(audioBuffer, apiKey)
+    // Транскрипция через цепочку STT-провайдеров с автоматическим fallback
+    const transcription = await transcribeAudio(audioBuffer)
 
     if (!transcription || transcription.trim() === '') {
       await ctx.reply('Не удалось распознать речь. Попробуй ещё раз.')
@@ -86,7 +87,7 @@ export async function handleVoice(ctx: Context) {
 
       const targetProject = userProjects.find((p) => p.id === targetProjectId)
 
-      const pendingId = addPendingTask({
+      const pendingId = await addPendingTask(dbUser.id, {
         title: parsed.title,
         description: parsed.description,
         projectId: targetProjectId,
@@ -130,6 +131,12 @@ export async function handleVoice(ctx: Context) {
     }
   } catch (error) {
     console.error('Ошибка обработки голосового сообщения:', error)
+    if (error instanceof STTUnavailableError) {
+      await ctx.reply(
+        'Не удалось распознать речь — все STT-провайдеры недоступны. Напиши задачу текстом.',
+      )
+      return
+    }
     await ctx.reply('Произошла ошибка при обработке голосового сообщения. Попробуй текстом.')
   }
 }

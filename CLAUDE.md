@@ -15,7 +15,7 @@
 - **ORM:** Drizzle ORM (НЕ Prisma) + PostgreSQL
 - **Бот:** grammy (webhook для prod, polling для dev)
 - **LLM:** OpenRouter (OpenAI-compatible API). Env: `LLM_API_KEY`, `LLM_MODEL`, `LLM_BASE_URL`
-- **Голос:** OpenAI Whisper API (транскрипция). Env: `WHISPER_API_KEY`, `WHISPER_BASE_URL`
+- **Голос (STT):** цепочка провайдеров с автоматическим fallback — Groq Whisper-large-v3-turbo (основной) → AssemblyAI Universal-2 (резерв) → OpenAI Whisper (legacy). Env: `STT_PROVIDERS`, `GROQ_API_KEY`, `ASSEMBLYAI_API_KEY`. Реализация: [src/lib/speech/](src/lib/speech/)
 - **Повторения:** rrule (RFC 5545)
 - **Mini App UI:** Tailwind CSS v4 + lucide-react + cva + @dnd-kit
 - **Пакетный менеджер:** pnpm
@@ -97,6 +97,9 @@ docs/plans/                   # Планы разработки (ADR workflow)
 | `LLM_BASE_URL` | Base URL API (default: OpenRouter) |
 | `WEBHOOK_URL` | Telegram webhook URL |
 | `CRON_SECRET` | Секрет для верификации cron запросов |
-| `WHISPER_API_KEY` | OpenAI API key для Whisper (если не задан — LLM_API_KEY) |
-| `WHISPER_BASE_URL` | Base URL Whisper API (default: `https://api.openai.com/v1`) |
+| `STT_PROVIDERS` | Порядок STT-провайдеров через запятую (default: `groq,assemblyai,whisper`) |
+| `GROQ_API_KEY` | Groq API key — основной STT (whisper-large-v3-turbo) |
+| `ASSEMBLYAI_API_KEY` | AssemblyAI API key — резервный STT (Universal-2) |
+| `WHISPER_API_KEY` | Legacy: OpenAI Whisper API key (deprecated) |
+| `WHISPER_BASE_URL` | Legacy: Base URL Whisper API (default: `https://api.openai.com/v1`) |
 | `WEBAPP_URL` | URL Mini App для кнопки в боте |

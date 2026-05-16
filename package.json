@@ -13,7 +13,8 @@
     "db:down": "docker compose down",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "sync:vault": "tsx --tsconfig tsconfig.json scripts/sync-vault-projects.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

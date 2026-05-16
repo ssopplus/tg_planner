@@ -53,6 +53,20 @@ export const projects = pgTable(
       .references(() => users.id, { onDelete: 'cascade' })
       .notNull(),
     name: text('name').notNull(),
+    /** Стабильный идентификатор для связи с vault и внешними системами */
+    slug: text('slug'),
+    /** Относительный путь к заметке vault, например "Проекты/Личное/tg-planer.md" */
+    vaultPath: text('vault_path'),
+    /** Краткое описание (из тела заметки) */
+    description: text('description'),
+    /** Стек технологий, секция ## Технологии заметки */
+    techStack: jsonb('tech_stack'),
+    /** Теги frontmatter */
+    tags: jsonb('tags'),
+    /** "general" (без репозитория) или "dev" (есть код, доступна генерация промтов) */
+    kind: text('kind').default('general').notNull(),
+    /** Абсолютный путь к репозиторию для dev-проектов */
+    repoPath: text('repo_path'),
     type: projectTypeEnum('type').default('DEFAULT').notNull(),
     isDefault: boolean('is_default').default(false).notNull(),
     sortOrder: integer('sort_order').default(0).notNull(),
@@ -62,7 +76,10 @@ export const projects = pgTable(
       .notNull()
       .$onUpdate(() => new Date()),
   },
-  (table) => [index('projects_user_id_idx').on(table.userId)],
+  (table) => [
+    index('projects_user_id_idx').on(table.userId),
+    index('projects_user_slug_idx').on(table.userId, table.slug),
+  ],
 )
 
 export const tasks = pgTable(

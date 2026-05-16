@@ -29,6 +29,13 @@
       "when": 1778789465083,
       "tag": "0003_supreme_celestials",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1778791104612,
+      "tag": "0004_freezing_nick_fury",
+      "breakpoints": true
     }
   ]
 }

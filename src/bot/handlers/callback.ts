@@ -2,7 +2,7 @@ import { Context } from 'grammy'
 import { db } from '@/lib/db'
 import { tasks, reminders } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
-import { pendingTasks } from '../services/pending-store'
+import { getPendingTask, deletePendingTask } from '../services/pending-store'
 import { addToMyDay, removeFromMyDay } from '../services/my-day'
 import { parseRecurrenceToRRule } from '@/lib/reminders/rrule-parser'
 import { BotContext } from '../middleware/user'
@@ -24,7 +24,7 @@ export async function handleCallback(ctx: Context) {
   switch (action) {
     case 'confirm': {
       // Подтверждение создания одной задачи
-      const pending = pendingTasks.get(id)
+      const pending = await getPendingTask(id)
       if (!pending) {
         await ctx.answerCallbackQuery({ text: 'Задача устарела, создай заново' })
         return
@@ -44,7 +44,7 @@ export async function handleCallback(ctx: Context) {
       const created: string[] = []
 
       for (const pendingId of ids) {
-        const pending = pendingTasks.get(pendingId)
+        const pending = await getPendingTask(pendingId)
         if (pending) {
           const task = await createTaskFromPending(pendingId, dbUser.id, pending)
           created.push(task.title)
@@ -67,7 +67,7 @@ export async function handleCallback(ctx: Context) {
       // Отмена всех задач
       const ids = id.split(',')
       for (const pendingId of ids) {
-        pendingTasks.delete(pendingId)
+        await deletePendingTask(pendingId)
       }
       await ctx.editMessageText('❌ Создание отменено')
       await ctx.answerCallbackQuery()
@@ -106,7 +106,7 @@ export async function handleCallback(ctx: Context) {
 
     case 'cancel': {
       // Отменить создание
-      pendingTasks.delete(id)
+      await deletePendingTask(id)
       await ctx.editMessageText('❌ Создание отменено')
       await ctx.answerCallbackQuery()
       break
@@ -220,7 +220,7 @@ async function createTaskFromPending(
     })
     .returning()
 
-  pendingTasks.delete(pendingId)
+  await deletePendingTask(pendingId)
 
   // Автосоздание напоминания для задач с жёстким дедлайном
   if (task.deadlineAt && task.deadlineType === 'HARD') {

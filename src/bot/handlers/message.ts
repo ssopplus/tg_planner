@@ -57,7 +57,7 @@ export async function handleMessage(ctx: Context) {
       if (matched) targetProjectId = matched.id
     }
 
-    const pendingId = addPendingTask({
+    const pendingId = await addPendingTask(dbUser.id, {
       title: parsed.title,
       description: parsed.description,
       projectId: targetProjectId,

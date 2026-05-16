@@ -6,6 +6,7 @@ import {
   boolean,
   integer,
   json,
+  jsonb,
   pgEnum,
   index,
   date,
@@ -139,6 +140,28 @@ export const subtasks = pgTable(
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (table) => [index('subtasks_task_id_idx').on(table.taskId)],
+)
+
+/**
+ * Распарсенные AI задачи, ожидающие подтверждения пользователем.
+ * Раньше хранились в in-memory Map — терялись при рестарте лямбды.
+ * TTL 5 минут, автоочистка через cron /api/cron/pending-cleanup.
+ */
+export const pendingTasks = pgTable(
+  'pending_tasks',
+  {
+    id: text('id').primaryKey(), // короткий UUID для callback_data
+    userId: text('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    payload: jsonb('payload').notNull(), // PendingTaskPayload (см. pending-store.ts)
+    expiresAt: timestamp('expires_at').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('pending_tasks_user_idx').on(table.userId),
+    index('pending_tasks_expires_idx').on(table.expiresAt),
+  ],
 )
 
 // === СВЯЗИ ===

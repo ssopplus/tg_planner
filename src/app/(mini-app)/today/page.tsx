@@ -2,11 +2,13 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { Plus, Search, Sun, Check } from 'lucide-react'
-import { SwipeableTaskCard } from '@/components/tasks/swipeable-task-card'
 import { type TaskCardData } from '@/components/tasks/task-card'
+import { QuickCaptureBar } from '@/components/tasks/quick-capture-bar'
+import { SortableTodayList } from '@/components/tasks/sortable-today-list'
 import { PullToRefresh } from '@/components/ui/pull-to-refresh'
 import { EmptyState } from '@/components/ui/empty-state'
 import { apiFetch } from '@/lib/telegram/webapp'
+import { mutateSafely } from '@/lib/api/mutate'
 
 export default function TodayPage() {
   const [tasks, setTasks] = useState<TaskCardData[]>([])
@@ -35,20 +37,28 @@ export default function TodayPage() {
   }, [])
 
   const handleComplete = useCallback(async (id: string) => {
+    const snapshot = tasks
     setTasks((prev) => prev.filter((t) => t.id !== id))
-    await apiFetch(`/api/tasks/${id}`, {
+    await mutateSafely({
       method: 'PATCH',
-      body: JSON.stringify({ status: 'DONE' }),
+      url: `/api/tasks/${id}`,
+      body: { status: 'DONE' },
+      label: 'Отметка задачи выполненной',
+      onRollback: () => setTasks(snapshot),
     })
-  }, [])
+  }, [tasks])
 
   const handleRemoveFromDay = useCallback(async (id: string) => {
+    const snapshot = tasks
     setTasks((prev) => prev.filter((t) => t.id !== id))
-    await apiFetch(`/api/tasks/${id}`, {
+    await mutateSafely({
       method: 'PATCH',
-      body: JSON.stringify({ myDayDate: null }),
+      url: `/api/tasks/${id}`,
+      body: { myDayDate: null },
+      label: 'Удаление из «Моего дня»',
+      onRollback: () => setTasks(snapshot),
     })
-  }, [])
+  }, [tasks])
 
   const todayStr = new Date().toISOString().split('T')[0]
 
@@ -71,14 +81,20 @@ export default function TodayPage() {
 
   const toggleMyDay = useCallback(async (taskId: string, currentlyInDay: boolean) => {
     const newMyDayDate = currentlyInDay ? null : todayStr
-    setAllTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, myDayDate: newMyDayDate } : t)),
+    const prev = allTasks.find((t) => t.id === taskId)?.myDayDate ?? null
+    setAllTasks((cur) =>
+      cur.map((t) => (t.id === taskId ? { ...t, myDayDate: newMyDayDate } : t)),
     )
-    await apiFetch(`/api/tasks/${taskId}`, {
+    await mutateSafely({
       method: 'PATCH',
-      body: JSON.stringify({ myDayDate: newMyDayDate }),
+      url: `/api/tasks/${taskId}`,
+      body: { myDayDate: newMyDayDate },
+      label: currentlyInDay ? 'Удаление из «Моего дня»' : 'Добавление в «Мой день»',
+      onRollback: () => {
+        setAllTasks((cur) => cur.map((t) => (t.id === taskId ? { ...t, myDayDate: prev } : t)))
+      },
     })
-  }, [todayStr])
+  }, [todayStr, allTasks])
 
   const filteredTasks = allTasks.filter((t) =>
     !search || t.title.toLowerCase().includes(search.toLowerCase()),
@@ -103,6 +119,12 @@ export default function TodayPage() {
           </p>
         </header>
 
+        <QuickCaptureBar
+          extraFields={{ myDayDate: todayStr }}
+          onCreated={fetchTasks}
+          placeholder="Что сделаешь сегодня?"
+        />
+
         <div className="px-4 pb-24">
           {loading ? (
             <div className="flex items-center justify-center py-12">
@@ -115,21 +137,17 @@ export default function TodayPage() {
               description="Добавьте задачи в «Мой день» из списка задач"
             />
           ) : (
-            <div className="flex flex-col gap-2">
-              {tasks.map((task) => (
-                <SwipeableTaskCard
-                  key={task.id}
-                  task={task}
-                  onComplete={handleComplete}
-                  onRemove={handleRemoveFromDay}
-                />
-              ))}
-            </div>
+            <SortableTodayList
+              tasks={tasks}
+              onTasksReorder={setTasks}
+              onComplete={handleComplete}
+              onRemove={handleRemoveFromDay}
+            />
           )}
 
           {!loading && tasks.length > 0 && (
             <p className="text-center text-xs text-[var(--tg-theme-hint-color,#8e8e93)] mt-4 px-4">
-              Свайп влево — выполнить · Свайп вправо — убрать из дня
+              Свайп влево — выполнить · Свайп вправо — убрать · Удержи ⋮ — перетащить
             </p>
           )}
 

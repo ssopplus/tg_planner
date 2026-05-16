@@ -4,8 +4,11 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { Plus, List, Columns3, FolderOpen, ChevronDown, Check, ArrowUpDown } from 'lucide-react'
 import { TaskCard, type TaskCardData } from '@/components/tasks/task-card'
 import { KanbanBoard } from '@/components/tasks/kanban-board'
+import { QuickCaptureBar } from '@/components/tasks/quick-capture-bar'
 import { EmptyState } from '@/components/ui/empty-state'
 import { apiFetch } from '@/lib/telegram/webapp'
+import { mutateSafely } from '@/lib/api/mutate'
+import { showToast } from '@/lib/api/toast'
 
 interface ProjectOption {
   id: string
@@ -102,30 +105,52 @@ export default function TasksPage() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleToggle = useCallback(async (id: string, done: boolean) => {
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: done ? 'DONE' : 'TODO' } : t)))
-    await apiFetch(`/api/tasks/${id}`, {
+    const newStatus = done ? 'DONE' : 'TODO'
+    const prevStatus = tasks.find((t) => t.id === id)?.status
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: newStatus } : t)))
+    await mutateSafely({
       method: 'PATCH',
-      body: JSON.stringify({ status: done ? 'DONE' : 'TODO' }),
+      url: `/api/tasks/${id}`,
+      body: { status: newStatus },
+      label: done ? 'Отметка задачи выполненной' : 'Снятие отметки',
+      onRollback: () => {
+        if (prevStatus) {
+          setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: prevStatus } : t)))
+        }
+      },
     })
-  }, [])
+  }, [tasks])
 
   const handleMyDayToggle = useCallback(async (id: string, add: boolean) => {
     const todayStr = new Date().toISOString().split('T')[0]
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, myDayDate: add ? todayStr : null } : t)))
-    await apiFetch(`/api/tasks/${id}`, {
+    const prev = tasks.find((t) => t.id === id)?.myDayDate ?? null
+    setTasks((cur) => cur.map((t) => (t.id === id ? { ...t, myDayDate: add ? todayStr : null } : t)))
+    await mutateSafely({
       method: 'PATCH',
-      body: JSON.stringify({ myDayDate: add ? todayStr : null }),
+      url: `/api/tasks/${id}`,
+      body: { myDayDate: add ? todayStr : null },
+      label: add ? 'Добавление в «Мой день»' : 'Удаление из «Моего дня»',
+      onRollback: () => {
+        setTasks((cur) => cur.map((t) => (t.id === id ? { ...t, myDayDate: prev } : t)))
+      },
     })
-  }, [])
+  }, [tasks])
 
   const handleStatusChange = useCallback(async (id: string, status: string) => {
-    // Оптимистичное обновление
+    const prevStatus = tasks.find((t) => t.id === id)?.status
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status } : t)))
-    await apiFetch(`/api/tasks/${id}`, {
+    await mutateSafely({
       method: 'PATCH',
-      body: JSON.stringify({ status }),
+      url: `/api/tasks/${id}`,
+      body: { status },
+      label: 'Изменение статуса',
+      onRollback: () => {
+        if (prevStatus) {
+          setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: prevStatus } : t)))
+        }
+      },
     })
-  }, [])
+  }, [tasks])
 
   const openForm = useCallback(() => {
     setShowForm(true)
@@ -133,16 +158,20 @@ export default function TasksPage() {
 
   const handleAdd = useCallback(async () => {
     if (!newTitle.trim()) return
-    const res = await apiFetch('/api/tasks', {
+    const title = newTitle.trim()
+    setNewTitle('')
+    setShowForm(false)
+    const ok = await mutateSafely({
       method: 'POST',
-      body: JSON.stringify({
-        title: newTitle.trim(),
+      url: '/api/tasks',
+      body: {
+        title,
         ...(selectedProjectId && { projectId: selectedProjectId }),
-      }),
+      },
+      label: 'Создание задачи',
     })
-    if (res.ok) {
-      setNewTitle('')
-      setShowForm(false)
+    if (ok) {
+      showToast({ kind: 'success', message: 'Задача создана', duration: 1500 })
       fetchTasks()
     }
   }, [newTitle, selectedProjectId, fetchTasks])
@@ -304,6 +333,11 @@ export default function TasksPage() {
           </div>
         )}
       </div>
+
+      <QuickCaptureBar
+        projectId={filterProjectIds.length === 1 ? filterProjectIds[0] : undefined}
+        onCreated={fetchTasks}
+      />
 
       {/* Контент */}
       {loading ? (

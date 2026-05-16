@@ -124,7 +124,16 @@ export function KanbanBoard({ tasks, onStatusChange, onToggle }: KanbanBoardProp
     if (!over) return
 
     const taskId = active.id as string
-    const newStatus = over.id as string
+    const overId = over.id as string
+
+    // over.id может быть статусом колонки или ID задачи (если бросили на карточку)
+    const columnStatuses = columns.map((c) => c.status as string)
+    const newStatus = columnStatuses.includes(overId)
+      ? overId
+      : tasks.find((t) => t.id === overId)?.status
+
+    if (!newStatus) return
+
     const task = tasks.find((t) => t.id === taskId)
     if (!task || task.status === newStatus) return
 

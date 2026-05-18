@@ -65,7 +65,7 @@ docs/plans/                   # Планы разработки (ADR workflow)
 - **grammy** — TypeScript-first Telegram Bot API, нативные webhooks
 - **LLM-абстракция** — интерфейс `LLMProvider`, сменяемые провайдеры (`src/lib/ai/provider.ts`)
 - **Pending store** — in-memory Map с TTL 5 мин для распарсенных задач до подтверждения
-- **Cron через Vercel** — `/api/cron/reminders` раз в минуту, `/api/cron/digest` раз в 15 мин, `/api/cron/archive` раз в день (03:00), проверка `CRON_SECRET`
+- **Cron — внешний триггер** ([cron-job.org](https://cron-job.org)), потому что free Vercel ограничен 1 запуском/сутки. Эндпоинты живут в `/api/cron/*`, проверяют `Authorization: Bearer ${CRON_SECRET}`. Расписание и URL — см. [docs/cron-setup.md](docs/cron-setup.md). `vercel.json` не содержит секции `crons`.
 - **Автоприоритет** — скоринг задач: дедлайн сегодня (+100/+80), просрочено (+90), завтра (+70/+55), HIGH (+50), давность (+5/день до +30), переносы (+10 за каждый)
 - **«Мой день»** — автоформирование: жёсткие дедлайны → просроченные → мягкие дедлайны → HIGH без даты, лимит 7 задач
 - **Мульти-парсинг** — AI возвращает массив `ParsedTask[]`, одно сообщение = несколько задач

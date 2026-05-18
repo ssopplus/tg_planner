@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
-  const { title, projectId, priority, deadlineAt, deadlineType, description } = body
+  const { title, projectId, priority, deadlineAt, deadlineType, description, myDayDate } = body
 
   if (!title) {
     return NextResponse.json({ error: 'title обязателен' }, { status: 400 })
@@ -119,6 +119,7 @@ export async function POST(request: NextRequest) {
       priority: priority ?? 'MEDIUM',
       deadlineAt: deadlineAt ? new Date(deadlineAt) : null,
       deadlineType: deadlineType ?? null,
+      myDayDate: myDayDate ?? null,
     })
     .returning()
 

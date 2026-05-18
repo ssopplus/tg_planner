@@ -1,7 +1,16 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Plus, List, Columns3, FolderOpen, ChevronDown, Check, ArrowUpDown } from 'lucide-react'
+import {
+  Plus,
+  List,
+  Columns3,
+  FolderOpen,
+  ChevronDown,
+  Check,
+  ArrowUpDown,
+  CircleDot,
+} from 'lucide-react'
 import { TaskCard, type TaskCardData } from '@/components/tasks/task-card'
 import { KanbanBoard } from '@/components/tasks/kanban-board'
 import { QuickCaptureBar } from '@/components/tasks/quick-capture-bar'
@@ -18,11 +27,18 @@ interface ProjectOption {
 
 type SortMode = 'deadline' | 'priority' | 'created'
 type ViewMode = 'list' | 'kanban'
+type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'ARCHIVED'
 
 const sortOptions: { mode: SortMode; label: string }[] = [
   { mode: 'deadline', label: 'По сроку' },
   { mode: 'priority', label: 'По приоритету' },
   { mode: 'created', label: 'По дате создания' },
+]
+
+const statusOptions: { status: TaskStatus; label: string }[] = [
+  { status: 'TODO', label: 'Активные' },
+  { status: 'IN_PROGRESS', label: 'В работе' },
+  { status: 'DONE', label: 'Выполненные' },
 ]
 
 export default function TasksPage() {
@@ -36,7 +52,9 @@ export default function TasksPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [showProjectPicker, setShowProjectPicker] = useState(false)
   const [filterProjectIds, setFilterProjectIds] = useState<string[]>([])
+  const [filterStatuses, setFilterStatuses] = useState<TaskStatus[]>([])
   const [showFilter, setShowFilter] = useState(false)
+  const [showStatusFilter, setShowStatusFilter] = useState(false)
   const [showSort, setShowSort] = useState(false)
   const settingsLoaded = useRef(false)
 
@@ -55,6 +73,9 @@ export default function TasksPage() {
       if (Array.isArray(s?.tasksFilterProjectIds)) {
         setFilterProjectIds(s.tasksFilterProjectIds as string[])
       }
+      if (Array.isArray(s?.tasksFilterStatuses)) {
+        setFilterStatuses(s.tasksFilterStatuses as TaskStatus[])
+      }
       settingsLoaded.current = true
     })
   }, [])
@@ -69,21 +90,31 @@ export default function TasksPage() {
           tasksSortMode: sortMode,
           tasksViewMode: viewMode,
           tasksFilterProjectIds: filterProjectIds,
+          tasksFilterStatuses: filterStatuses,
         },
       }),
     })
-  }, [sortMode, viewMode, filterProjectIds])
+  }, [sortMode, viewMode, filterProjectIds, filterStatuses])
 
   const fetchTasks = useCallback(async () => {
     try {
-      const statusParam = viewMode === 'kanban' ? '&status=TODO,IN_PROGRESS,DONE' : ''
-      const projectParam = filterProjectIds.length > 0 ? `&project_ids=${filterProjectIds.join(',')}` : ''
-      const res = await apiFetch(`/api/tasks?sort=${sortMode}${statusParam}${projectParam}`)
+      const params = new URLSearchParams({ sort: sortMode })
+      if (filterProjectIds.length > 0) {
+        params.set('project_ids', filterProjectIds.join(','))
+      }
+      // В kanban-режиме всегда показываем все три статуса по колонкам,
+      // в list-режиме применяем выбранный фильтр (пустой = backend default).
+      if (viewMode === 'kanban') {
+        params.set('status', 'TODO,IN_PROGRESS,DONE')
+      } else if (filterStatuses.length > 0) {
+        params.set('status', filterStatuses.join(','))
+      }
+      const res = await apiFetch(`/api/tasks?${params.toString()}`)
       if (res.ok) setTasks(await res.json())
     } finally {
       setLoading(false)
     }
-  }, [sortMode, viewMode, filterProjectIds])
+  }, [sortMode, viewMode, filterProjectIds, filterStatuses])
 
   useEffect(() => {
     setLoading(true)
@@ -215,7 +246,7 @@ export default function TasksPage() {
           <div className="relative">
             <button
               type="button"
-              onClick={() => { setShowSort(!showSort); setShowFilter(false) }}
+              onClick={() => { setShowSort(!showSort); setShowFilter(false); setShowStatusFilter(false) }}
               className="text-xs font-medium px-3 py-1.5 rounded-full transition-all flex items-center gap-1.5 bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-[var(--tg-theme-hint-color,#8e8e93)]"
             >
               <ArrowUpDown className="h-3.5 w-3.5" />
@@ -248,12 +279,106 @@ export default function TasksPage() {
           </div>
         )}
 
+        {/* Фильтр по статусу — только в списке */}
+        {viewMode === 'list' && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setShowStatusFilter(!showStatusFilter)
+                setShowFilter(false)
+                setShowSort(false)
+              }}
+              className={`text-xs font-medium px-3 py-1.5 rounded-full transition-all flex items-center gap-1.5 ${
+                filterStatuses.length > 0
+                  ? 'bg-[var(--tg-theme-button-color,#007aff)]/15 text-[var(--tg-theme-button-color,#007aff)]'
+                  : 'bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-[var(--tg-theme-hint-color,#8e8e93)]'
+              }`}
+            >
+              <CircleDot className="h-3.5 w-3.5" />
+              <span className="truncate max-w-[130px]">
+                {filterStatuses.length === 0
+                  ? 'Активные'
+                  : filterStatuses.length === 1
+                    ? statusOptions.find((s) => s.status === filterStatuses[0])?.label ?? 'Статус'
+                    : `${filterStatuses.length} статуса`}
+              </span>
+              <ChevronDown
+                className={`h-3 w-3 transition-transform ${showStatusFilter ? 'rotate-180' : ''}`}
+              />
+              {filterStatuses.length > 0 && (
+                <span className="ml-0.5 h-4 w-4 rounded-full bg-[var(--tg-theme-button-color,#007aff)] text-[var(--tg-theme-button-text-color,#fff)] text-[10px] flex items-center justify-center font-semibold">
+                  {filterStatuses.length}
+                </span>
+              )}
+            </button>
+            {showStatusFilter && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowStatusFilter(false)} />
+                <div className="absolute left-0 top-full mt-1 z-50 w-52 bg-[var(--tg-theme-section-bg-color,#fff)] rounded-xl shadow-lg border border-[var(--tg-theme-hint-color,#8e8e93)]/10 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setFilterStatuses([])}
+                    className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2.5 transition-colors ${
+                      filterStatuses.length === 0
+                        ? 'bg-[var(--tg-theme-button-color,#007aff)]/10 text-[var(--tg-theme-button-color,#007aff)]'
+                        : 'text-[var(--tg-theme-text-color,#000)]'
+                    }`}
+                  >
+                    <div
+                      className={`h-4.5 w-4.5 rounded border-2 flex items-center justify-center transition-all ${
+                        filterStatuses.length === 0
+                          ? 'bg-[var(--tg-theme-button-color,#007aff)] border-[var(--tg-theme-button-color,#007aff)]'
+                          : 'border-[var(--tg-theme-hint-color,#8e8e93)]'
+                      }`}
+                    >
+                      {filterStatuses.length === 0 && <Check className="h-3 w-3 text-white" />}
+                    </div>
+                    <span className="font-medium">По умолчанию (активные)</span>
+                  </button>
+                  <div className="h-px bg-[var(--tg-theme-hint-color,#8e8e93)]/10" />
+                  {statusOptions.map(({ status, label }) => {
+                    const selected = filterStatuses.includes(status)
+                    return (
+                      <button
+                        key={status}
+                        type="button"
+                        onClick={() => {
+                          setFilterStatuses((prev) =>
+                            selected ? prev.filter((s) => s !== status) : [...prev, status],
+                          )
+                        }}
+                        className={`w-full text-left px-3 py-2.5 text-sm flex items-center gap-2.5 transition-colors ${
+                          selected
+                            ? 'bg-[var(--tg-theme-button-color,#007aff)]/10 text-[var(--tg-theme-button-color,#007aff)]'
+                            : 'text-[var(--tg-theme-text-color,#000)]'
+                        }`}
+                      >
+                        <div
+                          className={`h-4.5 w-4.5 rounded border-2 flex items-center justify-center transition-all ${
+                            selected
+                              ? 'bg-[var(--tg-theme-button-color,#007aff)] border-[var(--tg-theme-button-color,#007aff)]'
+                              : 'border-[var(--tg-theme-hint-color,#8e8e93)]'
+                          }`}
+                        >
+                          {selected && <Check className="h-3 w-3 text-white" />}
+                        </div>
+                        <span>{label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Фильтр по проектам */}
         {projects.length > 1 && (
           <div className="relative">
             <button
               type="button"
-              onClick={() => { setShowFilter(!showFilter); setShowSort(false) }}
+              onClick={() => { setShowFilter(!showFilter); setShowSort(false); setShowStatusFilter(false) }}
               className={`text-xs font-medium px-3 py-1.5 rounded-full transition-all flex items-center gap-1.5 ${
                 filterProjectIds.length > 0
                   ? 'bg-[var(--tg-theme-button-color,#007aff)]/15 text-[var(--tg-theme-button-color,#007aff)]'

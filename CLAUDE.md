@@ -66,6 +66,7 @@ docs/plans/                   # Планы разработки (ADR workflow)
 - **LLM-абстракция** — интерфейс `LLMProvider`, сменяемые провайдеры (`src/lib/ai/provider.ts`)
 - **Pending store** — in-memory Map с TTL 5 мин для распарсенных задач до подтверждения
 - **Cron — внешний триггер** ([cron-job.org](https://cron-job.org)), потому что free Vercel ограничен 1 запуском/сутки. Эндпоинты живут в `/api/cron/*`, проверяют `Authorization: Bearer ${CRON_SECRET}`. Расписание и URL — см. [docs/cron-setup.md](docs/cron-setup.md). `vercel.json` не содержит секции `crons`.
+- **Миграции БД — только через GitHub Actions** (`.github/workflows/db-migrate.yml`). На прод вручную не накатывать. См. [docs/migrations.md](docs/migrations.md).
 - **Автоприоритет** — скоринг задач: дедлайн сегодня (+100/+80), просрочено (+90), завтра (+70/+55), HIGH (+50), давность (+5/день до +30), переносы (+10 за каждый)
 - **«Мой день»** — автоформирование: жёсткие дедлайны → просроченные → мягкие дедлайны → HIGH без даты, лимит 7 задач
 - **Мульти-парсинг** — AI возвращает массив `ParsedTask[]`, одно сообщение = несколько задач

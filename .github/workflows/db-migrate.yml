@@ -1,0 +1,51 @@
+name: DB migrate (prod)
+
+# Применяет Drizzle-миграции из drizzle/*.sql на прод-БД (Neon).
+#
+# Триггеры:
+# - вручную через "Run workflow" (workflow_dispatch);
+# - автоматически на push в main, если изменился любой файл в drizzle/.
+#
+# Требует secret DATABASE_URL (строка подключения к проду).
+# Скопировать из Vercel → Environment Variables → DATABASE_URL (Production).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'drizzle/**'
+      - '.github/workflows/db-migrate.yml'
+
+# Только один rollout одновременно — чтобы две миграции не наезжали.
+concurrency:
+  group: db-migrate-prod
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Apply migrations
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install deps (без скриптов)
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Run drizzle-kit migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: pnpm db:migrate

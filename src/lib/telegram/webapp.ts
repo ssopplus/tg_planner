@@ -38,6 +38,24 @@ export function webAppReady() {
   getWebApp()?.ready()
 }
 
+/**
+ * Дожидается появления window.Telegram.WebApp и вызывает .ready().
+ * На iOS WKWebView SDK иногда инициализируется чуть позже первого React-эффекта —
+ * ретраем с шагом 50ms до timeoutMs. Возвращает WebApp или null, если не дождались.
+ */
+export async function whenWebAppReady(timeoutMs = 2000): Promise<TelegramWebApp | null> {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const wa = getWebApp()
+    if (wa) {
+      wa.ready()
+      return wa
+    }
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  return null
+}
+
 /** Расширить Mini App на весь экран */
 export function webAppExpand() {
   getWebApp()?.expand()

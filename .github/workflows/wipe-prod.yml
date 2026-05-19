@@ -1,0 +1,45 @@
+name: Wipe prod data (DANGEROUS)
+
+# Удаляет ВСЕ projects/tasks/subtasks/reminders/pending_tasks в проде.
+# Пользователи и настройки остаются.
+#
+# Только ручной запуск (workflow_dispatch) и требует ввести подтверждение
+# словом DELETE_EVERYTHING в input. Любое другое значение — отказ.
+#
+# После запуска полезно прогнать pnpm sync:vault, чтобы заполнить
+# projects заново из Obsidian-vault.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Введите DELETE_EVERYTHING для подтверждения'
+        required: true
+        type: string
+
+concurrency:
+  group: wipe-prod
+  cancel-in-progress: false
+
+jobs:
+  wipe:
+    name: Apply wipe-all.sql
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check confirmation token
+        if: ${{ inputs.confirm != 'DELETE_EVERYTHING' }}
+        run: |
+          echo "❌ Подтверждение не получено. Введите слово DELETE_EVERYTHING точно."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install psql
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Run wipe SQL
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f docs/sql/wipe-all.sql

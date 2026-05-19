@@ -22,7 +22,13 @@ export function getThemeParams() {
 
 /** Авторизованный fetch с initData в заголовке */
 export async function apiFetch(url: string, options: RequestInit = {}) {
-  const initData = getInitData()
+  let initData = getInitData()
+  // На iOS WKWebView SDK иногда инициализируется чуть позже первого fetch'а
+  // со страницы. Если initData пустой — дождёмся появления WebApp до 2с.
+  if (!initData) {
+    await whenWebAppReady()
+    initData = getInitData()
+  }
   return fetch(url, {
     ...options,
     headers: {

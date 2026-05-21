@@ -1,11 +1,12 @@
 import { Context } from 'grammy'
 import { db } from '@/lib/db'
-import { tasks, reminders } from '@/lib/db/schema'
-import { eq } from 'drizzle-orm'
+import { tasks, projects, reminders, subtasks } from '@/lib/db/schema'
+import { and, eq } from 'drizzle-orm'
 import { getPendingTask, deletePendingTask } from '../services/pending-store'
 import { addToMyDay, removeFromMyDay } from '../services/my-day'
 import { parseRecurrenceToRRule } from '@/lib/reminders/rrule-parser'
 import { BotContext } from '../middleware/user'
+import { buildDevTaskPrompt } from '@/lib/prompts/dev-task'
 
 /**
  * Обработчик callback queries от inline-кнопок.
@@ -183,6 +184,65 @@ export async function handleCallback(ctx: Context) {
     case 'myday_remove': {
       await removeFromMyDay(id)
       await ctx.answerCallbackQuery({ text: '🚫 Убрано из «Моего дня»' })
+      break
+    }
+
+    case 'prompt': {
+      // Промт для dev-задачи: отправляем отдельным сообщением в <pre>,
+      // чтобы можно было длинно копировать на мобиле.
+      const [row] = await db
+        .select({
+          title: tasks.title,
+          description: tasks.description,
+          deadlineAt: tasks.deadlineAt,
+          deadlineType: tasks.deadlineType,
+          projectName: projects.name,
+          projectSlug: projects.slug,
+          projectDescription: projects.description,
+          projectTechStack: projects.techStack,
+          projectRepoPath: projects.repoPath,
+        })
+        .from(tasks)
+        .leftJoin(projects, eq(tasks.projectId, projects.id))
+        .where(and(eq(tasks.id, id), eq(tasks.userId, dbUser.id)))
+        .limit(1)
+
+      if (!row) {
+        await ctx.answerCallbackQuery({ text: 'Задача не найдена' })
+        break
+      }
+
+      const taskSubtasks = await db
+        .select({ title: subtasks.title, isCompleted: subtasks.isCompleted })
+        .from(subtasks)
+        .where(eq(subtasks.taskId, id))
+        .orderBy(subtasks.sortOrder)
+
+      const prompt = buildDevTaskPrompt({
+        task: {
+          title: row.title,
+          description: row.description,
+          deadlineAt: row.deadlineAt,
+          deadlineType: row.deadlineType,
+          subtasks: taskSubtasks,
+        },
+        project: {
+          name: row.projectName ?? 'Без проекта',
+          slug: row.projectSlug,
+          description: row.projectDescription,
+          techStack: (row.projectTechStack as string[] | null) ?? null,
+          repoPath: row.projectRepoPath,
+        },
+      })
+
+      // HTML <pre> — на длинных промтах нативное копирование в Telegram
+      // работает чище, чем Markdown с экранированием.
+      const escaped = prompt
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+      await ctx.reply(`<pre>${escaped}</pre>`, { parse_mode: 'HTML' })
+      await ctx.answerCallbackQuery({ text: '✨ Промт отправлен' })
       break
     }
 

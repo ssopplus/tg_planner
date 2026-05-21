@@ -18,11 +18,13 @@ export function confirmMultiKeyboard(pendingIds: string[]): InlineKeyboard {
     .text('❌ Отменить всё', `cancel_all:${joined}`)
 }
 
-/** Кнопки действий на задаче */
-export function taskActionsKeyboard(taskId: string): InlineKeyboard {
-  return new InlineKeyboard()
+/** Кнопки действий на задаче. Для dev-проектов добавляется «✨ Промт». */
+export function taskActionsKeyboard(taskId: string, isDev = false): InlineKeyboard {
+  const kb = new InlineKeyboard()
     .text('✅ Готово', `done:${taskId}`)
     .text('🗑 Удалить', `delete:${taskId}`)
+  if (isDev) kb.row().text('✨ Промт', `prompt:${taskId}`)
+  return kb
 }
 
 /** Кнопки на напоминании */

@@ -57,6 +57,7 @@ export async function handleTasks(ctx: Context) {
         overdueCount: tasks.overdueCount,
         createdAt: tasks.createdAt,
         projectName: projects.name,
+        projectKind: projects.kind,
       })
       .from(tasks)
       .leftJoin(projects, eq(tasks.projectId, projects.id))
@@ -86,7 +87,7 @@ export async function handleTasks(ctx: Context) {
         `${priorityIcon} **${task.title}**${deadline}${project}${isOverdue}`,
         {
           parse_mode: 'Markdown',
-          reply_markup: taskActionsKeyboard(task.id),
+          reply_markup: taskActionsKeyboard(task.id, task.projectKind === 'dev'),
         },
       )
     }

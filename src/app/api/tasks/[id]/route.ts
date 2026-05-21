@@ -26,6 +26,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       createdAt: tasks.createdAt,
       projectId: tasks.projectId,
       projectName: projects.name,
+      projectKind: projects.kind,
     })
     .from(tasks)
     .leftJoin(projects, eq(tasks.projectId, projects.id))

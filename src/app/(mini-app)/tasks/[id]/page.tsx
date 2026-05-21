@@ -12,8 +12,10 @@ import {
   FolderOpen,
   ChevronDown,
   Pencil,
+  Sparkles,
 } from 'lucide-react'
 import { apiFetch } from '@/lib/telegram/webapp'
+import { showToast } from '@/lib/api/toast'
 
 interface Subtask {
   id: string
@@ -32,6 +34,7 @@ interface TaskDetail {
   deadlineType: string | null
   projectName: string | null
   projectId: string
+  projectKind: string | null
   createdAt: string
   completedAt: string | null
   subtasks: Subtask[]
@@ -144,6 +147,21 @@ export default function TaskDetailPage() {
     await apiFetch(`/api/tasks/${taskId}`, { method: 'DELETE' })
     router.back()
   }, [taskId, router])
+
+  const handleCopyPrompt = useCallback(async () => {
+    try {
+      const res = await apiFetch(`/api/tasks/${taskId}/prompt`)
+      if (!res.ok) {
+        showToast({ kind: 'error', message: 'Не удалось собрать промт' })
+        return
+      }
+      const { prompt } = (await res.json()) as { prompt: string }
+      await navigator.clipboard.writeText(prompt)
+      showToast({ kind: 'success', message: 'Промт скопирован' })
+    } catch {
+      showToast({ kind: 'error', message: 'Буфер обмена недоступен' })
+    }
+  }, [taskId])
 
   const handleSubtaskToggle = useCallback(
     async (subtaskId: string, isCompleted: boolean) => {
@@ -605,6 +623,18 @@ export default function TaskDetailPage() {
             </button>
           </div>
         </div>
+
+        {/* AI-промт (только для dev-проектов) */}
+        {task.projectKind === 'dev' && (
+          <button
+            type="button"
+            onClick={handleCopyPrompt}
+            className="w-full py-3 rounded-xl bg-[var(--tg-theme-button-color,#007aff)]/10 text-[var(--tg-theme-button-color,#007aff)] font-semibold text-base flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
+          >
+            <Sparkles className="h-5 w-5" />
+            Скопировать промт
+          </button>
+        )}
 
         {/* Удалить */}
         <div className="mt-1">

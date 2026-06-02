@@ -1,0 +1,1 @@
+ALTER TABLE "tasks" ADD COLUMN "vault_path" text;

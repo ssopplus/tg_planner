@@ -104,6 +104,8 @@ export const tasks = pgTable(
     myDaySortOrder: integer('my_day_sort_order'),
     overdueCount: integer('overdue_count').default(0).notNull(),
     completedAt: timestamp('completed_at'),
+    /** Путь к md-заметке в vault, если задача пришла из Obsidian. NULL для задач из бота/Mini App. */
+    vaultPath: text('vault_path'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at')
       .defaultNow()

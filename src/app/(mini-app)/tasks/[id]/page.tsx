@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { apiFetch } from '@/lib/telegram/webapp'
 import { showToast } from '@/lib/api/toast'
+import { TrackerDescription } from '@/lib/tracker/render-description'
 
 interface Subtask {
   id: string
@@ -284,7 +285,16 @@ export default function TaskDetailPage() {
             </button>
           )}
 
-          {editingDesc ? (
+          {task.externalSource === 'yandex-tracker' && task.description ? (
+            /* Описание из Tracker'а — read-only, с картинками-вложениями. */
+            <div className="mt-3">
+              <TrackerDescription
+                text={task.description}
+                taskKey={task.externalId ?? ''}
+                maxImageWidth={320}
+              />
+            </div>
+          ) : editingDesc ? (
             <textarea
               value={editDesc}
               onChange={(e) => setEditDesc(e.target.value)}

@@ -56,28 +56,29 @@ export async function GET(
     return NextResponse.json({ error: 'tracker not configured' }, { status: 500 })
   }
 
-  // Берём метаданные attachment'а, чтобы узнать имя файла и mimetype.
-  const metaRes = await fetch(
-    `https://api.tracker.yandex.net/v2/issues/${key}/attachments/${id}`,
-    {
-      headers: { Authorization: `OAuth ${token}`, 'X-Org-ID': orgId },
-    },
-  )
+  // Берём метаданные attachment'а через корневой путь /v2/attachments/<id>.
+  // В Yandex Tracker attachment_id уникален в рамках организации, и одна
+  // картинка может «висеть» в одном тикете, а быть встроена в описание
+  // другого (по копипасте URL). Если использовать /v2/issues/<key>/attachments/<id>,
+  // получим 404 для таких «заимствованных» картинок. Корневой путь работает
+  // всегда, а доступ мы уже проверили выше — пользователь видит задачу <key>,
+  // а раз он её видит, значит и весь её description (с любыми URL картинок).
+  const metaRes = await fetch(`https://api.tracker.yandex.net/v2/attachments/${id}`, {
+    headers: { Authorization: `OAuth ${token}`, 'X-Org-ID': orgId },
+  })
   if (!metaRes.ok) {
     return NextResponse.json(
       { error: 'attachment fetch failed', status: metaRes.status },
       { status: metaRes.status },
     )
   }
-  const meta = (await metaRes.json()) as { name: string; mimetype: string }
+  const meta = (await metaRes.json()) as { name: string; mimetype: string; content: string }
 
-  // Скачиваем сам бинарник
-  const fileRes = await fetch(
-    `https://api.tracker.yandex.net/v2/issues/${key}/attachments/${id}/${encodeURIComponent(meta.name)}`,
-    {
-      headers: { Authorization: `OAuth ${token}`, 'X-Org-ID': orgId },
-    },
-  )
+  // У attachment'а в metadata есть готовый content-URL — используем его, чтобы
+  // не угадывать формат пути и encoding имени файла.
+  const fileRes = await fetch(meta.content, {
+    headers: { Authorization: `OAuth ${token}`, 'X-Org-ID': orgId },
+  })
   if (!fileRes.ok || !fileRes.body) {
     return NextResponse.json(
       { error: 'attachment download failed', status: fileRes.status },

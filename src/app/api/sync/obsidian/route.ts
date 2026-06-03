@@ -6,6 +6,7 @@ import { and, eq } from 'drizzle-orm'
 import {
   parseObsidianTasks,
   projectSlugFromVaultPath,
+  isTasksFile,
   type ObsidianTask,
 } from '@/lib/obsidian/parse-tasks'
 import { getCommitDiff, getFileContents, putFileContents } from '@/lib/github/client'
@@ -117,12 +118,9 @@ export async function POST(request: NextRequest) {
     token: githubToken,
   })
 
-  const targetFiles = diff.filter(
-    (f) =>
-      f.filename.endsWith('.md') &&
-      f.filename.includes('Проекты/') &&
-      f.status !== 'removed',
-  )
+  // Берём только tasks.md проектов. index.md и любые другие .md (включая
+  // обложки категорий) игнорируем — они метаданные, а не задачи.
+  const targetFiles = diff.filter((f) => isTasksFile(f.filename) && f.status !== 'removed')
 
   const summary = {
     files: targetFiles.length,

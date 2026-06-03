@@ -98,10 +98,26 @@ export function parseObsidianTasks(markdown: string): ObsidianTask[] {
 
 /**
  * Извлекает slug проекта из пути файла vault.
- * Пример: "Проекты/Vodohod/turbo-site.md" → "turbo-site"
- * Если файл не в Проектах — возвращает null.
+ *
+ * Структура: Проекты/<категория>/<slug>/tasks.md (или index.md).
+ * Slug = имя папки проекта.
+ *
+ * Примеры:
+ *   "Проекты/Vodohod/turbo-site/tasks.md"   → "turbo-site"
+ *   "Проекты/Vodohod/turbo-site/index.md"   → "turbo-site"
+ *   "Проекты/Личное/tg-planer/tasks.md"     → "tg-planer"
+ *   "Темы/Боты.md"                          → null
  */
 export function projectSlugFromVaultPath(vaultPath: string): string | null {
-  const match = vaultPath.match(/(?:^|\/)Проекты\/[^/]+\/([^/]+)\.md$/)
+  const match = vaultPath.match(/(?:^|\/)Проекты\/[^/]+\/([^/]+)\/(?:tasks|index)\.md$/)
   return match?.[1] ?? null
+}
+
+/**
+ * Проверяет, что путь указывает на файл задач (tasks.md проекта).
+ * Только такие файлы попадают в синхронизацию tasks → БД.
+ * index.md и любые другие .md в папке проекта игнорируются.
+ */
+export function isTasksFile(vaultPath: string): boolean {
+  return /(?:^|\/)Проекты\/[^/]+\/[^/]+\/tasks\.md$/.test(vaultPath)
 }

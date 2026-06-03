@@ -135,10 +135,9 @@ function loadVaultProject(filePath: string): VaultProject {
   const content = readFileSync(filePath, 'utf-8')
   const { fm, body } = parseFrontmatter(content)
 
-  const slug = filePath
-    .split('/')
-    .pop()!
-    .replace(/\.md$/, '')
+  // Структура: .../Проекты/<категория>/<slug>/index.md → slug = имя родительской папки.
+  const parts = filePath.split('/')
+  const slug = parts[parts.length - 2]
 
   const h1 = body.match(/^#\s+(.+)$/m)
   const name = (h1?.[1] ?? slug).trim()
@@ -163,9 +162,13 @@ function scanVaultProjects(): VaultProject[] {
   for (const category of readdirSync(VAULT_PROJECTS_DIR)) {
     const categoryPath = join(VAULT_PROJECTS_DIR, category)
     if (!statSync(categoryPath).isDirectory()) continue
-    for (const file of readdirSync(categoryPath)) {
-      if (!file.endsWith('.md')) continue
-      result.push(loadVaultProject(join(categoryPath, file)))
+    // Структура: Проекты/<категория>/<slug>/index.md
+    for (const entry of readdirSync(categoryPath)) {
+      const projectDir = join(categoryPath, entry)
+      if (!statSync(projectDir).isDirectory()) continue
+      const indexPath = join(projectDir, 'index.md')
+      if (!existsSync(indexPath)) continue
+      result.push(loadVaultProject(indexPath))
     }
   }
   return result.sort((a, b) => a.slug.localeCompare(b.slug))

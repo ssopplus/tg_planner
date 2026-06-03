@@ -74,11 +74,16 @@ export async function GET(
   }
   const meta = (await metaRes.json()) as { name: string; mimetype: string; content: string }
 
-  // У attachment'а в metadata есть готовый content-URL — используем его, чтобы
-  // не угадывать формат пути и encoding имени файла.
-  const fileRes = await fetch(meta.content, {
-    headers: { Authorization: `OAuth ${token}`, 'X-Org-ID': orgId },
-  })
+  // meta.content иногда возвращает 404 на attachment'ах, перенесённых между
+  // тикетами — путь /v2/issues/<owner-uuid>/attachments/<id>/<name> у YT
+  // глючит для cross-issue ссылок. Корневой /v2/attachments/<id>/<name>
+  // работает всегда — на нём и остаёмся.
+  const fileRes = await fetch(
+    `https://api.tracker.yandex.net/v2/attachments/${id}/${encodeURIComponent(meta.name)}`,
+    {
+      headers: { Authorization: `OAuth ${token}`, 'X-Org-ID': orgId },
+    },
+  )
   if (!fileRes.ok || !fileRes.body) {
     return NextResponse.json(
       { error: 'attachment download failed', status: fileRes.status },

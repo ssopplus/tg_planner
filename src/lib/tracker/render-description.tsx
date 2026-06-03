@@ -15,7 +15,8 @@
  * Что НЕ поддерживается: таблицы, code-fences, заголовки, списки,
  * %%Tracker-макросы%%. Добавим точечно по реальным примерам.
  */
-import { getInitData } from '@/lib/telegram/webapp'
+import { useEffect, useState } from 'react'
+import { getInitData, whenWebAppReady } from '@/lib/telegram/webapp'
 
 export interface TrackerImageBlock {
   type: 'image'
@@ -136,12 +137,23 @@ export function TrackerDescription({
   maxImageWidth?: number
 }) {
   const blocks = parseTrackerDescription(text, taskKey)
-  if (blocks.length === 0) return null
 
   // <img src> не умеет слать заголовки, поэтому initData идёт query-параметром.
-  // На сервере rendering initData=''— картинка всё равно подменяется на клиенте
-  // через React-гидрацию.
-  const initData = getInitData()
+  // SDK Telegram'а на iOS WKWebView инициализируется чуть позже первого render,
+  // поэтому ждём whenWebAppReady() прежде чем подставлять initData в src
+  // картинок — иначе первая попытка fetch'а уходит с пустым auth и получает 401.
+  const [initData, setInitData] = useState<string | null>(null)
+  useEffect(() => {
+    const immediate = getInitData()
+    if (immediate) {
+      setInitData(immediate)
+      return
+    }
+    whenWebAppReady().then(() => setInitData(getInitData()))
+  }, [])
+
+  if (blocks.length === 0) return null
+
   const authQuery = initData ? `?initData=${encodeURIComponent(initData)}` : ''
   const withAuth = (src: string) =>
     src.startsWith('/api/tracker/attachment/') ? `${src}${authQuery}` : src
@@ -173,24 +185,35 @@ export function TrackerDescription({
           )
         }
         const geom = fitToContainer(block.width, block.height, maxImageWidth)
+        const isProxied = block.src.startsWith('/api/tracker/attachment/')
+        const ready = !isProxied || initData !== null
         const authedSrc = withAuth(block.src)
         return (
           <a
             key={i}
-            href={authedSrc}
+            href={ready ? authedSrc : undefined}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-block rounded-lg overflow-hidden bg-[var(--tg-theme-secondary-bg-color,#efeff4)] max-w-full"
             style={geom ? { width: geom.width } : undefined}
           >
-            <img
-              src={authedSrc}
-              alt={block.alt}
-              width={geom?.width}
-              height={geom?.height}
-              loading="lazy"
-              className="block max-w-full h-auto"
-            />
+            {ready ? (
+              <img
+                src={authedSrc}
+                alt={block.alt}
+                width={geom?.width}
+                height={geom?.height}
+                loading="lazy"
+                className="block max-w-full h-auto"
+              />
+            ) : (
+              // Заглушка пока ждём initData — чтобы <img> не делал первый
+              // fetch с пустым auth и не уходил в broken-image-кеш браузера.
+              <div
+                style={geom ? { width: geom.width, height: geom.height } : undefined}
+                className="block max-w-full"
+              />
+            )}
           </a>
         )
       })}

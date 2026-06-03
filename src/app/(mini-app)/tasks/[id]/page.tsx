@@ -13,6 +13,7 @@ import {
   ChevronDown,
   Pencil,
   Sparkles,
+  ExternalLink,
 } from 'lucide-react'
 import { apiFetch } from '@/lib/telegram/webapp'
 import { showToast } from '@/lib/api/toast'
@@ -35,9 +36,17 @@ interface TaskDetail {
   projectName: string | null
   projectId: string
   projectKind: string | null
+  externalSource: string | null
+  externalId: string | null
   createdAt: string
   completedAt: string | null
   subtasks: Subtask[]
+}
+
+function externalUrl(source: string | null, id: string | null): string | null {
+  if (!source || !id) return null
+  if (source === 'yandex-tracker') return `https://tracker.yandex.ru/${id}`
+  return null
 }
 
 interface ProjectOption {
@@ -303,6 +312,24 @@ export default function TaskDetailPage() {
             </button>
           )}
         </div>
+
+        {/* Внешняя ссылка (например, Yandex Tracker) */}
+        {task.externalId && externalUrl(task.externalSource, task.externalId) && (
+          <a
+            href={externalUrl(task.externalSource, task.externalId)!}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bg-[var(--tg-theme-section-bg-color,#fff)] rounded-xl px-4 py-3 shadow-[0_1px_3px_rgba(0,0,0,0.06)] flex items-center gap-3 active:scale-[0.98] transition-transform"
+          >
+            <ExternalLink className="h-4 w-4 text-[var(--tg-theme-button-color,#007aff)] flex-shrink-0" />
+            <span className="flex-1 text-sm font-medium text-[var(--tg-theme-button-color,#007aff)]">
+              {task.externalId}
+            </span>
+            <span className="text-xs text-[var(--tg-theme-hint-color,#8e8e93)]">
+              {task.externalSource === 'yandex-tracker' ? 'Yandex Tracker' : task.externalSource}
+            </span>
+          </a>
+        )}
 
         {/* Мета-информация */}
         <div className="bg-[var(--tg-theme-section-bg-color,#fff)] rounded-xl p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">

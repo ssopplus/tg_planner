@@ -9,6 +9,7 @@ import {
   jsonb,
   pgEnum,
   index,
+  uniqueIndex,
   date,
 } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
@@ -106,6 +107,12 @@ export const tasks = pgTable(
     completedAt: timestamp('completed_at'),
     /** Путь к md-заметке в vault, если задача пришла из Obsidian. NULL для задач из бота/Mini App. */
     vaultPath: text('vault_path'),
+    /** Источник внешней задачи: "yandex-tracker" | NULL (создана внутри tg-planer) */
+    externalSource: text('external_source'),
+    /** Ключ задачи во внешней системе (например, "SHWEB-264"). Уникален в паре с externalSource. */
+    externalId: text('external_id'),
+    /** Когда last-synced с внешней системой. Нужен для echo-suppression при двусторонней синхронизации. */
+    externalSyncedAt: timestamp('external_synced_at'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at')
       .defaultNow()
@@ -116,6 +123,10 @@ export const tasks = pgTable(
     index('tasks_user_status_idx').on(table.userId, table.status),
     index('tasks_project_status_idx').on(table.projectId, table.status),
     index('tasks_deadline_idx').on(table.deadlineAt),
+    // Уникальность по внешнему источнику: один тикет YT = одна задача в tg-planer.
+    // unique(...).nullsNotDistinct() важно опустить — на nulls наоборот, чтобы внутренние
+    // задачи (external_source IS NULL) могли существовать без ограничений.
+    uniqueIndex('tasks_external_id_idx').on(table.userId, table.externalSource, table.externalId),
   ],
 )
 

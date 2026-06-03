@@ -43,6 +43,13 @@
       "when": 1780434198158,
       "tag": "0005_sleepy_epoch",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780499003081,
+      "tag": "0006_romantic_khan",
+      "breakpoints": true
     }
   ]
 }

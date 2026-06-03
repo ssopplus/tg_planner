@@ -1,9 +1,12 @@
+'use client'
+
 /**
  * Минимальный рендерер description тикета Yandex Tracker.
  *
  * Поддерживается:
  * - картинки `![alt](/ajax/v2/attachments/<id>?inline=true =WxH)`
- *   переписываются на наш прокси `/api/tracker/attachment/<key>/<id>`;
+ *   переписываются на наш прокси `/api/tracker/attachment/<key>/<id>`
+ *   с initData в query (<img> не умеет передавать заголовки);
  * - картинки с absolute URL (https://...) остаются как есть;
  * - ссылки `[text](url)` рендерятся как <a target="_blank">;
  * - `&nbsp;` заменяется на пробел;
@@ -12,6 +15,7 @@
  * Что НЕ поддерживается: таблицы, code-fences, заголовки, списки,
  * %%Tracker-макросы%%. Добавим точечно по реальным примерам.
  */
+import { getInitData } from '@/lib/telegram/webapp'
 
 export interface TrackerImageBlock {
   type: 'image'
@@ -134,6 +138,14 @@ export function TrackerDescription({
   const blocks = parseTrackerDescription(text, taskKey)
   if (blocks.length === 0) return null
 
+  // <img src> не умеет слать заголовки, поэтому initData идёт query-параметром.
+  // На сервере rendering initData=''— картинка всё равно подменяется на клиенте
+  // через React-гидрацию.
+  const initData = getInitData()
+  const authQuery = initData ? `?initData=${encodeURIComponent(initData)}` : ''
+  const withAuth = (src: string) =>
+    src.startsWith('/api/tracker/attachment/') ? `${src}${authQuery}` : src
+
   return (
     <div className="flex flex-col gap-3">
       {blocks.map((block, i) => {
@@ -161,21 +173,23 @@ export function TrackerDescription({
           )
         }
         const geom = fitToContainer(block.width, block.height, maxImageWidth)
+        const authedSrc = withAuth(block.src)
         return (
           <a
             key={i}
-            href={block.src}
+            href={authedSrc}
             target="_blank"
             rel="noopener noreferrer"
-            className="block rounded-lg overflow-hidden bg-[var(--tg-theme-secondary-bg-color,#efeff4)]"
+            className="inline-block rounded-lg overflow-hidden bg-[var(--tg-theme-secondary-bg-color,#efeff4)] max-w-full"
+            style={geom ? { width: geom.width } : undefined}
           >
             <img
-              src={block.src}
+              src={authedSrc}
               alt={block.alt}
               width={geom?.width}
               height={geom?.height}
               loading="lazy"
-              className="block w-full h-auto"
+              className="block max-w-full h-auto"
             />
           </a>
         )

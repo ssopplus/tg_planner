@@ -21,7 +21,14 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ key: string; id: string }> },
 ) {
-  const user = await authorizeMiniApp(request.headers.get('X-Telegram-Init-Data') ?? '')
+  // <img src> не умеет слать кастомные заголовки, поэтому initData
+  // принимается ещё и через query-параметр ?initData=<...>. Сначала
+  // пробуем header (на случай fetch'а из JS), потом fallback на query.
+  const initData =
+    request.headers.get('X-Telegram-Init-Data') ??
+    request.nextUrl.searchParams.get('initData') ??
+    ''
+  const user = await authorizeMiniApp(initData)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { key, id } = await params

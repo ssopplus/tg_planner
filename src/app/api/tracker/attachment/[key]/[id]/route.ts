@@ -3,6 +3,7 @@ import { authorizeMiniApp } from '@/lib/telegram/auth'
 import { db } from '@/lib/db'
 import { tasks } from '@/lib/db/schema'
 import { and, eq } from 'drizzle-orm'
+import { EXTERNAL_SOURCE_TRACKER } from '@/lib/tracker/client'
 
 /**
  * Прокси для attachments Yandex Tracker.
@@ -43,7 +44,7 @@ export async function GET(
     .where(
       and(
         eq(tasks.userId, user.id),
-        eq(tasks.externalSource, 'yandex-tracker'),
+        eq(tasks.externalSource, EXTERNAL_SOURCE_TRACKER),
         eq(tasks.externalId, key),
       ),
     )

@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { tasks, projects, users } from '@/lib/db/schema'
 import { and, eq } from 'drizzle-orm'
 import {
+  EXTERNAL_SOURCE_TRACKER,
   listMyActiveIssues,
   mapTrackerPriority,
   QUEUE_TO_PROJECT_SLUG,
@@ -22,8 +23,6 @@ import {
  *    обновлять; задача в tg-planer переходит в DONE только если её
  *    закрыть руками или через бота).
  */
-
-const EXTERNAL_SOURCE = 'yandex-tracker'
 
 async function resolveUserId(): Promise<string | null> {
   const fromEnv = process.env.TRACKER_SYNC_USER_ID
@@ -92,7 +91,7 @@ export async function GET(request: Request) {
       .where(
         and(
           eq(tasks.userId, userId),
-          eq(tasks.externalSource, EXTERNAL_SOURCE),
+          eq(tasks.externalSource, EXTERNAL_SOURCE_TRACKER),
           eq(tasks.externalId, issue.key),
         ),
       )
@@ -138,7 +137,7 @@ function buildTaskValues(args: {
     deadlineAt,
     deadlineType: deadlineAt ? ('HARD' as const) : null,
     status: 'TODO' as const,
-    externalSource: EXTERNAL_SOURCE,
+    externalSource: EXTERNAL_SOURCE_TRACKER,
     externalId: issue.key,
     externalSyncedAt: now,
   }

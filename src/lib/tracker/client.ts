@@ -12,6 +12,9 @@
 
 const BASE = 'https://api.tracker.yandex.net/v2'
 
+/** Значение tasks.externalSource для задач, которые синхронизированы с YT. */
+export const EXTERNAL_SOURCE_TRACKER = 'yandex-tracker'
+
 function authHeaders(token: string, orgId: string) {
   return {
     Authorization: `OAuth ${token}`,
@@ -97,4 +100,63 @@ export function mapTrackerPriority(
 export const QUEUE_TO_PROJECT_SLUG: Record<string, string> = {
   SHWEB: 'turbo-site',
   POLAERP: 'pola-erp',
+}
+
+/**
+ * Закрывает тикет в YT через transition.
+ *
+ * Поведение:
+ * 1. Запрашиваем доступные переходы тикета.
+ * 2. Ищем переход в статус "закрыт"/"решён" — у разных очередей id отличается
+ *    (POLAERP: id=close, SHWEB: id=closed). Сравниваем по to.key.
+ * 3. POST по найденному id с resolution=fixed (без resolution YT отвечает 422
+ *    на очередях, где экран перехода требует поле).
+ *
+ * Возвращает true если переход выполнен, false если не нашли подходящий
+ * или YT отверг — но не бросает (закрытие в YT не должно мешать локальному DONE).
+ */
+const CLOSED_STATUS_KEYS = new Set(['closed', 'resolved'])
+
+export async function closeIssue(args: {
+  token: string
+  orgId: string
+  issueKey: string
+}): Promise<{ ok: boolean; transitionId?: string; reason?: string }> {
+  const headers = authHeaders(args.token, args.orgId)
+
+  const listRes = await fetch(`${BASE}/issues/${args.issueKey}/transitions`, {
+    headers,
+  })
+  if (!listRes.ok) {
+    return { ok: false, reason: `list transitions ${listRes.status}: ${await listRes.text()}` }
+  }
+  const transitions = (await listRes.json()) as Array<{
+    id: string
+    to: { key: string }
+  }>
+
+  const target = transitions.find((t) => CLOSED_STATUS_KEYS.has(t.to.key))
+  if (!target) {
+    return {
+      ok: false,
+      reason: `no closing transition (available: ${transitions.map((t) => t.to.key).join(',')})`,
+    }
+  }
+
+  const execRes = await fetch(
+    `${BASE}/issues/${args.issueKey}/transitions/${target.id}/_execute`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ resolution: 'fixed' }),
+    },
+  )
+  if (!execRes.ok) {
+    return {
+      ok: false,
+      transitionId: target.id,
+      reason: `execute ${execRes.status}: ${await execRes.text()}`,
+    }
+  }
+  return { ok: true, transitionId: target.id }
 }

@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { tasks, projects, subtasks } from '@/lib/db/schema'
 import { eq, and, sql } from 'drizzle-orm'
 import { authorizeMiniApp } from '@/lib/telegram/auth'
+import { closeIssue, EXTERNAL_SOURCE_TRACKER } from '@/lib/tracker/client'
 
 /** GET /api/tasks/:id — детали задачи */
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -75,6 +76,35 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     .returning()
 
   if (!updated) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // Если задача — YT-тикет и её перевели в DONE, закрываем тикет в YT.
+  // Не блокируем ответ: если YT недоступен или переход не нашёлся, локальный
+  // DONE всё равно сохранится; ошибку видно в логах Vercel.
+  if (
+    body.status === 'DONE' &&
+    updated.externalSource === EXTERNAL_SOURCE_TRACKER &&
+    updated.externalId
+  ) {
+    const token = process.env.YANDEX_TRACKER_TOKEN
+    const orgId = process.env.YANDEX_TRACKER_ORG_ID
+    if (token && orgId) {
+      closeIssue({ token, orgId, issueKey: updated.externalId })
+        .then((result) => {
+          if (!result.ok) {
+            console.warn(
+              `[tracker push] close ${updated.externalId} failed: ${result.reason}`,
+            )
+          } else {
+            console.log(
+              `[tracker push] close ${updated.externalId} via "${result.transitionId}"`,
+            )
+          }
+        })
+        .catch((err) => {
+          console.warn(`[tracker push] close ${updated.externalId} threw:`, err)
+        })
+    }
+  }
 
   return NextResponse.json(updated)
 }

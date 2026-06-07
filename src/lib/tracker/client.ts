@@ -91,10 +91,10 @@ export function mapTrackerPriority(
  *
  * Согласовано 2026-06-03:
  * - SHWEB (SH Web Development) → turbo-site
- * - POLAERP (Pola ERP) → erp
+ * - POLAERP (Pola ERP) → pola-erp
  * - остальные (DEV, MARKETING, AIBOT, …) → пока не синхронизируем
  */
 export const QUEUE_TO_PROJECT_SLUG: Record<string, string> = {
   SHWEB: 'turbo-site',
-  POLAERP: 'erp',
+  POLAERP: 'pola-erp',
 }

@@ -209,7 +209,7 @@ export default function TasksPage() {
 
   return (
     <div className="bg-[var(--tg-theme-bg-color,#f2f2f7)] min-h-dvh">
-      <header className="px-4 pt-4 pb-2 flex items-center justify-between">
+      <header className="pl-4 pr-16 sm:pr-20 pt-4 pb-2 flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-[var(--tg-theme-text-color,#000)]">{'📋 Задачи'}</h1>
         <div className="flex gap-1 bg-[var(--tg-theme-secondary-bg-color,#efeff4)] rounded-lg p-0.5">
           <button

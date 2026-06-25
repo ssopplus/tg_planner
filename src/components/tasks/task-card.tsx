@@ -2,7 +2,8 @@
 
 import { useState, useCallback, type MouseEvent } from 'react'
 import Link from 'next/link'
-import { Calendar, ChevronRight, Sun, ChevronDown } from 'lucide-react'
+import { Calendar, ChevronRight, Sun, ChevronDown, FileText, Inbox } from 'lucide-react'
+import { TrackerLogo } from '@/components/ui/tracker-logo'
 import { apiFetch } from '@/lib/telegram/webapp'
 import { mutateSafely } from '@/lib/api/mutate'
 
@@ -18,6 +19,9 @@ export interface TaskCardData {
   subtaskTotal?: number
   subtaskCompleted?: number
   myDayDate?: string | null
+  externalSource?: string | null
+  externalId?: string | null
+  vaultPath?: string | null
 }
 
 interface Subtask {
@@ -39,6 +43,44 @@ const priorityConfig = {
   HIGH: { label: 'Высокий', className: 'bg-red-500/15 text-red-600' },
   MEDIUM: { label: 'Средний', className: 'bg-orange-500/15 text-orange-600' },
   LOW: { label: 'Низкий', className: 'bg-green-500/15 text-green-600' },
+}
+
+/**
+ * Маленький бейдж источника задачи: трекер / vault / ручная.
+ * Иконка + (для YT) ключ задачи в виде POLAERP-54.
+ */
+function TaskSourceBadge({ task }: { task: TaskCardData }) {
+  if (task.externalSource === 'yandex-tracker') {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-xs text-[var(--tg-theme-hint-color,#8e8e93)]"
+        title={`Yandex Tracker: ${task.externalId ?? ''}`}
+      >
+        <TrackerLogo className="h-3 w-3" />
+        {task.externalId ?? 'Tracker'}
+      </span>
+    )
+  }
+  if (task.vaultPath) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-xs text-[var(--tg-theme-hint-color,#8e8e93)]"
+        title={`Obsidian: ${task.vaultPath}`}
+      >
+        <FileText className="h-3 w-3" />
+        Obsidian
+      </span>
+    )
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-xs text-[var(--tg-theme-hint-color,#8e8e93)]"
+      title="Создана вручную"
+    >
+      <Inbox className="h-3 w-3" />
+      Бот
+    </span>
+  )
 }
 
 function isOverdue(deadline: string | null, isDone: boolean): boolean {
@@ -194,6 +236,7 @@ export function TaskCard({ task, onToggle, onMyDayToggle, showProject = true }: 
           </div>
 
           <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+            <TaskSourceBadge task={task} />
             {task.deadlineAt && (
               <span
                 className={`flex items-center gap-1 text-xs ${overdue ? 'text-red-500 font-medium' : 'text-[var(--tg-theme-hint-color,#8e8e93)]'}`}

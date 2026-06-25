@@ -44,6 +44,9 @@ export async function GET(request: NextRequest) {
       createdAt: tasks.createdAt,
       projectId: tasks.projectId,
       projectName: projects.name,
+      externalSource: tasks.externalSource,
+      externalId: tasks.externalId,
+      vaultPath: tasks.vaultPath,
     })
     .from(tasks)
     .leftJoin(projects, eq(tasks.projectId, projects.id))

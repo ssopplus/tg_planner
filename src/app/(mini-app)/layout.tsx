@@ -4,7 +4,11 @@ import { useEffect } from 'react'
 import { NavBar } from '@/components/layout/nav-bar'
 import { SyncIndicator } from '@/components/layout/sync-indicator'
 import { ToastHost } from '@/components/ui/toast-host'
-import { whenWebAppReady, webAppExpand } from '@/lib/telegram/webapp'
+import {
+  whenWebAppReady,
+  webAppExpand,
+  webAppDisableVerticalSwipes,
+} from '@/lib/telegram/webapp'
 
 export default function MiniAppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -12,6 +16,7 @@ export default function MiniAppLayout({ children }: { children: React.ReactNode 
     // окончания первого React-эффекта. Ждём с ретраем, потом сигналим ready().
     whenWebAppReady().then(() => {
       webAppExpand()
+      webAppDisableVerticalSwipes()
     })
   }, [])
 

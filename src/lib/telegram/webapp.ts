@@ -67,6 +67,18 @@ export function webAppExpand() {
   getWebApp()?.expand()
 }
 
+/**
+ * Отключить вертикальный свайп вниз, который закрывает Mini App.
+ * Доступно с Bot API 7.7 (Telegram 10.13+). На старых клиентах метода нет —
+ * молча игнорируем.
+ */
+export function webAppDisableVerticalSwipes() {
+  const wa = getWebApp()
+  if (wa && typeof wa.disableVerticalSwipes === 'function') {
+    wa.disableVerticalSwipes()
+  }
+}
+
 /** Показать кнопку «Назад» */
 export function showBackButton(callback: () => void) {
   const webapp = getWebApp()
@@ -89,6 +101,8 @@ interface TelegramWebApp {
   ready: () => void
   expand: () => void
   close: () => void
+  disableVerticalSwipes?: () => void
+  enableVerticalSwipes?: () => void
   BackButton: {
     show: () => void
     hide: () => void

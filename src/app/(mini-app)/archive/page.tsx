@@ -64,7 +64,7 @@ export default function ArchivePage() {
 
   return (
     <div className="bg-[var(--tg-theme-bg-color,#f2f2f7)] min-h-dvh">
-      <header className="flex items-center gap-3 px-4 pt-4 pb-3">
+      <header className="flex items-center gap-3 pl-4 pr-16 sm:pr-20 pt-4 pb-3">
         <button
           type="button"
           onClick={() => router.back()}

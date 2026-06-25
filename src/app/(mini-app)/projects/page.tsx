@@ -52,7 +52,7 @@ export default function ProjectsPage() {
 
   return (
     <div className="bg-[var(--tg-theme-bg-color,#f2f2f7)] min-h-dvh">
-      <header className="px-4 pt-4 pb-2">
+      <header className="pl-4 pr-16 sm:pr-20 pt-4 pb-2">
         <h1 className="text-2xl font-bold text-[var(--tg-theme-text-color,#000)]">
           {'📁 Проекты'}
         </h1>

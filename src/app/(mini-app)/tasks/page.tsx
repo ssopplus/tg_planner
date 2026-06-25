@@ -240,7 +240,7 @@ export default function TasksPage() {
       </header>
 
       {/* Панель фильтров: сортировка + проекты */}
-      <div className="px-4 pb-3 flex gap-2 relative">
+      <div className="px-4 pb-3 flex flex-wrap gap-2 relative">
         {/* Сортировка — только в списке */}
         {viewMode === 'list' && (
           <div className="relative">

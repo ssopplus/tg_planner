@@ -110,7 +110,7 @@ export default function TodayPage() {
   return (
     <div className="bg-[var(--tg-theme-bg-color,#f2f2f7)] min-h-dvh">
       <PullToRefresh onRefresh={handleRefresh}>
-        <header className="px-4 pt-4 pb-2">
+        <header className="pl-4 pr-16 sm:pr-20 pt-4 pb-2">
           <h1 className="text-2xl font-bold text-[var(--tg-theme-text-color,#000)]">
             {'☀️ Мой день'}
           </h1>

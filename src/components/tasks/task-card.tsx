@@ -222,7 +222,7 @@ export function TaskCard({ task, onToggle, onMyDayToggle, showProject = true }: 
         <Link href={`/tasks/${task.id}`} className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span
-              className={`text-[15px] font-medium leading-snug ${
+              className={`text-[15px] font-medium leading-snug break-words min-w-0 ${
                 isDone
                   ? 'line-through text-[var(--tg-theme-hint-color,#8e8e93)]'
                   : 'text-[var(--tg-theme-text-color,#000)]'

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { tasks, projects, subtasks } from '@/lib/db/schema'
-import { eq, and, sql, inArray } from 'drizzle-orm'
+import { eq, and, sql, inArray, or, ilike } from 'drizzle-orm'
 import { authorizeMiniApp } from '@/lib/telegram/auth'
 
 /** GET /api/tasks — список задач пользователя */
@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
   const sort = searchParams.get('sort') ?? 'deadline'
   const page = parseInt(searchParams.get('page') ?? '1')
   const limit = parseInt(searchParams.get('limit') ?? '50')
+  const q = searchParams.get('q')?.trim() ?? ''
 
   const conditions = [eq(tasks.userId, user.id)]
   if (projectIds) {
@@ -28,6 +29,14 @@ export async function GET(request: NextRequest) {
     conditions.push(inArray(tasks.status, statuses))
   } else {
     conditions.push(inArray(tasks.status, ['TODO', 'IN_PROGRESS']))
+  }
+  if (q) {
+    // Ищем по title и description. Escape LIKE-метасимволов, чтобы % в запросе
+    // не превращал текст в wildcard-паттерн.
+    const escaped = q.replace(/[\\%_]/g, (m) => `\\${m}`)
+    const pattern = `%${escaped}%`
+    const searchCondition = or(ilike(tasks.title, pattern), ilike(tasks.description, pattern))
+    if (searchCondition) conditions.push(searchCondition)
   }
 
   const userTasks = await db

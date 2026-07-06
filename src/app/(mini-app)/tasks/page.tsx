@@ -10,6 +10,8 @@ import {
   Check,
   ArrowUpDown,
   CircleDot,
+  Search,
+  X,
 } from 'lucide-react'
 import { TaskCard, type TaskCardData } from '@/components/tasks/task-card'
 import { KanbanBoard } from '@/components/tasks/kanban-board'
@@ -56,7 +58,16 @@ export default function TasksPage() {
   const [showFilter, setShowFilter] = useState(false)
   const [showStatusFilter, setShowStatusFilter] = useState(false)
   const [showSort, setShowSort] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const settingsLoaded = useRef(false)
+
+  // Дебаунс поиска: обновляем query, из которого fetchTasks строит URL.
+  // Даёт паузу 250мс между нажатиями клавиш и запросом к API.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 250)
+    return () => clearTimeout(t)
+  }, [searchQuery])
 
   // Загрузка сохранённых настроек
   useEffect(() => {
@@ -109,12 +120,18 @@ export default function TasksPage() {
       } else if (filterStatuses.length > 0) {
         params.set('status', filterStatuses.join(','))
       }
+      // При активном поиске: расширяем область до всех статусов, чтобы
+      // выполненные/архивные задачи находились тоже.
+      if (debouncedQuery) {
+        params.set('q', debouncedQuery)
+        params.set('status', 'TODO,IN_PROGRESS,DONE,ARCHIVED')
+      }
       const res = await apiFetch(`/api/tasks?${params.toString()}`)
       if (res.ok) setTasks(await res.json())
     } finally {
       setLoading(false)
     }
-  }, [sortMode, viewMode, filterProjectIds, filterStatuses])
+  }, [sortMode, viewMode, filterProjectIds, filterStatuses, debouncedQuery])
 
   useEffect(() => {
     setLoading(true)
@@ -238,6 +255,30 @@ export default function TasksPage() {
           </button>
         </div>
       </header>
+
+      {/* Поиск по названию и описанию */}
+      <div className="px-4 pb-2">
+        <div className="flex items-center gap-2 rounded-xl bg-[var(--tg-theme-section-bg-color,#fff)] px-3 py-2 shadow-sm">
+          <Search className="h-4 w-4 text-[var(--tg-theme-hint-color,#8e8e93)] flex-shrink-0" />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Поиск задач…"
+            className="min-w-0 flex-1 bg-transparent text-[15px] text-[var(--tg-theme-text-color,#000)] placeholder:text-[var(--tg-theme-hint-color,#8e8e93)] outline-none"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-[var(--tg-theme-hint-color,#8e8e93)] active:bg-[var(--tg-theme-secondary-bg-color,#efeff4)]"
+              aria-label="Очистить"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
 
       {/* Панель фильтров: сортировка + проекты */}
       <div className="px-4 pb-3 flex flex-wrap gap-2 relative">

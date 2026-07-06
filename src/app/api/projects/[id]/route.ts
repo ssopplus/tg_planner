@@ -4,6 +4,22 @@ import { projects } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
 import { authorizeMiniApp } from '@/lib/telegram/auth'
 
+/** GET /api/projects/:id — карточка проекта */
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const user = await authorizeMiniApp(request.headers.get('X-Telegram-Init-Data') ?? '')
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { id } = await params
+  const [project] = await db
+    .select()
+    .from(projects)
+    .where(and(eq(projects.id, id), eq(projects.userId, user.id)))
+    .limit(1)
+
+  if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  return NextResponse.json(project)
+}
+
 /** PATCH /api/projects/:id */
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await authorizeMiniApp(request.headers.get('X-Telegram-Init-Data') ?? '')

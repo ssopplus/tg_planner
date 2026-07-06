@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { TaskCard, type TaskCardData } from '@/components/tasks/task-card'
+import { QuickCaptureBar } from '@/components/tasks/quick-capture-bar'
 import { EmptyState } from '@/components/ui/empty-state'
 import { apiFetch } from '@/lib/telegram/webapp'
 
@@ -30,9 +31,19 @@ export default function ProjectTasksPage() {
     }
   }, [projectId])
 
+  const fetchProject = useCallback(async () => {
+    // Если список задач пуст, projectName из карточек не возьмётся — тянем отдельно.
+    const res = await apiFetch(`/api/projects/${projectId}`)
+    if (res.ok) {
+      const data = (await res.json()) as { name?: string }
+      if (data.name) setProjectName(data.name)
+    }
+  }, [projectId])
+
   useEffect(() => {
     fetchTasks()
-  }, [fetchTasks])
+    fetchProject()
+  }, [fetchTasks, fetchProject])
 
   const handleToggle = useCallback(async (id: string, done: boolean) => {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: done ? 'DONE' : 'TODO' } : t)))
@@ -57,6 +68,12 @@ export default function ProjectTasksPage() {
           {projectName || 'Проект'}
         </h1>
       </header>
+
+      <QuickCaptureBar
+        projectId={projectId}
+        onCreated={fetchTasks}
+        placeholder={`Добавить в ${projectName || 'проект'}…`}
+      />
 
       <div className="px-4 pb-24">
         {loading ? (

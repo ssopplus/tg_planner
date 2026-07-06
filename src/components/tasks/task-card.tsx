@@ -47,36 +47,43 @@ const priorityConfig = {
 
 /**
  * Маленький бейдж источника задачи: трекер / vault / ручная.
- * Иконка + (для YT) ключ задачи в виде POLAERP-54.
+ * Для YT/Obsidian — кликабельный: открывает тикет в Yandex Tracker
+ * или файл vault в Obsidian через obsidian://open URL-scheme.
  */
 function TaskSourceBadge({ task }: { task: TaskCardData }) {
-  if (task.externalSource === 'yandex-tracker') {
+  const stop = (e: MouseEvent) => e.stopPropagation()
+  const badgeCls =
+    'inline-flex items-center gap-1 text-xs text-[var(--tg-theme-hint-color,#8e8e93)] hover:text-[var(--tg-theme-link-color,#007aff)] transition-colors'
+
+  if (task.externalSource === 'yandex-tracker' && task.externalId) {
+    const url = `https://tracker.yandex.ru/${task.externalId}`
     return (
-      <span
-        className="inline-flex items-center gap-1 text-xs text-[var(--tg-theme-hint-color,#8e8e93)]"
-        title={`Yandex Tracker: ${task.externalId ?? ''}`}
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={stop}
+        className={badgeCls}
+        title={`Открыть в Yandex Tracker: ${task.externalId}`}
       >
         <TrackerLogo className="h-3 w-3" />
-        {task.externalId ?? 'Tracker'}
-      </span>
+        {task.externalId}
+      </a>
     )
   }
   if (task.vaultPath) {
+    // Obsidian URL scheme: obsidian://open?vault=<name>&file=<encoded relative path>
+    // Наш vault лежит по пути Документация/, полный путь = task.vaultPath как есть.
+    const url = `obsidian://open?vault=${encodeURIComponent('Документация')}&file=${encodeURIComponent(task.vaultPath)}`
     return (
-      <span
-        className="inline-flex items-center gap-1 text-xs text-[var(--tg-theme-hint-color,#8e8e93)]"
-        title={`Obsidian: ${task.vaultPath}`}
-      >
+      <a href={url} onClick={stop} className={badgeCls} title={`Открыть в Obsidian: ${task.vaultPath}`}>
         <FileText className="h-3 w-3" />
         Obsidian
-      </span>
+      </a>
     )
   }
   return (
-    <span
-      className="inline-flex items-center gap-1 text-xs text-[var(--tg-theme-hint-color,#8e8e93)]"
-      title="Создана вручную"
-    >
+    <span className={badgeCls} title="Создана вручную">
       <Inbox className="h-3 w-3" />
       Бот
     </span>

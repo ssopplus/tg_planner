@@ -4,6 +4,8 @@ import { tasks, projects, subtasks } from '@/lib/db/schema'
 import { eq, and, sql } from 'drizzle-orm'
 import { authorizeMiniApp } from '@/lib/telegram/auth'
 import { closeIssue, EXTERNAL_SOURCE_TRACKER } from '@/lib/tracker/client'
+import { writeBackTaskToVault } from '@/lib/obsidian/vault-writer'
+import type { TaskWriteBackUpdates } from '@/lib/obsidian/write-back'
 
 /** GET /api/tasks/:id — детали задачи */
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -76,6 +78,36 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     .returning()
 
   if (!updated) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // Write-back в vault: если задача пришла из obsidian (есть vault_path),
+  // и в PATCH меняли статус/дедлайн/приоритет — обновляем markdown-строку.
+  // Fire-and-forget: ошибка не должна валить локальный PATCH.
+  if (updated.vaultPath) {
+    const updates: TaskWriteBackUpdates = {}
+    if (body.status !== undefined) {
+      updates.isCompleted = body.status === 'DONE'
+    }
+    if (body.deadlineAt !== undefined) {
+      // deadlineAt хранится как ISO datetime; в vault пишем только YYYY-MM-DD.
+      updates.due = body.deadlineAt ? new Date(body.deadlineAt).toISOString().slice(0, 10) : null
+    }
+    if (body.priority !== undefined) {
+      updates.priority = body.priority
+    }
+    if (Object.keys(updates).length > 0) {
+      writeBackTaskToVault({
+        vaultPath: updated.vaultPath,
+        taskUuid: updated.id,
+        updates,
+        taskTitle: updated.title,
+      })
+        .then((r) => {
+          if (r.ok) console.log(`[vault write-back] ${updated.id}: applied`)
+          else console.warn(`[vault write-back] ${updated.id}: skipped — ${r.reason}`)
+        })
+        .catch((err) => console.warn(`[vault write-back] ${updated.id} threw:`, err))
+    }
+  }
 
   // Если задача — YT-тикет и её перевели в DONE, закрываем тикет в YT.
   // Не блокируем ответ: если YT недоступен или переход не нашёлся, локальный

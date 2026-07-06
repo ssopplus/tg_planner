@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, type MouseEvent } from 'react'
+import { useState, useCallback, useRef, type MouseEvent } from 'react'
 import Link from 'next/link'
 import { Calendar, ChevronRight, Sun, ChevronDown, FileText, Inbox } from 'lucide-react'
 import { TrackerLogo } from '@/components/ui/tracker-logo'
@@ -37,6 +37,12 @@ interface TaskCardProps {
   onToggle?: (id: string, done: boolean) => void
   onMyDayToggle?: (id: string, add: boolean) => void
   showProject?: boolean
+  /** Режим массового выбора: карточка не ведёт в детали, тап тогглит выбор. */
+  selectionMode?: boolean
+  isSelected?: boolean
+  onSelectionToggle?: (id: string) => void
+  /** Долгий тап (600мс) — включить selectionMode и выбрать эту задачу. */
+  onLongPress?: (id: string) => void
 }
 
 const priorityConfig = {
@@ -132,12 +138,40 @@ function checkMyDay(task: TaskCardData): { inMyDay: boolean; isManual: boolean }
   return { inMyDay: false, isManual: false }
 }
 
-export function TaskCard({ task, onToggle, onMyDayToggle, showProject = true }: TaskCardProps) {
+export function TaskCard({
+  task,
+  onToggle,
+  onMyDayToggle,
+  showProject = true,
+  selectionMode = false,
+  isSelected = false,
+  onSelectionToggle,
+  onLongPress,
+}: TaskCardProps) {
   const isDone = task.status === 'DONE'
   const priority = priorityConfig[task.priority]
   const overdue = isOverdue(task.deadlineAt, isDone)
   const hasSubtasks = (task.subtaskTotal ?? 0) > 0
   const { inMyDay, isManual } = checkMyDay(task)
+
+  // Long-press: 600мс удержания пальца/мыши → onLongPress. Отслеживаем через
+  // ref, чтобы cleanup работал даже если onLongPress меняется между рендерами.
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longPressFired = useRef(false)
+  const startLongPress = useCallback(() => {
+    if (!onLongPress) return
+    longPressFired.current = false
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true
+      onLongPress(task.id)
+    }, 600)
+  }, [onLongPress, task.id])
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+  }, [])
 
   const [expanded, setExpanded] = useState(false)
   const [subtaskList, setSubtaskList] = useState<Subtask[] | null>(null)
@@ -194,25 +228,69 @@ export function TaskCard({ task, onToggle, onMyDayToggle, showProject = true }: 
     [subtaskList],
   )
 
+  // Клик по карточке в режиме выбора — тоггл, обычная навигация не срабатывает
+  // из-за conditional-обёртки ниже (<div> вместо <Link>).
+  const handleContentClick = useCallback(
+    (e: MouseEvent) => {
+      if (longPressFired.current) {
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
+      if (selectionMode) {
+        e.preventDefault()
+        e.stopPropagation()
+        onSelectionToggle?.(task.id)
+      }
+    },
+    [selectionMode, onSelectionToggle, task.id],
+  )
+
   return (
-    <div className="bg-[var(--tg-theme-section-bg-color,#fff)] rounded-xl px-4 py-3 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+    <div
+      className={`rounded-xl px-4 py-3 shadow-[0_1px_3px_rgba(0,0,0,0.06)] transition-colors ${
+        isSelected
+          ? 'bg-[var(--tg-theme-button-color,#007aff)]/10 ring-2 ring-[var(--tg-theme-button-color,#007aff)]'
+          : 'bg-[var(--tg-theme-section-bg-color,#fff)]'
+      }`}
+      onPointerDown={startLongPress}
+      onPointerUp={cancelLongPress}
+      onPointerLeave={cancelLongPress}
+      onPointerCancel={cancelLongPress}
+    >
       <div className="flex items-start gap-3">
-        {/* Круглый чекбокс */}
+        {/* Круглый чекбокс. В режиме выбора выступает индикатором selected. */}
         <button
           type="button"
           onClick={(e) => {
             e.preventDefault()
             e.stopPropagation()
-            onToggle?.(task.id, !isDone)
+            if (selectionMode) {
+              onSelectionToggle?.(task.id)
+            } else {
+              onToggle?.(task.id, !isDone)
+            }
           }}
           className={`mt-0.5 flex-shrink-0 h-5 w-5 rounded-full border-2 transition-all ${
-            isDone
-              ? 'bg-[var(--tg-theme-button-color,#007aff)] border-[var(--tg-theme-button-color,#007aff)]'
-              : 'border-[var(--tg-theme-hint-color,#8e8e93)]'
+            selectionMode
+              ? isSelected
+                ? 'bg-[var(--tg-theme-button-color,#007aff)] border-[var(--tg-theme-button-color,#007aff)]'
+                : 'border-[var(--tg-theme-button-color,#007aff)]'
+              : isDone
+                ? 'bg-[var(--tg-theme-button-color,#007aff)] border-[var(--tg-theme-button-color,#007aff)]'
+                : 'border-[var(--tg-theme-hint-color,#8e8e93)]'
           } flex items-center justify-center`}
-          aria-label={isDone ? 'Отметить как невыполненное' : 'Отметить как выполненное'}
+          aria-label={
+            selectionMode
+              ? isSelected
+                ? 'Убрать из выбора'
+                : 'Выбрать'
+              : isDone
+                ? 'Отметить как невыполненное'
+                : 'Отметить как выполненное'
+          }
         >
-          {isDone && (
+          {(selectionMode ? isSelected : isDone) && (
             <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
               <path
                 d="M1 4L3.5 6.5L9 1"
@@ -225,56 +303,70 @@ export function TaskCard({ task, onToggle, onMyDayToggle, showProject = true }: 
           )}
         </button>
 
-        {/* Контент */}
-        <Link href={`/tasks/${task.id}`} className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span
-              className={`text-[15px] font-medium leading-snug break-words min-w-0 ${
-                isDone
-                  ? 'line-through text-[var(--tg-theme-hint-color,#8e8e93)]'
-                  : 'text-[var(--tg-theme-text-color,#000)]'
-              }`}
-            >
-              {task.title}
-            </span>
-            <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded-md ${priority.className}`}>
-              {priority.label}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-            <TaskSourceBadge task={task} />
-            {task.deadlineAt && (
-              <span
-                className={`flex items-center gap-1 text-xs ${overdue ? 'text-red-500 font-medium' : 'text-[var(--tg-theme-hint-color,#8e8e93)]'}`}
-              >
-                <Calendar className="h-3 w-3" />
-                {formatDate(task.deadlineAt)}
-              </span>
-            )}
-            {showProject && task.projectName && (
-              <span className="text-xs text-[var(--tg-theme-hint-color,#8e8e93)]">
-                {task.projectName}
-              </span>
-            )}
-            {hasSubtasks && (
-              <button
-                type="button"
-                onClick={toggleExpand}
-                className="text-xs text-[var(--tg-theme-hint-color,#8e8e93)] flex items-center gap-0.5 px-1 -mx-1 rounded active:bg-[var(--tg-theme-secondary-bg-color,#efeff4)]"
-                aria-expanded={expanded}
-                aria-label={expanded ? 'Свернуть подзадачи' : 'Раскрыть подзадачи'}
-              >
-                <span>
-                  {completed}/{total}
+        {/* Контент. В режиме выбора — div (тап тогглит выбор), иначе Link. */}
+        {(() => {
+          const inner = (
+            <>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span
+                  className={`text-[15px] font-medium leading-snug break-words min-w-0 ${
+                    isDone
+                      ? 'line-through text-[var(--tg-theme-hint-color,#8e8e93)]'
+                      : 'text-[var(--tg-theme-text-color,#000)]'
+                  }`}
+                >
+                  {task.title}
                 </span>
-                <ChevronDown
-                  className={`h-3 w-3 transition-transform ${expanded ? 'rotate-180' : ''}`}
-                />
-              </button>
-            )}
-          </div>
-        </Link>
+                <span
+                  className={`text-[11px] font-semibold px-1.5 py-0.5 rounded-md ${priority.className}`}
+                >
+                  {priority.label}
+                </span>
+              </div>
+              <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                <TaskSourceBadge task={task} />
+                {task.deadlineAt && (
+                  <span
+                    className={`flex items-center gap-1 text-xs ${overdue ? 'text-red-500 font-medium' : 'text-[var(--tg-theme-hint-color,#8e8e93)]'}`}
+                  >
+                    <Calendar className="h-3 w-3" />
+                    {formatDate(task.deadlineAt)}
+                  </span>
+                )}
+                {showProject && task.projectName && (
+                  <span className="text-xs text-[var(--tg-theme-hint-color,#8e8e93)]">
+                    {task.projectName}
+                  </span>
+                )}
+                {hasSubtasks && (
+                  <button
+                    type="button"
+                    onClick={toggleExpand}
+                    className="text-xs text-[var(--tg-theme-hint-color,#8e8e93)] flex items-center gap-0.5 px-1 -mx-1 rounded active:bg-[var(--tg-theme-secondary-bg-color,#efeff4)]"
+                    aria-expanded={expanded}
+                    aria-label={expanded ? 'Свернуть подзадачи' : 'Раскрыть подзадачи'}
+                  >
+                    <span>
+                      {completed}/{total}
+                    </span>
+                    <ChevronDown
+                      className={`h-3 w-3 transition-transform ${expanded ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+                )}
+              </div>
+            </>
+          )
+          return selectionMode ? (
+            <div className="flex-1 min-w-0 cursor-pointer" onClick={handleContentClick}>
+              {inner}
+            </div>
+          ) : (
+            <Link href={`/tasks/${task.id}`} className="flex-1 min-w-0" onClick={handleContentClick}>
+              {inner}
+            </Link>
+          )
+        })()}
 
         {/* Иконка «Мой день» */}
         {onMyDayToggle && (
@@ -305,10 +397,12 @@ export function TaskCard({ task, onToggle, onMyDayToggle, showProject = true }: 
           )
         )}
 
-        {/* Шеврон */}
-        <Link href={`/tasks/${task.id}`} className="flex-shrink-0 mt-1">
-          <ChevronRight className="h-4 w-4 text-[var(--tg-theme-hint-color,#8e8e93)]" />
-        </Link>
+        {/* Шеврон — прячем в режиме выбора, иначе тап уводит с /tasks. */}
+        {!selectionMode && (
+          <Link href={`/tasks/${task.id}`} className="flex-shrink-0 mt-1">
+            <ChevronRight className="h-4 w-4 text-[var(--tg-theme-hint-color,#8e8e93)]" />
+          </Link>
+        )}
       </div>
 
       {expanded && hasSubtasks && (

@@ -169,6 +169,67 @@ export default function TasksPage() {
     })
   }, [tasks])
 
+  // === Мультивыбор ===
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const selectionMode = selectedIds.size > 0
+
+  const toggleSelection = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const enterSelection = useCallback((id: string) => {
+    setSelectedIds(new Set([id]))
+  }, [])
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), [])
+
+  const runBulk = useCallback(
+    async (
+      action: 'done' | 'todo' | 'delete' | 'assign',
+      opts?: { projectId?: string; label: string },
+    ) => {
+      const ids = Array.from(selectedIds)
+      if (ids.length === 0) return
+      const label = opts?.label ?? 'Массовое действие'
+      // Оптимистично убираем/меняем задачи локально, откатываем при неудаче.
+      const snapshot = tasks
+      if (action === 'delete') {
+        setTasks((prev) => prev.filter((t) => !selectedIds.has(t.id)))
+      } else if (action === 'done' || action === 'todo') {
+        const newStatus = action === 'done' ? 'DONE' : 'TODO'
+        setTasks((prev) =>
+          prev.map((t) => (selectedIds.has(t.id) ? { ...t, status: newStatus } : t)),
+        )
+      } else if (action === 'assign' && opts?.projectId) {
+        const projectName = projects.find((p) => p.id === opts.projectId)?.name ?? null
+        setTasks((prev) =>
+          prev.map((t) =>
+            selectedIds.has(t.id) ? { ...t, projectId: opts.projectId, projectName } : t,
+          ),
+        )
+      }
+      clearSelection()
+
+      await mutateSafely({
+        method: 'POST',
+        url: '/api/tasks/bulk',
+        body: { ids, action, ...(opts?.projectId && { projectId: opts.projectId }) },
+        label,
+        onRollback: () => setTasks(snapshot),
+      })
+      // Подтянем свежее состояние — счётчики подзадач и прочее могут разойтись.
+      fetchTasks()
+    },
+    [selectedIds, tasks, projects, clearSelection, fetchTasks],
+  )
+
+  const [showBulkAssign, setShowBulkAssign] = useState(false)
+
   const handleMyDayToggle = useCallback(async (id: string, add: boolean) => {
     const todayStr = new Date().toISOString().split('T')[0]
     const prev = tasks.find((t) => t.id === id)?.myDayDate ?? null
@@ -226,35 +287,104 @@ export default function TasksPage() {
 
   return (
     <div className="bg-[var(--tg-theme-bg-color,#f2f2f7)] min-h-dvh">
-      <header className="pl-4 pr-16 sm:pr-20 pt-4 pb-2 flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-[var(--tg-theme-text-color,#000)]">{'📋 Задачи'}</h1>
-        <div className="flex gap-1 bg-[var(--tg-theme-secondary-bg-color,#efeff4)] rounded-lg p-0.5">
+      {selectionMode ? (
+        <header className="sticky top-0 z-30 pl-4 pr-16 sm:pr-20 pt-4 pb-2 flex items-center gap-3 bg-[var(--tg-theme-bg-color,#f2f2f7)]">
           <button
             type="button"
-            onClick={() => setViewMode('list')}
-            className={`p-1.5 rounded-md transition-all ${
-              viewMode === 'list'
-                ? 'bg-[var(--tg-theme-section-bg-color,#fff)] shadow-sm'
-                : 'text-[var(--tg-theme-hint-color,#8e8e93)]'
-            }`}
-            aria-label="Список"
+            onClick={clearSelection}
+            className="h-9 w-9 rounded-full bg-[var(--tg-theme-secondary-bg-color,#efeff4)] flex items-center justify-center active:scale-90 transition-transform"
+            aria-label="Отменить выбор"
           >
-            <List className="h-4.5 w-4.5" />
+            <X className="h-4 w-4 text-[var(--tg-theme-text-color,#000)]" />
+          </button>
+          <h1 className="text-lg font-semibold text-[var(--tg-theme-text-color,#000)] flex-1">
+            Выбрано: {selectedIds.size}
+          </h1>
+          <button
+            type="button"
+            onClick={() => runBulk('done', { label: 'Отметить выполненными' })}
+            className="h-9 px-3 rounded-lg bg-[var(--tg-theme-button-color,#007aff)] text-[var(--tg-theme-button-text-color,#fff)] text-sm font-medium active:scale-95 transition-transform"
+          >
+            Готово
           </button>
           <button
             type="button"
-            onClick={() => setViewMode('kanban')}
-            className={`p-1.5 rounded-md transition-all ${
-              viewMode === 'kanban'
-                ? 'bg-[var(--tg-theme-section-bg-color,#fff)] shadow-sm'
-                : 'text-[var(--tg-theme-hint-color,#8e8e93)]'
-            }`}
-            aria-label="Канбан"
+            onClick={() => setShowBulkAssign(true)}
+            className="h-9 px-3 rounded-lg bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-[var(--tg-theme-text-color,#000)] text-sm font-medium active:scale-95 transition-transform"
           >
-            <Columns3 className="h-4.5 w-4.5" />
+            <FolderOpen className="h-4 w-4" />
           </button>
-        </div>
-      </header>
+          <button
+            type="button"
+            onClick={() => {
+              if (confirm(`Удалить ${selectedIds.size} задач(и)?`)) {
+                runBulk('delete', { label: 'Удаление задач' })
+              }
+            }}
+            className="h-9 px-3 rounded-lg bg-red-500/15 text-red-600 text-sm font-medium active:scale-95 transition-transform"
+          >
+            🗑
+          </button>
+        </header>
+      ) : (
+        <header className="pl-4 pr-16 sm:pr-20 pt-4 pb-2 flex items-center justify-between gap-3">
+          <h1 className="text-2xl font-bold text-[var(--tg-theme-text-color,#000)]">{'📋 Задачи'}</h1>
+          <div className="flex gap-1 bg-[var(--tg-theme-secondary-bg-color,#efeff4)] rounded-lg p-0.5">
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              className={`p-1.5 rounded-md transition-all ${
+                viewMode === 'list'
+                  ? 'bg-[var(--tg-theme-section-bg-color,#fff)] shadow-sm'
+                  : 'text-[var(--tg-theme-hint-color,#8e8e93)]'
+              }`}
+              aria-label="Список"
+            >
+              <List className="h-4.5 w-4.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('kanban')}
+              className={`p-1.5 rounded-md transition-all ${
+                viewMode === 'kanban'
+                  ? 'bg-[var(--tg-theme-section-bg-color,#fff)] shadow-sm'
+                  : 'text-[var(--tg-theme-hint-color,#8e8e93)]'
+              }`}
+              aria-label="Канбан"
+            >
+              <Columns3 className="h-4.5 w-4.5" />
+            </button>
+          </div>
+        </header>
+      )}
+
+      {/* Модалка выбора проекта для mass-assign */}
+      {showBulkAssign && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/30"
+            onClick={() => setShowBulkAssign(false)}
+          />
+          <div className="fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-72 max-w-[90vw] max-h-[70vh] overflow-auto bg-[var(--tg-theme-section-bg-color,#fff)] rounded-xl shadow-lg">
+            <div className="px-4 py-3 border-b border-[var(--tg-theme-hint-color,#8e8e93)]/10 font-semibold text-[var(--tg-theme-text-color,#000)]">
+              Переместить в проект
+            </div>
+            {projects.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => {
+                  setShowBulkAssign(false)
+                  runBulk('assign', { projectId: p.id, label: `Перемещение в «${p.name}»` })
+                }}
+                className="w-full text-left px-4 py-2.5 text-sm text-[var(--tg-theme-text-color,#000)] active:bg-[var(--tg-theme-secondary-bg-color,#efeff4)]"
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Поиск по названию и описанию */}
       <div className="px-4 pb-2">
@@ -523,7 +653,16 @@ export default function TasksPage() {
           ) : (
             <div className="flex flex-col gap-2">
               {tasks.map((task) => (
-                <TaskCard key={task.id} task={task} onToggle={handleToggle} onMyDayToggle={handleMyDayToggle} />
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  onToggle={handleToggle}
+                  onMyDayToggle={handleMyDayToggle}
+                  selectionMode={selectionMode}
+                  isSelected={selectedIds.has(task.id)}
+                  onSelectionToggle={toggleSelection}
+                  onLongPress={enterSelection}
+                />
               ))}
             </div>
           )}

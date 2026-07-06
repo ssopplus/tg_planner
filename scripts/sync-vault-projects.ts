@@ -29,6 +29,12 @@ const REPO_SEARCH_ROOTS = [
   resolve(WORKSPACE_ROOT, 'Личное/project'),
 ]
 
+interface RepoEntry {
+  slug: string
+  name: string
+  path: string
+}
+
 interface VaultProject {
   slug: string
   name: string
@@ -38,6 +44,7 @@ interface VaultProject {
   tags: string[] | null
   kind: 'dev' | 'general'
   repoPath: string | null
+  repoPaths: RepoEntry[] | null
 }
 
 // === Парсинг ===
@@ -47,20 +54,76 @@ function parseFrontmatter(content: string): { fm: Record<string, unknown>; body:
   if (!match) return { fm: {}, body: content }
 
   const fm: Record<string, unknown> = {}
-  for (const line of match[1].split('\n')) {
+  const rawLines = match[1].split('\n')
+
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i]
     const kv = line.match(/^(\w+):\s*(.*)$/)
     if (!kv) continue
     const [, key, rawValue] = kv
     const value = rawValue.trim()
+
+    // Inline-array: tags: [a, b, c]
     if (value.startsWith('[') && value.endsWith(']')) {
       fm[key] = value
         .slice(1, -1)
         .split(',')
         .map((s) => s.trim().replace(/^["']|["']$/g, ''))
         .filter(Boolean)
-    } else {
-      fm[key] = value.replace(/^["']|["']$/g, '')
+      continue
     }
+
+    // Block-array of objects (2-пробельный YAML-стиль Obsidian):
+    //   repos:
+    //     - slug: erp
+    //       name: Backend (Go)
+    // Проще: считаем отступ первого "-" и любые последующие поля с бОльшим отступом.
+    if (value === '' && rawLines[i + 1]?.match(/^\s+-\s/)) {
+      const firstItem = rawLines[i + 1]
+      const itemIndent = firstItem.match(/^(\s*)-/)?.[1].length ?? 0
+      const items: Array<Record<string, string>> = []
+      let current: Record<string, string> | null = null
+      let j = i + 1
+      while (j < rawLines.length) {
+        const l = rawLines[j]
+        const leadingSpaces = l.match(/^(\s*)/)?.[1].length ?? 0
+        const trimmed = l.trim()
+
+        if (trimmed === '') {
+          j++
+          continue
+        }
+
+        // Новый элемент: "- key: value" на уровне itemIndent
+        const itemStart = l.match(/^\s*-\s+(\w+):\s*(.*)$/)
+        if (itemStart && leadingSpaces === itemIndent) {
+          if (current) items.push(current)
+          current = { [itemStart[1]]: itemStart[2].trim().replace(/^["']|["']$/g, '') }
+          j++
+          continue
+        }
+
+        // Продолжение элемента: "  key: value" с отступом больше itemIndent
+        const itemField = l.match(/^\s*(\w+):\s*(.*)$/)
+        if (itemField && current && leadingSpaces > itemIndent) {
+          current[itemField[1]] = itemField[2].trim().replace(/^["']|["']$/g, '')
+          j++
+          continue
+        }
+
+        // Не наш блок — вышли
+        break
+      }
+      if (current) items.push(current)
+      if (items.length > 0) {
+        fm[key] = items
+        i = j - 1
+        continue
+      }
+    }
+
+    // Plain string
+    fm[key] = value.replace(/^["']|["']$/g, '')
   }
   return { fm, body: match[2] }
 }
@@ -142,8 +205,24 @@ function loadVaultProject(filePath: string): VaultProject {
   const h1 = body.match(/^#\s+(.+)$/m)
   const name = (h1?.[1] ?? slug).trim()
 
-  const repoPath = findRepoPath(slug)
+  // Мультирепо: если во frontmatter есть repos: — резолвим каждый по slug.
+  let repoPaths: RepoEntry[] | null = null
+  const fmRepos = fm.repos as Array<Record<string, string>> | undefined
+  if (fmRepos && fmRepos.length > 0) {
+    const resolved: RepoEntry[] = []
+    for (const r of fmRepos) {
+      if (!r.slug) continue
+      const path = findRepoPath(r.slug)
+      if (path) resolved.push({ slug: r.slug, name: r.name || r.slug, path })
+    }
+    if (resolved.length > 0) repoPaths = resolved
+  }
+
+  // Одиночное репо: если repoPaths не задан, ищем по slug проекта.
+  const repoPath = repoPaths ? null : findRepoPath(slug)
   const techStack = extractListSection(body, 'Технологии')
+
+  const isDev = Boolean(repoPath) || (repoPaths?.length ?? 0) > 0
 
   return {
     slug,
@@ -152,8 +231,9 @@ function loadVaultProject(filePath: string): VaultProject {
     description: extractDescription(body),
     techStack: techStack.length > 0 ? techStack : null,
     tags: (fm.tags as string[] | undefined) ?? null,
-    kind: repoPath ? 'dev' : 'general',
+    kind: isDev ? 'dev' : 'general',
     repoPath,
+    repoPaths,
   }
 }
 
@@ -201,6 +281,7 @@ async function upsertForUser(userId: string, vaultProjects: VaultProject[]): Pro
           tags: vp.tags,
           kind: vp.kind,
           repoPath: vp.repoPath,
+          repoPaths: vp.repoPaths,
         })
         .where(eq(projects.id, existing.id))
       updated++
@@ -215,6 +296,7 @@ async function upsertForUser(userId: string, vaultProjects: VaultProject[]): Pro
         tags: vp.tags,
         kind: vp.kind,
         repoPath: vp.repoPath,
+        repoPaths: vp.repoPaths,
       })
       created++
     }
@@ -232,9 +314,14 @@ async function main() {
   const vaultProjects = scanVaultProjects()
   console.log(`Найдено ${vaultProjects.length} проектов в vault:`)
   for (const vp of vaultProjects) {
-    console.log(
-      `  - ${vp.slug.padEnd(24)} [${vp.kind}]${vp.repoPath ? ` → ${vp.repoPath}` : ''}`,
-    )
+    if (vp.repoPaths && vp.repoPaths.length > 0) {
+      console.log(`  - ${vp.slug.padEnd(24)} [${vp.kind}] мультирепо (${vp.repoPaths.length})`)
+      for (const r of vp.repoPaths) console.log(`      · ${r.slug} → ${r.path}`)
+    } else {
+      console.log(
+        `  - ${vp.slug.padEnd(24)} [${vp.kind}]${vp.repoPath ? ` → ${vp.repoPath}` : ''}`,
+      )
+    }
   }
 
   const targetUsers = userIdArg

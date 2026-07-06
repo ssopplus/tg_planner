@@ -102,6 +102,9 @@ export default function TaskDetailPage() {
   const [deadlineInput, setDeadlineInput] = useState('')
   const [deadlineTypeInput, setDeadlineTypeInput] = useState<string>('HARD')
   const [projects, setProjects] = useState<ProjectOption[]>([])
+  const [repoOptions, setRepoOptions] = useState<
+    Array<{ slug: string; name: string; path: string }> | null
+  >(null)
 
   const fetchTask = useCallback(async () => {
     try {
@@ -158,20 +161,37 @@ export default function TaskDetailPage() {
     router.back()
   }, [taskId, router])
 
-  const handleCopyPrompt = useCallback(async () => {
-    try {
-      const res = await apiFetch(`/api/tasks/${taskId}/prompt`)
-      if (!res.ok) {
-        showToast({ kind: 'error', message: 'Не удалось собрать промт' })
-        return
+  const copyPromptForRepo = useCallback(
+    async (repoSlug?: string) => {
+      try {
+        const url = repoSlug
+          ? `/api/tasks/${taskId}/prompt?repo=${encodeURIComponent(repoSlug)}`
+          : `/api/tasks/${taskId}/prompt`
+        const res = await apiFetch(url)
+        if (!res.ok) {
+          showToast({ kind: 'error', message: 'Не удалось собрать промт' })
+          return
+        }
+        const data = (await res.json()) as
+          | { prompt: string }
+          | { repos: Array<{ slug: string; name: string; path: string }> }
+
+        if ('repos' in data) {
+          setRepoOptions(data.repos)
+          return
+        }
+
+        await navigator.clipboard.writeText(data.prompt)
+        setRepoOptions(null)
+        showToast({ kind: 'success', message: 'Промт скопирован' })
+      } catch {
+        showToast({ kind: 'error', message: 'Буфер обмена недоступен' })
       }
-      const { prompt } = (await res.json()) as { prompt: string }
-      await navigator.clipboard.writeText(prompt)
-      showToast({ kind: 'success', message: 'Промт скопирован' })
-    } catch {
-      showToast({ kind: 'error', message: 'Буфер обмена недоступен' })
-    }
-  }, [taskId])
+    },
+    [taskId],
+  )
+
+  const handleCopyPrompt = useCallback(() => copyPromptForRepo(), [copyPromptForRepo])
 
   const handleSubtaskToggle = useCallback(
     async (subtaskId: string, isCompleted: boolean) => {
@@ -662,7 +682,32 @@ export default function TaskDetailPage() {
         </div>
 
         {/* AI-промт (только для dev-проектов) */}
-        {task.projectKind === 'dev' && (
+        {task.projectKind === 'dev' && repoOptions && repoOptions.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <div className="text-sm text-[var(--tg-theme-hint-color,#8e8e93)] px-1">
+              Выбери репозиторий:
+            </div>
+            {repoOptions.map((r) => (
+              <button
+                key={r.slug}
+                type="button"
+                onClick={() => copyPromptForRepo(r.slug)}
+                className="w-full py-3 px-4 rounded-xl bg-[var(--tg-theme-button-color,#007aff)]/10 text-[var(--tg-theme-button-color,#007aff)] font-medium text-left active:scale-[0.98] transition-transform"
+              >
+                <div className="font-semibold">{r.name}</div>
+                <div className="text-xs opacity-70 truncate">{r.slug}</div>
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setRepoOptions(null)}
+              className="text-sm text-[var(--tg-theme-hint-color,#8e8e93)] py-2"
+            >
+              Отмена
+            </button>
+          </div>
+        )}
+        {task.projectKind === 'dev' && !repoOptions && (
           <button
             type="button"
             onClick={handleCopyPrompt}

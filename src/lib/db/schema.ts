@@ -66,8 +66,13 @@ export const projects = pgTable(
     tags: jsonb('tags'),
     /** "general" (без репозитория) или "dev" (есть код, доступна генерация промтов) */
     kind: text('kind').default('general').notNull(),
-    /** Абсолютный путь к репозиторию для dev-проектов */
+    /** Абсолютный путь к репозиторию для dev-проектов. Для проектов с одним репо. */
     repoPath: text('repo_path'),
+    /**
+     * Массив репозиториев для мультирепо-проектов (например, pola-erp: erp+front+electron).
+     * Формат: [{slug, name, path}]. Если не пуст — используется вместо repoPath.
+     */
+    repoPaths: jsonb('repo_paths'),
     type: projectTypeEnum('type').default('DEFAULT').notNull(),
     isDefault: boolean('is_default').default(false).notNull(),
     sortOrder: integer('sort_order').default(0).notNull(),

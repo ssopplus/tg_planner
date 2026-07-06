@@ -50,6 +50,13 @@
       "when": 1780499003081,
       "tag": "0006_romantic_khan",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783339038366,
+      "tag": "0007_yummy_turbo",
+      "breakpoints": true
     }
   ]
 }

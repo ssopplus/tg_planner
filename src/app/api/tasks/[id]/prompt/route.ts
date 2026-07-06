@@ -18,6 +18,7 @@ export async function GET(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
+  const repoSlug = request.nextUrl.searchParams.get('repo')
 
   const [row] = await db
     .select({
@@ -30,6 +31,7 @@ export async function GET(
       projectDescription: projects.description,
       projectTechStack: projects.techStack,
       projectRepoPath: projects.repoPath,
+      projectRepoPaths: projects.repoPaths,
     })
     .from(tasks)
     .leftJoin(projects, eq(tasks.projectId, projects.id))
@@ -37,6 +39,22 @@ export async function GET(
     .limit(1)
 
   if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // Мультирепо: если у проекта список репозиториев и клиент не указал ?repo=slug,
+  // возвращаем список репозиториев — UI покажет выбор.
+  const repos = row.projectRepoPaths as Array<{ slug: string; name: string; path: string }> | null
+
+  let resolvedRepoPath: string | null = row.projectRepoPath
+  if (repos && repos.length > 0) {
+    if (!repoSlug) {
+      return NextResponse.json({ repos })
+    }
+    const picked = repos.find((r) => r.slug === repoSlug)
+    if (!picked) {
+      return NextResponse.json({ error: 'Unknown repo slug' }, { status: 400 })
+    }
+    resolvedRepoPath = picked.path
+  }
 
   const taskSubtasks = await db
     .select({ title: subtasks.title, isCompleted: subtasks.isCompleted })
@@ -57,7 +75,7 @@ export async function GET(
       slug: row.projectSlug,
       description: row.projectDescription,
       techStack: (row.projectTechStack as string[] | null) ?? null,
-      repoPath: row.projectRepoPath,
+      repoPath: resolvedRepoPath,
     },
   })
 

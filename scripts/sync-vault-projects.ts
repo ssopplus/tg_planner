@@ -1,22 +1,35 @@
 /**
  * Импорт проектов из Obsidian-vault в БД tg-planer.
  *
- * Источник: /Users/vilch/Разработка/Документация/Проекты/{Vodohod,Личное}/*.md
- * Slug проекта = имя файла без .md.
+ * Источник: /Users/vilch/Разработка/Документация/Проекты/{Vodohod,Личное}/<slug>/index.md
  *
  * Алгоритм:
- * 1. Сканируем все .md в Документация/Проекты/.
- * 2. Парсим frontmatter и тело (regex по знакомой структуре заметок).
- * 3. Определяем kind и repo_path: ищем папку с подходящим именем в
- *    Vodohod/Projects/ или Личное/project/.
- * 4. UPSERT в projects по (userId, slug). Tasks не трогаем.
+ * 1. Discovery: сканируем Vodohod/Projects/ и Личное/project/, находим папки
+ *    с .git, для которых в vault ещё нет заметки. Создаём шаблонные
+ *    index.md + tasks.md — категория Vodohod/Личное определяется по корню.
+ *    Мультирепо-slug'и (frontmatter.repos) считаются занятыми, чтобы pola-erp
+ *    не превратилось обратно в три отдельных проекта. Инфра-каталоги
+ *    (ansible) — в IGNORED_REPO_SLUGS.
+ * 2. Сканируем все index.md в Документация/Проекты/.
+ * 3. Парсим frontmatter и тело.
+ * 4. Определяем kind и repo_path/repo_paths: ищем папки-репозитории.
+ * 5. UPSERT в projects по (userId, slug). Tasks не трогаем.
  *
- * Запуск: pnpm tsx scripts/sync-vault-projects.ts [--user-id=<id>]
- * Если --user-id не указан — берём всех пользователей.
+ * Запуск: pnpm tsx scripts/sync-vault-projects.ts [--user-id=<id>] [--no-discover]
+ * Если --user-id не указан — синхронизируется для всех пользователей.
+ * --no-discover — пропустить создание новых заметок vault, только импорт из
+ *   уже существующих (полезно при отладке).
  */
 
 import 'dotenv/config'
-import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
+import {
+  readdirSync,
+  readFileSync,
+  existsSync,
+  statSync,
+  writeFileSync,
+  mkdirSync,
+} from 'node:fs'
 import { resolve, join, relative } from 'node:path'
 import { db } from '../src/lib/db'
 import { users, projects } from '../src/lib/db/schema'
@@ -237,6 +250,130 @@ function loadVaultProject(filePath: string): VaultProject {
   }
 }
 
+/**
+ * Соответствие корня репозиториев → категории vault.
+ * Vodohod/Projects/ → «Vodohod», Личное/project/ → «Личное».
+ */
+const REPO_ROOT_TO_CATEGORY: Record<string, string> = {
+  [resolve(WORKSPACE_ROOT, 'Vodohod/Projects')]: 'Vodohod',
+  [resolve(WORKSPACE_ROOT, 'Личное/project')]: 'Личное',
+}
+
+const INDEX_MD_TEMPLATE = (slug: string, category: string) => `---
+tags: [проект, ${category.toLowerCase()}]
+project: ${slug}
+status: active
+---
+
+# ${slug}
+
+TODO: краткое описание проекта в одну-две строки.
+
+## Описание
+
+TODO: что за продукт, для кого, какую задачу решает.
+
+## Технологии
+
+- TODO
+
+## Связанные проекты
+
+- TODO
+
+## Назад
+
+← [[${category}]]
+`
+
+const TASKS_MD_TEMPLATE = `# Задачи
+
+Активные задачи проекта. Каждая строка \`- [ ] ...\` синхронизируется с tg-planer.
+
+Формат: \`- [ ] заголовок 📅 YYYY-MM-DD ⏫\` (⏫=HIGH, 🔼=MEDIUM, 🔽=LOW).
+После синхронизации в конец строки добавляется \`<!--tgp:UUID-->\` — не удаляй
+этот маркер, по нему трекер находит задачу при следующих правках.
+
+---
+
+`
+
+/**
+ * Возвращает slug'и всех репозиториев, уже «занятых» проектами vault:
+ *  - имя папки проекта (Документация/Проекты/<категория>/<slug>/index.md);
+ *  - slug'и из фронтматтера `repos:` — для мультирепо-проектов (pola-erp
+ *    оборачивает erp + pola-tech-front + master-reporting-tool-electron).
+ * Без этого discovery-фаза попыталась бы создать отдельные заметки для
+ * репозиториев, которые уже склеены в один проект.
+ */
+function collectExistingVaultSlugs(): Set<string> {
+  const slugs = new Set<string>()
+  for (const category of readdirSync(VAULT_PROJECTS_DIR)) {
+    const categoryPath = join(VAULT_PROJECTS_DIR, category)
+    if (!statSync(categoryPath).isDirectory()) continue
+    for (const entry of readdirSync(categoryPath)) {
+      const projectDir = join(categoryPath, entry)
+      if (!statSync(projectDir).isDirectory()) continue
+      const indexPath = join(projectDir, 'index.md')
+      if (!existsSync(indexPath)) continue
+      slugs.add(entry)
+
+      // Подхватываем slug'и вложенных репозиториев из frontmatter.repos.
+      const { fm } = parseFrontmatter(readFileSync(indexPath, 'utf-8'))
+      const repos = fm.repos as Array<Record<string, string>> | undefined
+      if (repos) for (const r of repos) if (r.slug) slugs.add(r.slug)
+    }
+  }
+  return slugs
+}
+
+/**
+ * Инфра-каталоги в Vodohod/Projects/, которые не проекты в смысле tg-planer.
+ * Скрипт discovery их пропускает.
+ */
+const IGNORED_REPO_SLUGS = new Set(['ansible'])
+
+/**
+ * Ищет git-репозитории в REPO_SEARCH_ROOTS, для которых ещё нет заметки в vault,
+ * и создаёт шаблонные index.md + tasks.md. Возвращает список созданных slug'ов.
+ *
+ * Критерий «репозиторий» — папка с подкаталогом `.git`. Отсеивает служебные
+ * директории вроде `ansible`, `node_modules` и т.п. без .git внутри.
+ */
+function discoverNewProjectsAndCreateNotes(): string[] {
+  const knownSlugs = collectExistingVaultSlugs()
+  const created: string[] = []
+
+  for (const root of REPO_SEARCH_ROOTS) {
+    if (!existsSync(root)) continue
+    const category = REPO_ROOT_TO_CATEGORY[root]
+    if (!category) continue
+
+    for (const entry of readdirSync(root)) {
+      // Игнорируем скрытые/dot-файлы и явно неинтересные инфра-репы
+      if (entry.startsWith('.')) continue
+      if (IGNORED_REPO_SLUGS.has(entry)) continue
+      const repoPath = join(root, entry)
+      if (!statSync(repoPath).isDirectory()) continue
+      if (!existsSync(join(repoPath, '.git'))) continue
+
+      // Возможные варианты slug'а, под которыми проект может быть уже описан в vault.
+      const candidates = [entry, entry.replace(/-master$/, ''), entry.replace(/-main$/, '')]
+      if (candidates.some((c) => knownSlugs.has(c))) continue
+
+      // Slug для vault совпадает с именем папки; при желании потом переименуешь.
+      const slug = entry
+      const vaultProjectDir = join(VAULT_PROJECTS_DIR, category, slug)
+      mkdirSync(vaultProjectDir, { recursive: true })
+      writeFileSync(join(vaultProjectDir, 'index.md'), INDEX_MD_TEMPLATE(slug, category), 'utf-8')
+      writeFileSync(join(vaultProjectDir, 'tasks.md'), TASKS_MD_TEMPLATE, 'utf-8')
+      created.push(slug)
+    }
+  }
+
+  return created
+}
+
 function scanVaultProjects(): VaultProject[] {
   const result: VaultProject[] = []
   for (const category of readdirSync(VAULT_PROJECTS_DIR)) {
@@ -310,6 +447,16 @@ async function upsertForUser(userId: string, vaultProjects: VaultProject[]): Pro
 async function main() {
   const args = process.argv.slice(2)
   const userIdArg = args.find((a) => a.startsWith('--user-id='))?.split('=')[1]
+  const skipDiscover = args.includes('--no-discover')
+
+  if (!skipDiscover) {
+    const discovered = discoverNewProjectsAndCreateNotes()
+    if (discovered.length > 0) {
+      console.log(`Создано ${discovered.length} новых заметок в vault:`)
+      for (const slug of discovered) console.log(`  + ${slug}`)
+      console.log()
+    }
+  }
 
   const vaultProjects = scanVaultProjects()
   console.log(`Найдено ${vaultProjects.length} проектов в vault:`)

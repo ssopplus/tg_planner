@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
     .select({
       id: tasks.id,
       title: tasks.title,
+      description: tasks.description,
       priority: tasks.priority,
       status: tasks.status,
       deadlineAt: tasks.deadlineAt,

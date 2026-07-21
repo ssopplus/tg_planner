@@ -14,6 +14,7 @@ import {
   Pencil,
   Sparkles,
   ExternalLink,
+  Sun,
 } from 'lucide-react'
 import { apiFetch } from '@/lib/telegram/webapp'
 import { showToast } from '@/lib/api/toast'
@@ -34,6 +35,7 @@ interface TaskDetail {
   status: string
   deadlineAt: string | null
   deadlineType: string | null
+  myDayDate: string | null
   projectName: string | null
   projectId: string
   projectKind: string | null
@@ -161,6 +163,18 @@ export default function TaskDetailPage() {
     router.back()
   }, [taskId, router])
 
+  // Тоггл «Мой день». Проверяем именно ручное включение (myDayDate === today);
+  // авто-включение (жёсткий дедлайн, HIGH-приоритет) — не в поле myDayDate,
+  // его отсюда снимать нельзя, только через удаление дедлайна/приоритета.
+  const handleMyDayToggle = useCallback(() => {
+    if (!task) return
+    const todayStr = new Date().toISOString().split('T')[0]
+    const isInMyDay = task.myDayDate === todayStr
+    const newValue = isInMyDay ? null : todayStr
+    setTask({ ...task, myDayDate: newValue })
+    patchTask({ myDayDate: newValue })
+  }, [task, patchTask])
+
   const copyPromptForRepo = useCallback(
     async (repoSlug?: string) => {
       try {
@@ -253,6 +267,19 @@ export default function TaskDetailPage() {
   const completedSubtasks = task.subtasks.filter((s) => s.isCompleted).length
   const totalSubtasks = task.subtasks.length
   const progress = totalSubtasks > 0 ? (completedSubtasks / totalSubtasks) * 100 : 0
+
+  // «Мой день» — та же логика, что в TaskCard.checkMyDay: ручное поле + авто.
+  const today = new Date()
+  const todayStr = today.toISOString().split('T')[0]
+  const isDone = task.status === 'DONE'
+  const manuallyInMyDay = task.myDayDate === todayStr
+  const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59)
+  const autoInMyDay =
+    !manuallyInMyDay &&
+    !isDone &&
+    ((!!task.deadlineAt && new Date(task.deadlineAt) <= endOfDay) ||
+      (task.priority === 'HIGH' && !task.deadlineAt))
+  const inMyDay = manuallyInMyDay || autoInMyDay
 
   return (
     <div className="bg-[var(--tg-theme-bg-color,#f2f2f7)] min-h-dvh">
@@ -602,6 +629,36 @@ export default function TaskDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* Мой день — быстрый тоггл */}
+        <button
+          type="button"
+          onClick={handleMyDayToggle}
+          disabled={autoInMyDay}
+          className={`w-full py-3 rounded-xl font-semibold text-base flex items-center justify-center gap-2 active:scale-[0.98] transition-transform ${
+            autoInMyDay
+              ? 'bg-amber-500/10 text-amber-600/70 cursor-not-allowed'
+              : inMyDay
+                ? 'bg-amber-500/15 text-amber-600'
+                : 'bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-[var(--tg-theme-text-color,#000)]'
+          }`}
+          title={
+            autoInMyDay
+              ? 'Задача автоматически попадает в «Мой день» (дедлайн / приоритет)'
+              : undefined
+          }
+        >
+          <Sun
+            className={`h-5 w-5 ${
+              inMyDay ? 'fill-amber-500 text-amber-500' : ''
+            }`}
+          />
+          {autoInMyDay
+            ? 'В «Моём дне» (автоматически)'
+            : inMyDay
+              ? 'Убрать из «Моего дня»'
+              : 'Добавить в «Мой день»'}
+        </button>
 
         {/* Подзадачи */}
         <div className="bg-[var(--tg-theme-section-bg-color,#fff)] rounded-xl p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">

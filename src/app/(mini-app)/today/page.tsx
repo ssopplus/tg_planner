@@ -60,6 +60,16 @@ export default function TodayPage() {
     })
   }, [tasks])
 
+  // onMyDayToggle из карточки Мой день имеет смысл только как «убрать»:
+  // задача уже в дне, add=false. Игнорируем add=true, чтобы не появлялись
+  // дубли в списке (add на этой странице просто нечего делать).
+  const handleMyDayToggle = useCallback(
+    (id: string, add: boolean) => {
+      if (!add) handleRemoveFromDay(id)
+    },
+    [handleRemoveFromDay],
+  )
+
   const todayStr = new Date().toISOString().split('T')[0]
 
   const openPicker = useCallback(async () => {
@@ -142,12 +152,13 @@ export default function TodayPage() {
               onTasksReorder={setTasks}
               onComplete={handleComplete}
               onRemove={handleRemoveFromDay}
+              onMyDayToggle={handleMyDayToggle}
             />
           )}
 
           {!loading && tasks.length > 0 && (
             <p className="text-center text-xs text-[var(--tg-theme-hint-color,#8e8e93)] mt-4 px-4">
-              Свайп влево — выполнить · Свайп вправо — убрать · Удержи ⋮ — перетащить
+              Свайп/тяни влево — выполнить · вправо — убрать · ☀️ — тоже убрать · Удержи ⋮ — перетащить
             </p>
           )}
 

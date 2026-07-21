@@ -29,15 +29,17 @@ interface SortableTodayListProps {
   onTasksReorder: (tasks: TaskCardData[]) => void
   onComplete?: (id: string) => void
   onRemove?: (id: string) => void
+  onMyDayToggle?: (id: string, add: boolean) => void
 }
 
 interface SortableRowProps {
   task: TaskCardData
   onComplete?: (id: string) => void
   onRemove?: (id: string) => void
+  onMyDayToggle?: (id: string, add: boolean) => void
 }
 
-function SortableRow({ task, onComplete, onRemove }: SortableRowProps) {
+function SortableRow({ task, onComplete, onRemove, onMyDayToggle }: SortableRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
   })
@@ -50,7 +52,12 @@ function SortableRow({ task, onComplete, onRemove }: SortableRowProps) {
 
   return (
     <div ref={setNodeRef} style={style} className="relative">
-      <SwipeableTaskCard task={task} onComplete={onComplete} onRemove={onRemove} />
+      <SwipeableTaskCard
+        task={task}
+        onComplete={onComplete}
+        onRemove={onRemove}
+        onMyDayToggle={onMyDayToggle}
+      />
       {/* Drag-handle: длинное нажатие активирует drag, чтобы не конфликтовать со swipe */}
       <button
         type="button"
@@ -70,6 +77,7 @@ export function SortableTodayList({
   onTasksReorder,
   onComplete,
   onRemove,
+  onMyDayToggle,
 }: SortableTodayListProps) {
   const [items, setItems] = useState<TaskCardData[]>(tasks)
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -129,7 +137,13 @@ export function SortableTodayList({
       <SortableContext items={items.map((t) => t.id)} strategy={verticalListSortingStrategy}>
         <div className="flex flex-col gap-2">
           {items.map((task) => (
-            <SortableRow key={task.id} task={task} onComplete={onComplete} onRemove={onRemove} />
+            <SortableRow
+              key={task.id}
+              task={task}
+              onComplete={onComplete}
+              onRemove={onRemove}
+              onMyDayToggle={onMyDayToggle}
+            />
           ))}
         </div>
       </SortableContext>

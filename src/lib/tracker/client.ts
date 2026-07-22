@@ -93,12 +93,13 @@ export function mapTrackerPriority(
  * Очереди без маппинга игнорируются при синке.
  *
  * Согласовано 2026-06-03:
- * - SHWEB (SH Web Development) → turbo-site
+ * - SHWEB (SH Web Development) → SwanHellenic (веб-часть Swan Hellenic;
+ *   ранее маппилось на turbo-site — проект слит в SwanHellenic 2026-07-21)
  * - POLAERP (Pola ERP) → pola-erp
  * - остальные (DEV, MARKETING, AIBOT, …) → пока не синхронизируем
  */
 export const QUEUE_TO_PROJECT_SLUG: Record<string, string> = {
-  SHWEB: 'turbo-site',
+  SHWEB: 'SwanHellenic',
   POLAERP: 'pola-erp',
 }
 

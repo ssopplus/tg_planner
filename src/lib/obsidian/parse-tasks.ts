@@ -149,8 +149,8 @@ export function parseObsidianTasks(markdown: string): ObsidianTask[] {
  * Slug = имя папки проекта.
  *
  * Примеры:
- *   "Проекты/Vodohod/turbo-site/tasks.md"   → "turbo-site"
- *   "Проекты/Vodohod/turbo-site/index.md"   → "turbo-site"
+ *   "Проекты/Vodohod/SwanHellenic/tasks.md" → "SwanHellenic"
+ *   "Проекты/Vodohod/SwanHellenic/index.md" → "SwanHellenic"
  *   "Проекты/Личное/tg-planer/tasks.md"     → "tg-planer"
  *   "Темы/Боты.md"                          → null
  */

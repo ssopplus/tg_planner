@@ -10,6 +10,7 @@ import { mutateSafely } from '@/lib/api/mutate'
 export interface TaskCardData {
   id: string
   title: string
+  description?: string | null
   priority: 'LOW' | 'MEDIUM' | 'HIGH'
   deadlineAt: string | null
   deadlineType: string | null
@@ -323,6 +324,15 @@ export function TaskCard({
                   {priority.label}
                 </span>
               </div>
+              {task.description && (
+                <p
+                  className={`text-[13px] leading-snug mt-0.5 line-clamp-1 break-words text-[var(--tg-theme-hint-color,#8e8e93)] ${
+                    isDone ? 'opacity-60' : ''
+                  }`}
+                >
+                  {task.description}
+                </p>
+              )}
               <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                 <TaskSourceBadge task={task} />
                 {task.deadlineAt && (

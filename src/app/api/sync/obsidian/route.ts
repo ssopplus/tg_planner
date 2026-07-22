@@ -241,7 +241,10 @@ async function syncFileTasks(args: {
         .limit(1)
 
       if (existing) {
-        // Завершение: чекбокс отметили `[x]` в vault.
+        // Завершение: чекбокс отметили `[x]` в vault. Меняем только статус —
+        // title/description намеренно не трогаем (их обновляет ветка else при
+        // обычной правке текста). Комбинация «правка текста + [x]» в одном
+        // коммите редка; при следующем не-завершающем синке текст догонит.
         if (t.isCompleted && existing.status !== 'DONE') {
           await db
             .update(tasks)
@@ -253,6 +256,7 @@ async function syncFileTasks(args: {
             .update(tasks)
             .set({
               title: t.title,
+              description: t.description,
               priority,
               deadlineAt,
               projectId,
@@ -269,6 +273,7 @@ async function syncFileTasks(args: {
           userId: args.userId,
           projectId,
           title: t.title,
+          description: t.description,
           priority,
           deadlineAt,
           status: t.isCompleted ? 'DONE' : 'TODO',
@@ -286,6 +291,7 @@ async function syncFileTasks(args: {
         userId: args.userId,
         projectId,
         title: t.title,
+        description: t.description,
         priority,
         deadlineAt,
         status: t.isCompleted ? 'DONE' : 'TODO',

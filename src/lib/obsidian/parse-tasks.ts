@@ -14,8 +14,10 @@
  */
 
 export interface ObsidianTask {
-  /** Сырая строка (без префиксного `- [ ]` и без меток) — заголовок задачи */
+  /** Короткая суть задачи (до первого ` — `), без префикса `<slug>:` и меток */
   title: string
+  /** Детали задачи (после первого ` — `), либо null если разделителя нет */
+  description: string | null
   /** Статус из `[ ]` или `[x]` */
   isCompleted: boolean
   /** Дата дедлайна в формате YYYY-MM-DD, если 📅 присутствовала */
@@ -39,10 +41,22 @@ const PRIORITY_MEDIUM_RE = /🔼/
 const PRIORITY_LOW_RE = /🔽/
 const PROJECT_TAG_RE = /#project\/([a-z0-9_-]+)/i
 const TGP_ID_RE = /<!--tgp:([a-zA-Z0-9_-]+)-->/
+/** Wiki-ссылка Obsidian `[[slug]]` — служебная, в заголовок задачи не идёт. */
+const WIKILINK_RE = /\[\[[^\]]+\]\]/g
+/** Значки-галочки, которыми иногда помечают закрытые задачи (✔/✅/☑) — визуальный мусор. */
+const CHECKMARK_RE = /[✔✅☑]/g
+/** Префикс проекта в начале строки: `intur:`, `pola-erp:` и т.п. */
+const PROJECT_PREFIX_RE = /^[a-z0-9_-]+:\s*/i
+/**
+ * Разделитель «суть — детали»: em-dash (U+2014) или en-dash (U+2013) в
+ * окружении пробелов. Пробелы обязательны, чтобы не задеть дефисы внутри
+ * слов (`e-mail`, `/v2`, `123-456`) и путей.
+ */
+const TITLE_DESC_SPLIT_RE = /\s+[—–]\s+/
 
 /**
- * Удаляет из строки все «системные» маркеры (даты, приоритет, тег, анкер),
- * оставляя только чистый текст заголовка. Без trim — это делает caller.
+ * Удаляет из строки все «системные» маркеры (даты, приоритет, тег, анкер,
+ * wiki-ссылки, галочки), оставляя только чистый текст. Без trim — это делает caller.
  */
 function stripMarkers(text: string): string {
   return text
@@ -52,6 +66,34 @@ function stripMarkers(text: string): string {
     .replace(PRIORITY_LOW_RE, '')
     .replace(PROJECT_TAG_RE, '')
     .replace(TGP_ID_RE, '')
+    .replace(WIKILINK_RE, '')
+    .replace(CHECKMARK_RE, '')
+}
+
+/**
+ * Делит очищенный текст задачи на короткий заголовок и описание по первому
+ * разделителю ` — `. Префикс проекта (`<slug>:`) срезается из заголовка.
+ * Если разделителя нет — весь текст идёт в title, description = null.
+ */
+function splitTitleDescription(cleanText: string): { title: string; description: string | null } {
+  const match = cleanText.match(TITLE_DESC_SPLIT_RE)
+  if (!match) {
+    return { title: stripPrefix(cleanText), description: null }
+  }
+  const splitAt = match.index!
+  const rawTitle = cleanText.slice(0, splitAt)
+  const rawDesc = cleanText.slice(splitAt + match[0].length)
+  const title = stripPrefix(rawTitle)
+  const description = rawDesc.trim() || null
+  // Если суть до разделителя оказалась пустой (строка вида «— детали»),
+  // не плодим пустой заголовок — считаем весь текст заголовком.
+  if (!title) return { title: stripPrefix(cleanText), description: null }
+  return { title, description }
+}
+
+/** Срезает префикс проекта `<slug>:` и обрезает пробелы. */
+function stripPrefix(text: string): string {
+  return text.replace(PROJECT_PREFIX_RE, '').trim()
 }
 
 function detectPriority(text: string): 'HIGH' | 'MEDIUM' | 'LOW' | null {
@@ -78,11 +120,15 @@ export function parseObsidianTasks(markdown: string): ObsidianTask[] {
     const idMatch = body.match(TGP_ID_RE)
     const priority = detectPriority(body)
 
-    const cleanTitle = stripMarkers(body).replace(/\s+/g, ' ').trim()
-    if (!cleanTitle) continue
+    const cleanText = stripMarkers(body).replace(/\s+/g, ' ').trim()
+    if (!cleanText) continue
+
+    const { title, description } = splitTitleDescription(cleanText)
+    if (!title) continue
 
     tasks.push({
-      title: cleanTitle,
+      title,
+      description,
       isCompleted,
       due: dueMatch?.[1] ?? null,
       priority,
@@ -103,8 +149,8 @@ export function parseObsidianTasks(markdown: string): ObsidianTask[] {
  * Slug = имя папки проекта.
  *
  * Примеры:
- *   "Проекты/Vodohod/turbo-site/tasks.md"   → "turbo-site"
- *   "Проекты/Vodohod/turbo-site/index.md"   → "turbo-site"
+ *   "Проекты/Vodohod/SwanHellenic/tasks.md" → "SwanHellenic"
+ *   "Проекты/Vodohod/SwanHellenic/index.md" → "SwanHellenic"
  *   "Проекты/Личное/tg-planer/tasks.md"     → "tg-planer"
  *   "Темы/Боты.md"                          → null
  */

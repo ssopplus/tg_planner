@@ -51,6 +51,7 @@ export default function TasksPage() {
   const [showForm, setShowForm] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [projects, setProjects] = useState<ProjectOption[]>([])
+  const [projectsLoaded, setProjectsLoaded] = useState(false)
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [showProjectPicker, setShowProjectPicker] = useState(false)
   const [filterProjectIds, setFilterProjectIds] = useState<string[]>([])
@@ -144,6 +145,7 @@ export default function TasksPage() {
       if (res.ok) {
         const data: ProjectOption[] = await res.json()
         setProjects(data)
+        setProjectsLoaded(true)
         if (!selectedProjectId) {
           const def = data.find((p) => p.isDefault)
           setSelectedProjectId(def?.id ?? data[0]?.id ?? null)
@@ -151,6 +153,19 @@ export default function TasksPage() {
       }
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Санитайз фильтра: убираем id удалённых проектов, застрявшие в настройках.
+  // Иначе фильтр «залипает» на несуществующем проекте и снять его нечем
+  // (в дропдауне такого проекта нет). Ждём, пока приедут и настройки,
+  // и список проектов, чтобы не вырезать всё раньше времени. Отфильтрованный
+  // список сам сохранится в БД эффектом сохранения настроек выше.
+  useEffect(() => {
+    if (!settingsLoaded.current || !projectsLoaded) return
+    setFilterProjectIds((prev) => {
+      const valid = prev.filter((id) => projects.some((p) => p.id === id))
+      return valid.length === prev.length ? prev : valid
+    })
+  }, [projectsLoaded, projects])
 
   const handleToggle = useCallback(async (id: string, done: boolean) => {
     const newStatus = done ? 'DONE' : 'TODO'

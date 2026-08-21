@@ -92,14 +92,18 @@ export function mapTrackerPriority(
  * Маппинг ключа очереди YT → slug проекта в БД tg-planer.
  * Очереди без маппинга игнорируются при синке.
  *
- * Согласовано 2026-06-03:
- * - SHWEB (SH Web Development) → SwanHellenic (веб-часть Swan Hellenic;
- *   ранее маппилось на turbo-site — проект слит в SwanHellenic 2026-07-21)
- * - POLAERP (Pola ERP) → pola-erp
- * - остальные (DEV, MARKETING, AIBOT, …) → пока не синхронизируем
+ * Организация: vodohod.ru (Яндекс 360, org-7026646). Заголовок X-Org-ID,
+ * значение из env YANDEX_TRACKER_ORG_ID=7026646.
+ *
+ * Актуально с 2026-07 (переезд на организацию vodohod.ru):
+ * - POLAERP (Пола Ерп) → pola-erp
+ * - остальные очереди vodohod.ru (SH, WEBSH, VDHWEBNEW, WEB, AIBOT, …)
+ *   → пока не синхронизируем (нет назначенных задач / не решено)
+ *
+ * Прежняя организация (org-8347940) отключена: очередь SHWEB там больше
+ * не используется, её маппинг на SwanHellenic снят.
  */
 export const QUEUE_TO_PROJECT_SLUG: Record<string, string> = {
-  SHWEB: 'SwanHellenic',
   POLAERP: 'pola-erp',
 }
 

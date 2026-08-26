@@ -129,5 +129,5 @@ docs/plans/                   # Планы разработки (ADR workflow)
 | `GITHUB_VAULT_TOKEN` | PAT с правом `repo` на vault-репозиторий (read+write-back) |
 | `OBSIDIAN_SYNC_USER_ID` | UUID пользователя для привязки задач из vault (опционально, если в БД один user) |
 | `YANDEX_TRACKER_TOKEN` | OAuth-токен Яндекс Трекера для pull-синхронизации (см. `docs/yandex-tracker-sync.md`) |
-| `YANDEX_TRACKER_ORG_ID` | X-Org-ID Яндекс 360, формат `org-XXXXXX` |
+| `YANDEX_TRACKER_ORG_ID` | Числовой ID организации Яндекс 360 (напр. `7026646` — vodohod.ru), передаётся в заголовке `X-Org-ID` |
 | `TRACKER_SYNC_USER_ID` | UUID пользователя для привязки YT-тикетов (опционально, если в БД один user) |

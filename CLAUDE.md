@@ -100,11 +100,23 @@ docs/plans/                   # Планы разработки (ADR workflow)
 1. Создать `Документация/Проекты/<категория>/<slug>/{index.md, tasks.md}`. Для мультирепо — в frontmatter `repos: [{slug,name}]` (см. pola-erp).
 2. `pnpm sync:vault` — UPSERT по `(user_id, slug)`.
 
+**Связь с очередями Яндекс.Трекера** задаётся во frontmatter `index.md` проекта:
+
+```yaml
+tracker_queues: [WEBSH, SHWEB]     # какие очереди приземляются в этот проект
+tracker_default_queue: WEBSH       # куда «поднимать» внутренние задачи
+```
+
+`pnpm sync:vault` заливает это в `projects.tracker_queues`, синк Трекера строит
+маппинг «очередь → проект» из БД. Подключить очередь = правка заметки + синк,
+**без правки кода и деплоя**. Подробнее: [docs/yandex-tracker-sync.md](docs/yandex-tracker-sync.md).
+
 Скрипт ищет репо в `Vodohod/Projects/` и `Личное/project/`. Инфра-каталоги (`ansible`) — в `IGNORED_REPO_SLUGS`. Мультирепо-slug'и из `frontmatter.repos` считаются занятыми — pola-erp не превратится обратно в три отдельных проекта.
 
 **Флаги:**
 - `--user-id=<uuid>` — только для конкретного пользователя.
 - `--no-discover` — пропустить создание новых заметок в vault.
+- `--dry` — ничего не писать (ни заметки, ни БД), только показать разобранный конфиг.
 
 Локально работает с локальной БД или с прод-Supabase (какая указана в `DATABASE_URL`).
 

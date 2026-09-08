@@ -37,6 +37,42 @@ export interface TrackerIssue {
 }
 
 /**
+ * Ключи статусов Трекера, которые означают «задача больше не в работе».
+ *
+ * Нужны в двух местах: как YQL-фильтр выборки и как проверка на нашей стороне
+ * (см. isActiveIssue). Второе — не паранойя: поисковый индекс Трекера отдаёт
+ * неконсистентные данные, замер 08.09.2026 на орге vodohod.ru показал один и
+ * тот же POLAERP-42 как «В работе» в одном ответе и «Закрыт» в другом.
+ */
+export const INACTIVE_STATUS_KEYS = new Set(['closed', 'cancelled', 'resolved', 'rejected'])
+
+/** Активна ли задача по её статусу (страховка поверх YQL-фильтра). */
+export function isActiveIssue(issue: Pick<TrackerIssue, 'status'>): boolean {
+  return !INACTIVE_STATUS_KEYS.has(issue.status.key)
+}
+
+/**
+ * Маппинг статуса Трекера → статус задачи tg-planer.
+ *
+ * Активные статусы Трекера делятся на «ещё не начато» и «уже в работе»:
+ * open/backlog/asPlanned/needInfo → TODO, inProgress/testing/intest/review → IN_PROGRESS.
+ * Неактивные статусы сюда не попадают — они отсекаются isActiveIssue до вызова.
+ */
+export function mapTrackerStatus(statusKey: string): 'TODO' | 'IN_PROGRESS' {
+  switch (statusKey) {
+    case 'inProgress':
+    case 'inReview':
+    case 'review':
+    case 'testing':
+    case 'intest':
+    case 'readyForTest':
+      return 'IN_PROGRESS'
+    default:
+      return 'TODO'
+  }
+}
+
+/**
  * Возвращает активные задачи текущего пользователя (assignee=me()).
  * Активные = всё кроме closed/resolved/cancelled.
  *
@@ -51,7 +87,17 @@ export async function listMyActiveIssues(args: {
   // Tracker Search API: POST /v2/issues/_search с фильтром.
   // Используем язык запросов, потому что фильтр-объект не умеет "isn't"
   // одновременно по нескольким значениям статуса.
-  const queryParts = ['Assignee: me()', 'Resolution: empty()']
+  //
+  // ВАЖНО: раньше здесь стоял `Resolution: empty()` — он НЕ отсекает закрытые.
+  // Замер 08.09.2026 (орга vodohod.ru): такой запрос вернул 10 тикетов, из них
+  // 8 закрытых (POLAERP-2/17/28/42/55, SHWEB-144/266, AIBOT-121 «Отменено»).
+  // Причина — в Трекере тикет можно закрыть переходом без резолюции, тогда
+  // поле Resolution остаётся пустым. Отсекаем по статусу: тот же замер с
+  // фильтром ниже дал ровно 17 активных из 62 тикетов на assignee=me.
+  const queryParts = [
+    'Assignee: me()',
+    ...[...INACTIVE_STATUS_KEYS].map((key) => `Status: !${key}`),
+  ]
   if (args.updatedSince) {
     // YT хочет дату в формате "YYYY-MM-DD HH:mm" UTC.
     const iso = args.updatedSince.toISOString().slice(0, 16).replace('T', ' ')
@@ -69,7 +115,9 @@ export async function listMyActiveIssues(args: {
     throw new Error(`Tracker search ${res.status}: ${await res.text()}`)
   }
 
-  return (await res.json()) as TrackerIssue[]
+  // Второй слой: отсекаем по статусу то, что просочилось через YQL.
+  const issues = (await res.json()) as TrackerIssue[]
+  return issues.filter(isActiveIssue)
 }
 
 /** Маппинг приоритета YT в приоритет tg-planer. Незнакомые → MEDIUM. */
@@ -88,24 +136,6 @@ export function mapTrackerPriority(
   }
 }
 
-/**
- * Маппинг ключа очереди YT → slug проекта в БД tg-planer.
- * Очереди без маппинга игнорируются при синке.
- *
- * Организация: vodohod.ru (Яндекс 360, org-7026646). Заголовок X-Org-ID,
- * значение из env YANDEX_TRACKER_ORG_ID=7026646.
- *
- * Актуально с 2026-07 (переезд на организацию vodohod.ru):
- * - POLAERP (Пола Ерп) → pola-erp
- * - остальные очереди vodohod.ru (SH, WEBSH, VDHWEBNEW, WEB, AIBOT, …)
- *   → пока не синхронизируем (нет назначенных задач / не решено)
- *
- * Прежняя организация (org-8347940) отключена: очередь SHWEB там больше
- * не используется, её маппинг на SwanHellenic снят.
- */
-export const QUEUE_TO_PROJECT_SLUG: Record<string, string> = {
-  POLAERP: 'pola-erp',
-}
 
 /**
  * Закрывает тикет в YT через transition.

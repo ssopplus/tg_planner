@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { tasks, projects, users } from '@/lib/db/schema'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, notInArray, sql } from 'drizzle-orm'
 import {
   EXTERNAL_SOURCE_TRACKER,
   listMyActiveIssues,
   mapTrackerPriority,
-  QUEUE_TO_PROJECT_SLUG,
+  mapTrackerStatus,
   type TrackerIssue,
 } from '@/lib/tracker/client'
 import { notifyNewTasks, type NewTaskNotice } from '@/bot/services/tracker-notify'
@@ -18,11 +18,18 @@ import { notifyNewTasks, type NewTaskNotice } from '@/bot/services/tracker-notif
  * Single-user MVP: userId берётся из env TRACKER_SYNC_USER_ID, либо
  * единственный пользователь из БД.
  *
- * Что НЕ делает (отложено на F2 — двусторонняя синхронизация):
- *  - не пушит DONE из tg-planer обратно в YT;
- *  - не закрывает задачи в БД, когда тикет закрыт в YT (просто перестаёт
- *    обновлять; задача в tg-planer переходит в DONE только если её
- *    закрыть руками или через бота).
+ * Маппинг «очередь → проект» берётся из БД (projects.trackerQueues), куда его
+ * заливает `pnpm sync:vault` из frontmatter `tracker_queues` в index.md проекта
+ * в Obsidian-vault. Подключение новой очереди = строка в заметке, без деплоя.
+ *
+ * Трекер считается источником истины для статуса рабочих задач:
+ *  - активный тикет → статус по mapTrackerStatus (даже если локально стоял DONE:
+ *    значит закрытие не доехало до YT, и честнее показать это, чем молча
+ *    расходиться с Трекером);
+ *  - тикет исчез из выборки активных → закрываем задачу локально (DONE).
+ *
+ * Обратная запись (DONE в tg-planer → transition в YT) живёт в
+ * src/app/api/tasks/[id]/route.ts через closeIssue().
  */
 
 async function resolveUser(): Promise<{ id: string; telegramId: bigint } | null> {
@@ -40,6 +47,50 @@ async function resolveUser(): Promise<{ id: string; telegramId: bigint } | null>
     .from(users)
     .limit(2)
   return all.length === 1 ? all[0] : null
+}
+
+/**
+ * Строит маппинг «ключ очереди Трекера → проект» из projects.trackerQueues.
+ *
+ * Источник конфига — frontmatter `tracker_queues` в index.md проекта в
+ * Obsidian-vault, залитый `pnpm sync:vault`. Один проект может собирать
+ * несколько очередей (SwanHellenic: WEBSH + SHWEB).
+ *
+ * Если одна очередь указана у двух проектов — берём первый и пишем warning:
+ * молча раскидывать задачи одной очереди по разным проектам хуже, чем
+ * предсказуемо выбрать один и сообщить о конфликте конфига.
+ */
+async function buildQueueMap(
+  userId: string,
+): Promise<Map<string, { id: string; name: string }>> {
+  const rows = await db
+    .select({
+      id: projects.id,
+      name: projects.name,
+      slug: projects.slug,
+      trackerQueues: projects.trackerQueues,
+    })
+    .from(projects)
+    .where(and(eq(projects.userId, userId), isNotNull(projects.trackerQueues)))
+
+  const map = new Map<string, { id: string; name: string }>()
+  for (const row of rows) {
+    const queues = Array.isArray(row.trackerQueues) ? row.trackerQueues : []
+    for (const raw of queues) {
+      const key = String(raw).trim().toUpperCase()
+      if (!key) continue
+      const existing = map.get(key)
+      if (existing) {
+        console.warn(
+          `tracker-sync: очередь ${key} привязана к нескольким проектам ` +
+            `(${existing.name} и ${row.name}) — использую ${existing.name}`,
+        )
+        continue
+      }
+      map.set(key, { id: row.id, name: row.name })
+    }
+  }
+  return map
 }
 
 export async function GET(request: Request) {
@@ -81,19 +132,18 @@ export async function GET(request: Request) {
   // в 30 мин, нагрузки нет.
   const issues = await listMyActiveIssues({ token, orgId })
 
-  // Кэш проектов по slug в рамках одного запроса (id + имя для уведомлений)
-  const projectBySlug = new Map<string, { id: string; name: string }>()
-  async function findProject(
-    slug: string,
-  ): Promise<{ id: string; name: string } | null> {
-    if (projectBySlug.has(slug)) return projectBySlug.get(slug)!
-    const [row] = await db
-      .select({ id: projects.id, name: projects.name })
-      .from(projects)
-      .where(and(eq(projects.userId, userId), eq(projects.slug, slug)))
-      .limit(1)
-    if (row) projectBySlug.set(slug, row)
-    return row ?? null
+  // Маппинг «ключ очереди → проект» строится из projects.trackerQueues.
+  // Конфиг приходит из Obsidian (frontmatter tracker_queues), поэтому новая
+  // очередь подключается правкой заметки, а не кодом.
+  const projectByQueue = await buildQueueMap(userId)
+  if (projectByQueue.size === 0) {
+    return NextResponse.json(
+      {
+        error: 'no tracker queues configured',
+        hint: 'добавь tracker_queues в frontmatter index.md проекта и прогони pnpm sync:vault',
+      },
+      { status: 500 },
+    )
   }
 
   const summary = { fetched: issues.length, created: 0, updated: 0, skipped: 0 }
@@ -102,17 +152,17 @@ export async function GET(request: Request) {
   // Новые задачи этого прогона — для уведомления в конце (кроме первого синка).
   const newTasks: NewTaskNotice[] = []
 
+  // Ключи, реально пришедшие из Трекера — база для reconciliation ниже.
+  const seenKeys = new Set<string>()
+
   for (const issue of issues) {
-    const slug = QUEUE_TO_PROJECT_SLUG[issue.queue.key]
-    if (!slug) {
-      summary.skipped++
-      continue
-    }
-    const project = await findProject(slug)
+    const project = projectByQueue.get(issue.queue.key)
     if (!project) {
+      // Очередь без конфига (например, AIBOT) — не наш поток задач.
       summary.skipped++
       continue
     }
+    seenKeys.add(issue.key)
     const projectId = project.id
 
     const values = buildTaskValues({ issue, userId, projectId, now })
@@ -139,6 +189,10 @@ export async function GET(request: Request) {
           deadlineAt: values.deadlineAt,
           deadlineType: values.deadlineType,
           projectId: values.projectId,
+          // Статус тянем из Трекера: он источник истины для рабочих задач.
+          // Локальный DONE при активном тикете сбрасывается сознательно —
+          // это признак того, что closeIssue не сработал.
+          status: values.status,
           externalSyncedAt: now,
         })
         .where(eq(tasks.id, existing.id))
@@ -155,6 +209,53 @@ export async function GET(request: Request) {
     }
   }
 
+  // Reconciliation: тикет, который был активным, а теперь не пришёл в выборке,
+  // закрыт (или отменён, или снят с меня) в Трекере — закрываем задачу локально.
+  //
+  // Границы намеренно узкие:
+  //  - только очереди из текущего конфига: если очередь убрали из tracker_queues,
+  //    её задачи мы больше не опрашиваем, и «отсутствие» ничего не значит;
+  //  - только при непустой выборке: пустой ответ API (сбой/протухший токен)
+  //    иначе закрыл бы разом все рабочие задачи;
+  //  - DONE/ARCHIVED не трогаем — они уже закрыты.
+  //
+  // ВАЖНО: логика верна только пока синк тянет ВСЕ активные тикеты. Если
+  // вернуть оптимизацию `updatedSince`, выборка станет частичной и «пропавшая»
+  // задача перестанет означать «закрытая» — reconciliation придётся выключить.
+  let closedLocally = 0
+  if (issues.length > 0) {
+    const activeQueues = [...projectByQueue.keys()]
+    const stale = await db
+      .select({ id: tasks.id, externalId: tasks.externalId })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.userId, userId),
+          eq(tasks.externalSource, EXTERNAL_SOURCE_TRACKER),
+          notInArray(tasks.status, ['DONE', 'ARCHIVED']),
+          isNotNull(tasks.externalId),
+        ),
+      )
+
+    const staleIds = stale
+      .filter((row) => {
+        const key = row.externalId
+        if (!key || seenKeys.has(key)) return false
+        // "POLAERP-42" → "POLAERP": закрываем только то, что реально опрашивали.
+        const queueKey = key.split('-')[0]?.toUpperCase()
+        return Boolean(queueKey && activeQueues.includes(queueKey))
+      })
+      .map((row) => row.id)
+
+    if (staleIds.length > 0) {
+      await db
+        .update(tasks)
+        .set({ status: 'DONE', completedAt: now, externalSyncedAt: now })
+        .where(inArray(tasks.id, staleIds))
+      closedLocally = staleIds.length
+    }
+  }
+
   // Уведомляем в личку о новых задачах. На первом синке (первичный импорт)
   // молчим — иначе прилетит пачка «новых» про давно существующие тикеты.
   if (!isFirstSync) {
@@ -163,7 +264,13 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     ok: true,
-    summary: { ...summary, notified: isFirstSync ? 0 : newTasks.length, firstSync: isFirstSync },
+    summary: {
+      ...summary,
+      closedLocally,
+      queues: [...projectByQueue.keys()],
+      notified: isFirstSync ? 0 : newTasks.length,
+      firstSync: isFirstSync,
+    },
   })
 }
 
@@ -183,7 +290,8 @@ function buildTaskValues(args: {
     priority: mapTrackerPriority(issue.priority?.key),
     deadlineAt,
     deadlineType: deadlineAt ? ('HARD' as const) : null,
-    status: 'TODO' as const,
+    // backlog/open/asPlanned → TODO, inProgress/testing/intest → IN_PROGRESS
+    status: mapTrackerStatus(issue.status.key),
     externalSource: EXTERNAL_SOURCE_TRACKER,
     externalId: issue.key,
     externalSyncedAt: now,

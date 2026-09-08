@@ -73,6 +73,20 @@ export const projects = pgTable(
      * Формат: [{slug, name, path}]. Если не пуст — используется вместо repoPath.
      */
     repoPaths: jsonb('repo_paths'),
+    /**
+     * Ключи очередей Яндекс.Трекера, задачи которых приземляются в этот проект.
+     * Формат: ["POLAERP"]. Источник истины — frontmatter `tracker_queues`
+     * в index.md проекта в Obsidian-vault, заливается `pnpm sync:vault`.
+     * Синк Трекера строит маппинг «очередь → проект» из этого поля, поэтому
+     * подключение новой очереди не требует правки кода и деплоя.
+     */
+    trackerQueues: jsonb('tracker_queues'),
+    /**
+     * Очередь по умолчанию для «поднятия» внутренней задачи в Трекер.
+     * Frontmatter `tracker_default_queue`. Если не задана, а `trackerQueues`
+     * содержит ровно одну очередь — используется она.
+     */
+    trackerDefaultQueue: text('tracker_default_queue'),
     type: projectTypeEnum('type').default('DEFAULT').notNull(),
     isDefault: boolean('is_default').default(false).notNull(),
     sortOrder: integer('sort_order').default(0).notNull(),

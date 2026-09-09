@@ -67,10 +67,15 @@ function DroppableColumn({
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status })
 
+  // Ширина колонок: на мобиле фиксированные 80vw со snap-скроллом, на
+  // широком экране равные доли. sm:min-w-0 здесь обязателен — без него
+  // flex-элемент не сжимается ниже своего min-content, поэтому колонка с
+  // длинными заголовками задач («Estimation. Ручной запуск расчёта…»)
+  // раздувалась, а соседние схлопывались до нескольких слов в строку.
   return (
     <div
       ref={setNodeRef}
-      className={`w-[80vw] flex-shrink-0 snap-center sm:w-auto sm:flex-1 rounded-xl p-3 transition-colors ${
+      className={`w-[80vw] flex-shrink-0 snap-center sm:w-auto sm:flex-1 sm:min-w-0 rounded-xl p-3 transition-colors ${
         isOver
           ? 'bg-[var(--tg-theme-button-color,#007aff)]/10'
           : 'bg-[var(--tg-theme-secondary-bg-color,#efeff4)]'

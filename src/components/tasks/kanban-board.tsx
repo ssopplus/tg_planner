@@ -75,7 +75,7 @@ function DroppableColumn({
   return (
     <div
       ref={setNodeRef}
-      className={`w-[80vw] flex-shrink-0 snap-center sm:w-auto sm:flex-1 sm:min-w-0 rounded-xl p-3 transition-colors ${
+      className={`w-[80vw] flex-shrink-0 max-sm:snap-center sm:w-auto sm:flex-1 sm:min-w-0 rounded-xl p-3 transition-colors ${
         isOver
           ? 'bg-[var(--tg-theme-button-color,#007aff)]/10'
           : 'bg-[var(--tg-theme-secondary-bg-color,#efeff4)]'
@@ -159,7 +159,12 @@ export function KanbanBoard({ tasks, onStatusChange, onToggle }: KanbanBoardProp
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory pb-4 px-4 sm:px-4">
+      {/* snap-mandatory нужен только на мобиле, где колонки шириной 80vw
+          листаются по одной. На широком экране колонки влезают целиком, а
+          «липкий» snap там ломает горизонтальную прокрутку колесом мыши:
+          один дискретный шаг колеса откатывается обратно к точке привязки
+          (мелкие непрерывные шаги трекпада успевают её преодолеть). */}
+      <div className="flex gap-3 overflow-x-auto max-sm:snap-x max-sm:snap-mandatory pb-4 px-4 sm:px-4">
         {columns.map((col) => (
           <DroppableColumn
             key={col.status}

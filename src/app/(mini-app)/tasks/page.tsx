@@ -286,8 +286,22 @@ export default function TasksPage() {
   }, [tasks])
 
   const handleStatusChange = useCallback(async (id: string, status: string) => {
-    const prevStatus = tasks.find((t) => t.id === id)?.status
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status } : t)))
+    const prev = tasks.find((t) => t.id === id)
+    const prevStatus = prev?.status
+    const prevSortOrder = prev?.sortOrder
+    // Тот же расчёт, что и на сервере: наверх целевой колонки. Считаем
+    // локально, чтобы карточка встала на место сразу, до ответа API.
+    const minOrder = tasks
+      .filter((t) => t.status === status)
+      .reduce<number | null>((min, t) => {
+        const v = t.sortOrder ?? 0
+        return min === null || v < min ? v : min
+      }, null)
+    const nextSortOrder = (minOrder ?? 0) - 1
+
+    setTasks((cur) =>
+      cur.map((t) => (t.id === id ? { ...t, status, sortOrder: nextSortOrder } : t)),
+    )
     await mutateSafely({
       method: 'PATCH',
       url: `/api/tasks/${id}`,
@@ -295,7 +309,11 @@ export default function TasksPage() {
       label: 'Изменение статуса',
       onRollback: () => {
         if (prevStatus) {
-          setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: prevStatus } : t)))
+          setTasks((cur) =>
+            cur.map((t) =>
+              t.id === id ? { ...t, status: prevStatus, sortOrder: prevSortOrder } : t,
+            ),
+          )
         }
       },
     })

@@ -23,6 +23,8 @@ export interface TaskCardData {
   externalSource?: string | null
   externalId?: string | null
   vaultPath?: string | null
+  /** Ручной порядок: меньше — выше. Задаётся перетаскиванием. */
+  sortOrder?: number
 }
 
 interface Subtask {

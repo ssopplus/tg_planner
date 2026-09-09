@@ -115,7 +115,15 @@ export function KanbanBoard({ tasks, onStatusChange, onToggle }: KanbanBoardProp
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
   )
 
-  const tasksByStatus = (status: Status) => tasks.filter((t) => t.status === status)
+  // Внутри колонки — ручной порядок (tasks.sort_order), а не сортировка
+  // страницы: она в канбане и не показывается. Благодаря этому перенесённая
+  // задача, получившая позицию «минимум минус один», встаёт наверх колонки.
+  // Пока ранжирования не было, sort_order у всех 0 и порядок остаётся тем,
+  // в котором задачи приехали из API.
+  const tasksByStatus = (status: Status) =>
+    tasks
+      .filter((t) => t.status === status)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
 
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) : null
 

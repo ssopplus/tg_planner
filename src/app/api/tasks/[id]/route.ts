@@ -65,6 +65,25 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (body.status !== undefined) {
     updateData.status = body.status
     if (body.status === 'DONE') updateData.completedAt = new Date()
+
+    // Перенос в другую колонку канбана ставит задачу наверх целевой колонки:
+    // так свежепринесённая задача всегда на виду, а не проваливается в
+    // середину по прежнему порядку. Позиция = минимум в колонке минус один
+    // (уходить в отрицательные значения нормально — следующее ранжирование
+    // через PATCH /api/tasks/reorder нормализует их в 0..N, сохранив порядок).
+    const [current] = await db
+      .select({ status: tasks.status })
+      .from(tasks)
+      .where(and(eq(tasks.id, id), eq(tasks.userId, user.id)))
+      .limit(1)
+
+    if (current && current.status !== body.status) {
+      const [{ minOrder }] = await db
+        .select({ minOrder: sql<number | null>`min(${tasks.sortOrder})` })
+        .from(tasks)
+        .where(and(eq(tasks.userId, user.id), eq(tasks.status, body.status)))
+      updateData.sortOrder = (minOrder ?? 0) - 1
+    }
   }
   if (body.deadlineAt !== undefined) updateData.deadlineAt = body.deadlineAt ? new Date(body.deadlineAt) : null
   if (body.deadlineType !== undefined) updateData.deadlineType = body.deadlineType

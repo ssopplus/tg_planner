@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { tasks, projects, subtasks } from '@/lib/db/schema'
-import { eq, and, sql, inArray, or, ilike } from 'drizzle-orm'
+import { eq, and, sql, inArray, or, ilike, isNull, isNotNull, asc } from 'drizzle-orm'
 import { authorizeMiniApp } from '@/lib/telegram/auth'
 
 /** GET /api/tasks — список задач пользователя */
@@ -14,6 +14,9 @@ export async function GET(request: NextRequest) {
   const projectIds = searchParams.get('project_ids')
   const status = searchParams.get('status')
   const sort = searchParams.get('sort') ?? 'deadline'
+  // Источник задач: рабочие из Трекера или внутренние (Obsidian + заведённые
+  // руками). Разделение идёт по external_source — отдельного поля не нужно.
+  const source = searchParams.get('source') ?? 'all'
   const page = parseInt(searchParams.get('page') ?? '1')
   const limit = parseInt(searchParams.get('limit') ?? '50')
   const q = searchParams.get('q')?.trim() ?? ''
@@ -29,6 +32,11 @@ export async function GET(request: NextRequest) {
     conditions.push(inArray(tasks.status, statuses))
   } else {
     conditions.push(inArray(tasks.status, ['TODO', 'IN_PROGRESS']))
+  }
+  if (source === 'tracker') {
+    conditions.push(isNotNull(tasks.externalSource))
+  } else if (source === 'internal') {
+    conditions.push(isNull(tasks.externalSource))
   }
   if (q) {
     // Ищем по title и description. Escape LIKE-метасимволов, чтобы % в запросе
@@ -56,11 +64,23 @@ export async function GET(request: NextRequest) {
       externalSource: tasks.externalSource,
       externalId: tasks.externalId,
       vaultPath: tasks.vaultPath,
+      sortOrder: tasks.sortOrder,
     })
     .from(tasks)
     .leftJoin(projects, eq(tasks.projectId, projects.id))
     .where(and(...conditions))
-    .orderBy(sort === 'priority' ? tasks.priority : sort === 'created' ? tasks.createdAt : tasks.deadlineAt)
+    // manual — ручное ранжирование перетаскиванием (tasks.sort_order).
+    // Вторичный ключ createdAt нужен, пока порядок не задан: у всех задач
+    // sort_order = 0, и без него выдача была бы нестабильной между запросами.
+    .orderBy(
+      ...(sort === 'manual'
+        ? [asc(tasks.sortOrder), asc(tasks.createdAt)]
+        : sort === 'priority'
+          ? [tasks.priority]
+          : sort === 'created'
+            ? [tasks.createdAt]
+            : [tasks.deadlineAt]),
+    )
     .limit(limit)
     .offset((page - 1) * limit)
 

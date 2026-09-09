@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { TaskCard, type TaskCardData } from '@/components/tasks/task-card'
 import { KanbanBoard } from '@/components/tasks/kanban-board'
+import { SortableTaskList } from '@/components/tasks/sortable-task-list'
 import { QuickCaptureBar } from '@/components/tasks/quick-capture-bar'
 import { EmptyState } from '@/components/ui/empty-state'
 import { apiFetch } from '@/lib/telegram/webapp'
@@ -27,14 +28,23 @@ interface ProjectOption {
   isDefault: boolean
 }
 
-type SortMode = 'deadline' | 'priority' | 'created'
+type SortMode = 'deadline' | 'priority' | 'created' | 'manual'
 type ViewMode = 'list' | 'kanban'
 type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'ARCHIVED'
+/** Раздел задач: рабочие из Трекера vs внутренние (Obsidian + свои). */
+type SourceFilter = 'all' | 'tracker' | 'internal'
 
 const sortOptions: { mode: SortMode; label: string }[] = [
+  { mode: 'manual', label: 'Мой порядок' },
   { mode: 'deadline', label: 'По сроку' },
   { mode: 'priority', label: 'По приоритету' },
   { mode: 'created', label: 'По дате создания' },
+]
+
+const sourceOptions: { source: SourceFilter; label: string }[] = [
+  { source: 'all', label: 'Все' },
+  { source: 'tracker', label: 'Трекер' },
+  { source: 'internal', label: 'Внутренние' },
 ]
 
 const statusOptions: { status: TaskStatus; label: string }[] = [
@@ -59,6 +69,7 @@ export default function TasksPage() {
   const [showFilter, setShowFilter] = useState(false)
   const [showStatusFilter, setShowStatusFilter] = useState(false)
   const [showSort, setShowSort] = useState(false)
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const settingsLoaded = useRef(false)
@@ -88,6 +99,12 @@ export default function TasksPage() {
       if (Array.isArray(s?.tasksFilterStatuses)) {
         setFilterStatuses(s.tasksFilterStatuses as TaskStatus[])
       }
+      if (
+        typeof s?.tasksSourceFilter === 'string' &&
+        ['all', 'tracker', 'internal'].includes(s.tasksSourceFilter)
+      ) {
+        setSourceFilter(s.tasksSourceFilter as SourceFilter)
+      }
       settingsLoaded.current = true
     })
   }, [])
@@ -103,14 +120,16 @@ export default function TasksPage() {
           tasksViewMode: viewMode,
           tasksFilterProjectIds: filterProjectIds,
           tasksFilterStatuses: filterStatuses,
+          tasksSourceFilter: sourceFilter,
         },
       }),
     })
-  }, [sortMode, viewMode, filterProjectIds, filterStatuses])
+  }, [sortMode, viewMode, filterProjectIds, filterStatuses, sourceFilter])
 
   const fetchTasks = useCallback(async () => {
     try {
       const params = new URLSearchParams({ sort: sortMode })
+      if (sourceFilter !== 'all') params.set('source', sourceFilter)
       if (filterProjectIds.length > 0) {
         params.set('project_ids', filterProjectIds.join(','))
       }
@@ -132,7 +151,7 @@ export default function TasksPage() {
     } finally {
       setLoading(false)
     }
-  }, [sortMode, viewMode, filterProjectIds, filterStatuses, debouncedQuery])
+  }, [sortMode, viewMode, filterProjectIds, filterStatuses, sourceFilter, debouncedQuery])
 
   useEffect(() => {
     setLoading(true)
@@ -166,6 +185,12 @@ export default function TasksPage() {
       return valid.length === prev.length ? prev : valid
     })
   }, [projectsLoaded, projects])
+
+  // Ранжирование возможно, только если в выдаче нет закрытых задач.
+  const canRank =
+    sortMode === 'manual' &&
+    tasks.length > 0 &&
+    tasks.every((t) => t.status === 'TODO' || t.status === 'IN_PROGRESS')
 
   const handleToggle = useCallback(async (id: string, done: boolean) => {
     const newStatus = done ? 'DONE' : 'TODO'
@@ -425,6 +450,34 @@ export default function TasksPage() {
         </div>
       </div>
 
+      {/* Разделы: внутренние задачи (Obsidian + свои) vs рабочие из Трекера.
+          Различаются по external_source, фильтр уходит в GET /api/tasks. */}
+      <div className="px-4 pb-2">
+        <div className="flex gap-1 p-0.5 rounded-xl bg-[var(--tg-theme-secondary-bg-color,#efeff4)]">
+          {sourceOptions.map(({ source, label }) => (
+            <button
+              key={source}
+              type="button"
+              onClick={() => setSourceFilter(source)}
+              className={`flex-1 text-xs font-medium px-2 py-1.5 rounded-[0.625rem] transition-all ${
+                sourceFilter === source
+                  ? 'bg-[var(--tg-theme-section-bg-color,#fff)] text-[var(--tg-theme-text-color,#000)] shadow-sm'
+                  : 'text-[var(--tg-theme-hint-color,#8e8e93)]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {sortMode === 'manual' && !canRank && tasks.length > 0 && (
+        <p className="px-4 pb-2 text-[11px] leading-snug text-[var(--tg-theme-hint-color,#8e8e93)]">
+          Перетаскивание выключено: в списке есть выполненные задачи. Ранжировать
+          можно только активные — уберите выполненные из фильтра или очистите поиск.
+        </p>
+      )}
+
       {/* Панель фильтров: сортировка + проекты */}
       <div className="px-4 pb-3 flex flex-wrap gap-2 relative">
         {/* Сортировка — только в списке */}
@@ -650,6 +703,10 @@ export default function TasksPage() {
         onCreated={fetchTasks}
       />
 
+      {/* Ранжировать можно только незакрытые задачи: PATCH /api/tasks/reorder
+          раскладывает слоты по активному списку и отвергнет выполненные.
+          Выполненные попадают в выдачу через фильтр статусов или поиск —
+          в этом случае тихо показываем обычный список, без ручек. */}
       {/* Контент */}
       {loading ? (
         <div className="flex items-center justify-center py-12">
@@ -664,7 +721,34 @@ export default function TasksPage() {
       ) : (
         <div className="px-4 pb-24">
           {tasks.length === 0 ? (
-            <EmptyState icon="📝" title="Нет активных задач" description="Создайте первую задачу, нажав кнопку +" />
+            <EmptyState
+              icon={sourceFilter === 'tracker' ? '📋' : '📝'}
+              title={
+                sourceFilter === 'tracker'
+                  ? 'Нет задач из Трекера'
+                  : sourceFilter === 'internal'
+                    ? 'Нет внутренних задач'
+                    : 'Нет активных задач'
+              }
+              description={
+                sourceFilter === 'tracker'
+                  ? 'Задачи приезжают синком раз в 30 минут. Если ожидаешь задачу — проверь, что её очередь указана в tracker_queues проекта.'
+                  : 'Создайте первую задачу, нажав кнопку +'
+              }
+            />
+          ) : canRank ? (
+            /* Перетаскивание доступно только в «Моём порядке»: в остальных
+               режимах порядок задаёт сортировка, и таскать карточки нечем. */
+            <SortableTaskList
+              tasks={tasks}
+              onTasksReorder={setTasks}
+              onToggle={handleToggle}
+              onMyDayToggle={handleMyDayToggle}
+              selectionMode={selectionMode}
+              selectedIds={selectedIds}
+              onSelectionToggle={toggleSelection}
+              onLongPress={enterSelection}
+            />
           ) : (
             <div className="flex flex-col gap-2">
               {tasks.map((task) => (

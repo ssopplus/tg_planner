@@ -122,6 +122,14 @@ export const tasks = pgTable(
     deadlineType: deadlineTypeEnum('deadline_type'),
     myDayDate: date('my_day_date'),
     myDaySortOrder: integer('my_day_sort_order'),
+    /**
+     * Ручное ранжирование задач в общем списке (перетаскивание в Mini App).
+     * Порядок глобальный на пользователя, разделы «Трекер»/«Внутренние» —
+     * фильтр поверх него: перетаскивание внутри раздела переприсваивает
+     * позиции только видимым задачам (см. PATCH /api/tasks/reorder).
+     * 0 у всех = ранжирования ещё не было, выдача падает на created_at.
+     */
+    sortOrder: integer('sort_order').default(0).notNull(),
     overdueCount: integer('overdue_count').default(0).notNull(),
     completedAt: timestamp('completed_at'),
     /** Путь к md-заметке в vault, если задача пришла из Obsidian. NULL для задач из бота/Mini App. */

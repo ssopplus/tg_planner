@@ -5,7 +5,7 @@
 - **Date**: 2026-09-08
 - **Status**: In Progress
 - **Complexity**: High
-- **Progress**: 56%
+- **Progress**: 70%
 
 ## Context
 
@@ -116,10 +116,26 @@ tracker_default_queue: POLAERP   # куда «поднимать» внутре�
 - [x] Drag-n-drop в режиме «Мой порядок»: слоты видимых переприсваиваются, скрытые не двигаются (проверено симуляцией алгоритма)
 - [x] Карточки: бейдж источника с ключом тикета и ссылкой в Трекер уже был в `TaskCard`; кнопка «↑ В Трекер» — в фазе 3, вместе с созданием тикета
 
+### Phase 2.5: Связки «очередь → проект» в настройках
+Фазой 1 связки жили во frontmatter vault, но одна очередь может кормить несколько проектов:
+`VDHWEBNEW` держит и новый сайт Водохода, и интур (префикс `WEB Интур //` в заголовке).
+Массив очередей в заметке проекта такое не выражал — `VDHWEBNEW-5` уехал не в тот проект.
+Решено: правила по подстроке заголовка + основной проект, единственный источник — настройки бота.
+
+- [x] Таблица `tracker_queue_links` (queue_key, project_id, title_filter, is_default_for_project), снос `projects.trackerQueues`/`trackerDefaultQueue` — миграция 0010 с переносом существующих связок
+- [x] Частичный уникальный индекс на fallback-связку (`WHERE title_filter IS NULL`) — обычный unique не годится, в Postgres `NULL` не конфликтует с `NULL`
+- [x] `src/lib/tracker/queue-links.ts` — разбор тикета: длинный фильтр раньше короткого, затем fallback (проверено симуляцией, 8 кейсов)
+- [x] `listQueues()` в tracker-client + `GET /api/tracker/queues` — список очередей для селекта
+- [x] CRUD `/api/settings/tracker-links` с внятными 409 (дубль фильтра vs уже есть основная связка)
+- [x] Раздел «Очереди Трекера» в настройках Mini App
+- [x] Убрать `tracker_queues` из vault и из `sync-vault-projects.ts`, обновить `CLAUDE.md` и `docs/yandex-tracker-sync.md`
+- [ ] Накатить миграцию 0010 через GitHub Actions, завести правило интура, прогнать синк
+- [x] Попутно: 404 у кнопки «Открыть» в уведомлении — `WEBAPP_URL` хранит точку входа с путём (`/today`), глубокие ссылки теперь строятся от origin (`src/lib/telegram/mini-app-url.ts`)
+
 ### Phase 3: Заведение и перенос задач в Трекер
 - [ ] `createIssue()` в tracker-client: `POST /v2/issues` с queue, assignee=me, дедлайном, приоритетом
 - [ ] Эндпоинт «поднять в Трекер»: создать тикет, записать `externalSource`/`externalId` в ту же строку
-- [ ] Выбор очереди в UI с дефолтом из `trackerDefaultQueue` проекта
+- [ ] Выбор очереди в UI с дефолтом из связки `is_default_for_project`
 - [ ] Дописывать ключ тикета в строку vault `tasks.md` через write-back (дубля нет — матчинг по `tgp:UUID`)
 
 ### Phase 4: Списание часов
@@ -131,21 +147,20 @@ tracker_default_queue: POLAERP   # куда «поднимать» внутре�
 
 ## Affected Files
 
-- `src/lib/db/schema.ts` — поля `trackerQueues`/`trackerDefaultQueue` в `projects`, таблица `worklogs`
-- `scripts/sync-vault-projects.ts` — чтение конфига очередей из frontmatter, UPSERT новых полей
+- `src/lib/db/schema.ts` — `tasks.sortOrder`, таблица `tracker_queue_links`, таблица `worklogs`
+- `src/lib/tracker/queue-links.ts` — разбор тикета по связкам очереди
 - `src/lib/tracker/client.ts` — снос `QUEUE_TO_PROJECT_SLUG`, фикс фильтра, `createIssue`, `addWorklog`
 - `src/app/api/cron/tracker-sync/route.ts` — маппинг из БД, статусы, reconciliation
 - `src/app/(mini-app)/tasks/page.tsx` — разделы, сквозной drag-n-drop
 - `src/app/api/tasks/` — reorder, «поднять в Трекер»
-- `docs/yandex-tracker-sync.md` — описание конфига очередей
-- `Документация/Проекты/*/index.md` — `tracker_queues` у четырёх проектов
-- `CLAUDE.md` — раздел про конфиг очередей в vault
+- `src/app/api/settings/tracker-links/route.ts` + `src/components/settings/tracker-links-section.tsx` — настройки связок
+- `docs/yandex-tracker-sync.md`, `CLAUDE.md` — описание связок в настройках
 
 ## Consequences
 
 ### Positive
 - Приоритизация, заведение, закрытие и списание часов — в боте, без веб-интерфейса Трекера
-- Новая очередь подключается строкой в `index.md`, без правки кода и деплоя
+- Новая очередь подключается строкой в настройках бота, без правки кода и деплоя
 - В планировщик перестанут течь закрытые тикеты, а закрытые в Трекере будут закрываться локально
 - Перестанут теряться 11 из 17 активных задач (REVENUERADAR, WEBSH, VDHWEBNEW)
 - Внутренние и рабочие задачи разведены явно, с мостом «поднять в Трекер»

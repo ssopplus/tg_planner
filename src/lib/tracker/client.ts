@@ -72,6 +72,40 @@ export function mapTrackerStatus(statusKey: string): 'TODO' | 'IN_PROGRESS' {
   }
 }
 
+/** Очередь Трекера в минимальном виде — для выбора в настройках. */
+export interface TrackerQueue {
+  key: string
+  name: string
+}
+
+/**
+ * Список очередей, доступных владельцу токена.
+ *
+ * Нужен экрану настроек, чтобы привязывать очереди к проектам выбором из
+ * списка, а не вводом ключа руками. Очередей в организации порядка сотни,
+ * поэтому листаем страницами; ограничение в 10 страниц — предохранитель от
+ * бесконечного цикла, если API перестанет отдавать пустую последнюю страницу.
+ */
+export async function listQueues(args: {
+  token: string
+  orgId: string
+}): Promise<TrackerQueue[]> {
+  const headers = authHeaders(args.token, args.orgId)
+  const result: TrackerQueue[] = []
+
+  for (let page = 1; page <= 10; page++) {
+    const res = await fetch(`${BASE}/queues?perPage=100&page=${page}`, { headers })
+    if (!res.ok) throw new Error(`Tracker queues ${res.status}: ${await res.text()}`)
+
+    const batch = (await res.json()) as Array<{ key: string; name?: string }>
+    if (batch.length === 0) break
+    result.push(...batch.map((q) => ({ key: q.key, name: q.name ?? q.key })))
+    if (batch.length < 100) break
+  }
+
+  return result.sort((a, b) => a.key.localeCompare(b.key))
+}
+
 /**
  * Возвращает активные задачи текущего пользователя (assignee=me()).
  * Активные = всё кроме closed/resolved/cancelled.

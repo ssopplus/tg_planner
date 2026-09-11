@@ -12,7 +12,7 @@ import {
   uniqueIndex,
   date,
 } from 'drizzle-orm/pg-core'
-import { relations } from 'drizzle-orm'
+import { relations, sql } from 'drizzle-orm'
 
 // === ENUMS ===
 
@@ -73,20 +73,6 @@ export const projects = pgTable(
      * Формат: [{slug, name, path}]. Если не пуст — используется вместо repoPath.
      */
     repoPaths: jsonb('repo_paths'),
-    /**
-     * Ключи очередей Яндекс.Трекера, задачи которых приземляются в этот проект.
-     * Формат: ["POLAERP"]. Источник истины — frontmatter `tracker_queues`
-     * в index.md проекта в Obsidian-vault, заливается `pnpm sync:vault`.
-     * Синк Трекера строит маппинг «очередь → проект» из этого поля, поэтому
-     * подключение новой очереди не требует правки кода и деплоя.
-     */
-    trackerQueues: jsonb('tracker_queues'),
-    /**
-     * Очередь по умолчанию для «поднятия» внутренней задачи в Трекер.
-     * Frontmatter `tracker_default_queue`. Если не задана, а `trackerQueues`
-     * содержит ровно одну очередь — используется она.
-     */
-    trackerDefaultQueue: text('tracker_default_queue'),
     type: projectTypeEnum('type').default('DEFAULT').notNull(),
     isDefault: boolean('is_default').default(false).notNull(),
     sortOrder: integer('sort_order').default(0).notNull(),
@@ -99,6 +85,63 @@ export const projects = pgTable(
   (table) => [
     index('projects_user_id_idx').on(table.userId),
     index('projects_user_slug_idx').on(table.userId, table.slug),
+  ],
+)
+
+/**
+ * Связка «очередь Яндекс.Трекера → проект планировщика».
+ *
+ * Единственный источник истины про связки (правится на экране настроек в
+ * Mini App). Во frontmatter заметок vault они больше не хранятся: два места
+ * правки неизбежно расходились.
+ *
+ * Одна очередь может вести в несколько проектов. Разбор идёт по подстроке в
+ * заголовке тикета: у очереди VDHWEBNEW («ВодоходЪ Сайт 2027») задачи интура
+ * помечены префиксом «WEB Интур //», а компонентов и тегов у тикетов нет —
+ * заголовок остаётся единственным машинным признаком. Поэтому:
+ *  - связка с `titleFilter` срабатывает, если подстрока найдена в summary;
+ *  - связка без `titleFilter` — основная для очереди, забирает всё остальное.
+ */
+export const trackerQueueLinks = pgTable(
+  'tracker_queue_links',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    /** Ключ очереди в верхнем регистре, например "VDHWEBNEW". */
+    queueKey: text('queue_key').notNull(),
+    projectId: text('project_id')
+      .references(() => projects.id, { onDelete: 'cascade' })
+      .notNull(),
+    /** Подстрока в заголовке тикета (без учёта регистра). NULL = основная связка очереди. */
+    titleFilter: text('title_filter'),
+    /**
+     * Эта очередь предлагается по умолчанию, когда внутреннюю задачу проекта
+     * «поднимают» в Трекер. У проекта осмысленна одна такая связка.
+     */
+    isDefaultForProject: boolean('is_default_for_project').default(false).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index('tracker_queue_links_user_queue_idx').on(table.userId, table.queueKey),
+    // Один и тот же фильтр в очереди дважды не имеет смысла.
+    uniqueIndex('tracker_queue_links_filter_idx').on(
+      table.userId,
+      table.queueKey,
+      table.titleFilter,
+    ),
+    // Основная связка у очереди одна. Индекс выше этого не гарантирует:
+    // в Postgres NULL не конфликтует с NULL, поэтому нужен частичный индекс.
+    uniqueIndex('tracker_queue_links_fallback_idx')
+      .on(table.userId, table.queueKey)
+      .where(sql`${table.titleFilter} is null`),
   ],
 )
 

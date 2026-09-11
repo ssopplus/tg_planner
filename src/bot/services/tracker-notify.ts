@@ -1,5 +1,6 @@
 import { InlineKeyboard } from 'grammy'
 import { bot } from '@/bot'
+import { miniAppUrl } from '@/lib/telegram/mini-app-url'
 
 /**
  * Уведомления в личку бота о задачах, пришедших из Yandex Tracker при синке.
@@ -44,9 +45,8 @@ function taskLine(t: NewTaskNotice): string {
 
 /** Кнопка «Открыть» — ведёт на страницу конкретной задачи в Mini App. */
 function openTaskKeyboard(taskId: string): InlineKeyboard | undefined {
-  const base = process.env.WEBAPP_URL
-  if (!base) return undefined
-  const url = `${base.replace(/\/$/, '')}/tasks/${taskId}`
+  const url = miniAppUrl(`/tasks/${taskId}`)
+  if (!url) return undefined
   return new InlineKeyboard().webApp('📱 Открыть', url)
 }
 

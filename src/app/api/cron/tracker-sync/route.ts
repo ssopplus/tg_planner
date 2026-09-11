@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { tasks, projects, users } from '@/lib/db/schema'
+import { tasks, projects, users, trackerQueueLinks } from '@/lib/db/schema'
 import { and, eq, inArray, isNotNull, notInArray, sql } from 'drizzle-orm'
 import {
   EXTERNAL_SOURCE_TRACKER,
@@ -10,6 +10,7 @@ import {
   type TrackerIssue,
 } from '@/lib/tracker/client'
 import { notifyNewTasks, type NewTaskNotice } from '@/bot/services/tracker-notify'
+import { resolveProjectForIssue, type QueueLink } from '@/lib/tracker/queue-links'
 
 /**
  * Cron endpoint: тянет активные задачи из Yandex Tracker и складывает в БД
@@ -50,47 +51,26 @@ async function resolveUser(): Promise<{ id: string; telegramId: bigint } | null>
 }
 
 /**
- * Строит маппинг «ключ очереди Трекера → проект» из projects.trackerQueues.
- *
- * Источник конфига — frontmatter `tracker_queues` в index.md проекта в
- * Obsidian-vault, залитый `pnpm sync:vault`. Один проект может собирать
- * несколько очередей (SwanHellenic: WEBSH + SHWEB).
- *
- * Если одна очередь указана у двух проектов — берём первый и пишем warning:
- * молча раскидывать задачи одной очереди по разным проектам хуже, чем
- * предсказуемо выбрать один и сообщить о конфликте конфига.
+ * Загружает связки «очередь → проект» из настроек пользователя.
+ * Разбор тикета по ним живёт в src/lib/tracker/queue-links.ts.
  */
-async function buildQueueMap(
-  userId: string,
-): Promise<Map<string, { id: string; name: string }>> {
+async function loadQueueLinks(userId: string): Promise<QueueLink[]> {
   const rows = await db
     .select({
-      id: projects.id,
-      name: projects.name,
-      slug: projects.slug,
-      trackerQueues: projects.trackerQueues,
+      queueKey: trackerQueueLinks.queueKey,
+      titleFilter: trackerQueueLinks.titleFilter,
+      projectId: projects.id,
+      projectName: projects.name,
     })
-    .from(projects)
-    .where(and(eq(projects.userId, userId), isNotNull(projects.trackerQueues)))
+    .from(trackerQueueLinks)
+    .innerJoin(projects, eq(projects.id, trackerQueueLinks.projectId))
+    .where(eq(trackerQueueLinks.userId, userId))
 
-  const map = new Map<string, { id: string; name: string }>()
-  for (const row of rows) {
-    const queues = Array.isArray(row.trackerQueues) ? row.trackerQueues : []
-    for (const raw of queues) {
-      const key = String(raw).trim().toUpperCase()
-      if (!key) continue
-      const existing = map.get(key)
-      if (existing) {
-        console.warn(
-          `tracker-sync: очередь ${key} привязана к нескольким проектам ` +
-            `(${existing.name} и ${row.name}) — использую ${existing.name}`,
-        )
-        continue
-      }
-      map.set(key, { id: row.id, name: row.name })
-    }
-  }
-  return map
+  return rows.map((r) => ({
+    queueKey: r.queueKey.toUpperCase(),
+    titleFilter: r.titleFilter,
+    project: { id: r.projectId, name: r.projectName },
+  }))
 }
 
 export async function GET(request: Request) {
@@ -132,19 +112,18 @@ export async function GET(request: Request) {
   // в 30 мин, нагрузки нет.
   const issues = await listMyActiveIssues({ token, orgId })
 
-  // Маппинг «ключ очереди → проект» строится из projects.trackerQueues.
-  // Конфиг приходит из Obsidian (frontmatter tracker_queues), поэтому новая
-  // очередь подключается правкой заметки, а не кодом.
-  const projectByQueue = await buildQueueMap(userId)
-  if (projectByQueue.size === 0) {
+  // Связки «очередь → проект» задаются на экране настроек в Mini App.
+  const links = await loadQueueLinks(userId)
+  if (links.length === 0) {
     return NextResponse.json(
       {
         error: 'no tracker queues configured',
-        hint: 'добавь tracker_queues в frontmatter index.md проекта и прогони pnpm sync:vault',
+        hint: 'привяжи очереди к проектам в настройках Mini App (раздел «Очереди Трекера»)',
       },
       { status: 500 },
     )
   }
+  const linkedQueues = [...new Set(links.map((l) => l.queueKey))]
 
   const summary = { fetched: issues.length, created: 0, updated: 0, skipped: 0 }
   const now = new Date()
@@ -156,9 +135,9 @@ export async function GET(request: Request) {
   const seenKeys = new Set<string>()
 
   for (const issue of issues) {
-    const project = projectByQueue.get(issue.queue.key)
+    const project = resolveProjectForIssue(links, issue)
     if (!project) {
-      // Очередь без конфига (например, AIBOT) — не наш поток задач.
+      // Очередь не связана ни с одним проектом (например, AIBOT) — не наш поток.
       summary.skipped++
       continue
     }
@@ -224,7 +203,7 @@ export async function GET(request: Request) {
   // задача перестанет означать «закрытая» — reconciliation придётся выключить.
   let closedLocally = 0
   if (issues.length > 0) {
-    const activeQueues = [...projectByQueue.keys()]
+    const activeQueues = linkedQueues
     const stale = await db
       .select({ id: tasks.id, externalId: tasks.externalId })
       .from(tasks)
@@ -267,7 +246,7 @@ export async function GET(request: Request) {
     summary: {
       ...summary,
       closedLocally,
-      queues: [...projectByQueue.keys()],
+      queues: linkedQueues,
       notified: isFirstSync ? 0 : newTasks.length,
       firstSync: isFirstSync,
     },

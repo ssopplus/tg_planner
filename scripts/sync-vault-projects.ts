@@ -15,6 +15,9 @@
  * 4. Определяем kind и repo_path/repo_paths: ищем папки-репозитории.
  * 5. UPSERT в projects по (userId, slug). Tasks не трогаем.
  *
+ * Связки с очередями Яндекс.Трекера здесь НЕ обрабатываются: их источник
+ * истины — таблица tracker_queue_links, правится на экране настроек Mini App.
+ *
  * Запуск: pnpm tsx scripts/sync-vault-projects.ts [--user-id=<id>] [--no-discover]
  * Если --user-id не указан — синхронизируется для всех пользователей.
  * --no-discover — пропустить создание новых заметок vault, только импорт из
@@ -60,10 +63,6 @@ interface VaultProject {
   kind: 'dev' | 'general'
   repoPath: string | null
   repoPaths: RepoEntry[] | null
-  /** Ключи очередей Трекера из frontmatter `tracker_queues`. */
-  trackerQueues: string[] | null
-  /** Очередь по умолчанию из frontmatter `tracker_default_queue`. */
-  trackerDefaultQueue: string | null
 }
 
 // === Парсинг ===
@@ -213,53 +212,6 @@ function findRepoPath(slug: string): string | null {
   return null
 }
 
-/**
- * Разбирает конфиг очередей Яндекс.Трекера из frontmatter заметки проекта:
- *
- *   tracker_queues: [POLAERP, REVENUERADAR]
- *   tracker_default_queue: POLAERP
- *
- * Ключи намеренно плоские (не вложенный `tracker:`) — парсер frontmatter выше
- * умеет inline-массивы, но не вложенные объекты.
- *
- * Нормализация: ключи очередей приводятся к верхнему регистру, потому что
- * в API Трекера они всегда uppercase (`POLAERP`), а в заметке легко написать
- * строчными. Если задана только default-очередь — она же становится
- * единственной очередью синка (иначе конфиг был бы бессмысленным: «поднимать
- * задачи туда, откуда не читаем»).
- */
-function parseTrackerConfig(
-  fm: Record<string, unknown>,
-  slug: string,
-): { queues: string[] | null; defaultQueue: string | null } {
-  const raw = fm.tracker_queues
-  const list = Array.isArray(raw) ? raw : typeof raw === 'string' && raw ? [raw] : []
-  const queues = list
-    .map((q) => String(q).trim().toUpperCase())
-    .filter(Boolean)
-
-  const rawDefault = fm.tracker_default_queue
-  let defaultQueue =
-    typeof rawDefault === 'string' && rawDefault.trim()
-      ? rawDefault.trim().toUpperCase()
-      : null
-
-  // Единственная очередь — она же дефолтная, писать это в заметке дважды не нужно.
-  if (!defaultQueue && queues.length === 1) defaultQueue = queues[0]
-
-  if (defaultQueue && !queues.includes(defaultQueue)) {
-    console.warn(
-      `  ! ${slug}: tracker_default_queue=${defaultQueue} отсутствует в tracker_queues — добавляю`,
-    )
-    queues.push(defaultQueue)
-  }
-
-  return {
-    queues: queues.length > 0 ? queues : null,
-    defaultQueue,
-  }
-}
-
 function loadVaultProject(filePath: string): VaultProject {
   const content = readFileSync(filePath, 'utf-8')
   const { fm, body } = parseFrontmatter(content)
@@ -289,7 +241,6 @@ function loadVaultProject(filePath: string): VaultProject {
   const techStack = extractListSection(body, 'Технологии')
 
   const isDev = Boolean(repoPath) || (repoPaths?.length ?? 0) > 0
-  const tracker = parseTrackerConfig(fm, slug)
 
   return {
     slug,
@@ -301,8 +252,6 @@ function loadVaultProject(filePath: string): VaultProject {
     kind: isDev ? 'dev' : 'general',
     repoPath,
     repoPaths,
-    trackerQueues: tracker.queues,
-    trackerDefaultQueue: tracker.defaultQueue,
   }
 }
 
@@ -319,10 +268,6 @@ const INDEX_MD_TEMPLATE = (slug: string, category: string) => `---
 tags: [проект, ${category.toLowerCase()}]
 project: ${slug}
 status: active
-# Очереди Яндекс.Трекера, задачи которых приземляются в этот проект.
-# Раскомментируй и укажи ключи, если проект ведётся в Трекере:
-# tracker_queues: [QUEUEKEY]
-# tracker_default_queue: QUEUEKEY
 ---
 
 # ${slug}
@@ -489,8 +434,6 @@ async function upsertForUser(
           kind: vp.kind,
           repoPath: vp.repoPath,
           repoPaths: vp.repoPaths,
-          trackerQueues: vp.trackerQueues,
-          trackerDefaultQueue: vp.trackerDefaultQueue,
         })
         .where(eq(projects.id, existing.id))
       updated++
@@ -506,8 +449,6 @@ async function upsertForUser(
         kind: vp.kind,
         repoPath: vp.repoPath,
         repoPaths: vp.repoPaths,
-        trackerQueues: vp.trackerQueues,
-        trackerDefaultQueue: vp.trackerDefaultQueue,
       })
       created++
     }
@@ -543,12 +484,6 @@ async function main() {
     } else {
       console.log(
         `  - ${vp.slug.padEnd(24)} [${vp.kind}]${vp.repoPath ? ` → ${vp.repoPath}` : ''}`,
-      )
-    }
-    if (vp.trackerQueues) {
-      console.log(
-        `      трекер: ${vp.trackerQueues.join(', ')}` +
-          (vp.trackerDefaultQueue ? ` (по умолчанию ${vp.trackerDefaultQueue})` : ''),
       )
     }
   }

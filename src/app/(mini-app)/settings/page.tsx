@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { Check } from 'lucide-react'
 import { apiFetch } from '@/lib/telegram/webapp'
+import { TrackerLinksSection } from '@/components/settings/tracker-links-section'
 
 const timezones = [
   'Europe/Moscow',
@@ -122,6 +123,9 @@ export default function SettingsPage() {
             className="w-full px-3 py-2.5 rounded-xl bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-sm text-[var(--tg-theme-text-color,#000)] outline-none"
           />
         </div>
+
+        {/* Связки очередей Трекера с проектами */}
+        <TrackerLinksSection />
 
         {/* Ссылка на архив */}
         <Link

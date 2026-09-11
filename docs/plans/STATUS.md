@@ -10,7 +10,7 @@
 | [Phase 4 — Умный список покупок](active/2026-02-26_phase-4-shopping.md) | 2026-02-26 | Planning | 0% | Medium |
 | [Phase 5 — AI-фишки](active/2026-02-26_phase-5-ai-features.md) | 2026-02-26 | Planning | 0% | High |
 | [Phase 6 — Расширение](active/2026-02-26_phase-6-expansion.md) | 2026-02-26 | Planning | 0% | High |
-| [Планировщик как рабочее место: Трекер](active/2026-09-08_tracker-two-way-workspace.md) | 2026-09-08 | In Progress | 56% | High |
+| [Планировщик как рабочее место: Трекер](active/2026-09-08_tracker-two-way-workspace.md) | 2026-09-08 | In Progress | 70% | High |
 
 ## Backlog
 

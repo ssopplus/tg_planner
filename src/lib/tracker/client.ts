@@ -361,3 +361,48 @@ export async function addWorklog(args: {
   const body = (await res.json()) as { id: number }
   return { ok: true, worklogId: body.id }
 }
+
+/**
+ * Меняет длительность уже внесённой записи учёта времени.
+ *
+ * Правка вместо «удалить и создать заново» сохраняет id записи, поэтому
+ * история в Трекере не обрастает мусором, а наш `worklogIds` остаётся валидным.
+ */
+export async function updateWorklog(args: {
+  token: string
+  orgId: string
+  issueKey: string
+  worklogId: number
+  minutes: number
+  comment?: string
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const body: Record<string, string> = { duration: toIsoDuration(args.minutes) }
+  if (args.comment !== undefined) body.comment = args.comment
+
+  const res = await fetch(`${BASE}/issues/${args.issueKey}/worklog/${args.worklogId}`, {
+    method: 'PATCH',
+    headers: authHeaders(args.token, args.orgId),
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    return { ok: false, reason: `worklog patch ${res.status}: ${(await res.text()).slice(0, 300)}` }
+  }
+  return { ok: true }
+}
+
+/** Удаляет запись учёта времени. Трекер отвечает 204 без тела. */
+export async function deleteWorklog(args: {
+  token: string
+  orgId: string
+  issueKey: string
+  worklogId: number
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const res = await fetch(`${BASE}/issues/${args.issueKey}/worklog/${args.worklogId}`, {
+    method: 'DELETE',
+    headers: authHeaders(args.token, args.orgId),
+  })
+  if (!res.ok) {
+    return { ok: false, reason: `worklog delete ${res.status}: ${(await res.text()).slice(0, 300)}` }
+  }
+  return { ok: true }
+}

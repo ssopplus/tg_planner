@@ -58,6 +58,21 @@ export function findDirection(key: string): Direction | undefined {
   return ALL_DIRECTIONS.find((d) => d.key === key)
 }
 
+/**
+ * Короткий id направления для `callback_data`: `INTCOORD-4` → `4`.
+ *
+ * В callback_data всего 64 байта, а нам нужно уместить день, направление,
+ * id записи и минуты — полные ключи очереди туда не влезают.
+ */
+export function shortId(key: string): string {
+  return key.slice(COORDINATION_QUEUE.length + 1)
+}
+
+/** Обратное преобразование: `4` → `INTCOORD-4`. */
+export function fromShortId(short: string): string {
+  return `${COORDINATION_QUEUE}-${short}`
+}
+
 /** Минуты → «1ч15м» / «45м». */
 export function formatMinutes(min: number): string {
   if (min <= 0) return '0м'
@@ -184,12 +199,11 @@ export function formatPollDate(isoDate: string): string {
  * убираются: скилл /timesheet пишет в ту же очередь, и спрашивать второй раз
  * значило бы задвоить часы.
  */
-export async function ensureTodayPoll(
+export async function ensurePollForDay(
   user: UserRow,
+  day: string,
   opts: { token: string; orgId: string },
 ): Promise<{ poll: PollRow; alreadyLogged: Record<string, number> } | null> {
-  const day = todayInTz(user.timezone)
-
   const [existing] = await db
     .select()
     .from(coordinationPolls)
@@ -218,6 +232,14 @@ export async function ensureTodayPoll(
   return { poll, alreadyLogged }
 }
 
+/** Опрос за сегодняшний день пользователя — то, что дёргает крон. */
+export async function ensureTodayPoll(
+  user: UserRow,
+  opts: { token: string; orgId: string },
+): Promise<{ poll: PollRow; alreadyLogged: Record<string, number> } | null> {
+  return ensurePollForDay(user, todayInTz(user.timezone), opts)
+}
+
 /**
  * Пишет ответы опроса в Трекер.
  *
@@ -231,7 +253,7 @@ export async function submitPoll(
   user: UserRow,
   opts: { token: string; orgId: string },
 ): Promise<{ worklogIds: Record<string, number>; failed: Array<{ key: string; reason: string }> }> {
-  const start = `${poll.pollDate}T12:00:00.000${tzOffset(user.timezone, new Date(`${poll.pollDate}T12:00:00Z`))}`
+  const start = worklogStart(poll.pollDate, user.timezone)
 
   const worklogIds: Record<string, number> = {}
   const failed: Array<{ key: string; reason: string }> = []
@@ -256,4 +278,140 @@ export async function submitPoll(
   }
 
   return { worklogIds, failed }
+}
+
+/** Запись дня в том виде, в каком её показывает экран координации. */
+export interface DayEntry {
+  issueKey: string
+  worklogId: number
+  minutes: number
+}
+
+/**
+ * Что списано по координации за день — читается из Трекера, а не из нашей БД.
+ *
+ * Источник истины именно Трекер: часы туда пишет не только бот, но и скилл
+ * `/timesheet`, и сам человек через веб-интерфейс. Экран, который показывал бы
+ * только собственные записи бота, врал бы про день.
+ */
+export async function loadDay(
+  user: UserRow,
+  day: string,
+  opts: { token: string; orgId: string },
+): Promise<DayEntry[]> {
+  const logged = await listMyWorklogsForDay({
+    token: opts.token,
+    orgId: opts.orgId,
+    queuePrefix: COORDINATION_QUEUE,
+    day,
+    tzOffset: tzOffset(user.timezone),
+  })
+  return logged
+    .map((w) => ({ issueKey: w.issueKey, worklogId: w.id, minutes: w.minutes }))
+    .sort((a, b) => a.issueKey.localeCompare(b.issueKey, 'en', { numeric: true }))
+}
+
+/** Кнопки выбора минут для произвольного действия. */
+function minuteButtons(kb: InlineKeyboard, data: (min: number) => string, withZero = false): void {
+  const choices = withZero ? MINUTE_CHOICES : MINUTE_CHOICES.filter((m) => m > 0)
+  choices.forEach((min, i) => {
+    if (i > 0 && i % 3 === 0) kb.row()
+    kb.text(formatMinutes(min), data(min))
+  })
+}
+
+/**
+ * Главный экран координации за день: что списано, сколько всего, что можно
+ * сделать. Он же — то, куда возвращается любое действие.
+ */
+export function renderDay(day: string, entries: DayEntry[]): {
+  text: string
+  keyboard: InlineKeyboard
+} {
+  const total = entries.reduce((sum, e) => sum + e.minutes, 0)
+  const lines = [`⏱ Координация за ${formatPollDate(day)}`, '']
+
+  if (entries.length === 0) {
+    lines.push('Пока ничего не списано.')
+  } else {
+    for (const e of entries) {
+      const dir = findDirection(e.issueKey)
+      lines.push(`• ${dir?.label ?? e.issueKey} — ${formatMinutes(e.minutes)}`)
+    }
+    lines.push('', `Итого: ${formatMinutes(total)}`)
+  }
+
+  const kb = new InlineKeyboard().text('➕ Добавить', `coord:add:${day}`)
+  if (entries.length > 0) kb.text('✏️ Изменить', `coord:edit:${day}`)
+  kb.row().text('🔄 Обновить', `coord:menu:${day}`)
+
+  return { text: lines.join('\n'), keyboard: kb }
+}
+
+/** Выбор направления при добавлении времени. */
+export function renderPickDirection(day: string): { text: string; keyboard: InlineKeyboard } {
+  const kb = new InlineKeyboard()
+  ALL_DIRECTIONS.forEach((d, i) => {
+    if (i > 0 && i % 2 === 0) kb.row()
+    kb.text(d.label, `coord:addpick:${day}:${shortId(d.key)}`)
+  })
+  kb.row().text('↩︎ Назад', `coord:menu:${day}`)
+  return { text: `Куда списать время за ${formatPollDate(day)}?`, keyboard: kb }
+}
+
+/** Выбор количества минут для выбранного направления. */
+export function renderPickMinutes(day: string, issueKey: string): {
+  text: string
+  keyboard: InlineKeyboard
+} {
+  const dir = findDirection(issueKey)
+  const kb = new InlineKeyboard()
+  minuteButtons(kb, (min) => `coord:addset:${day}:${shortId(issueKey)}:${min}`)
+  kb.row().text('↩︎ Назад', `coord:add:${day}`)
+  return {
+    text: `${dir?.label ?? issueKey} за ${formatPollDate(day)} — сколько списать?`,
+    keyboard: kb,
+  }
+}
+
+/** Список записей дня для правки. */
+export function renderEditList(day: string, entries: DayEntry[]): {
+  text: string
+  keyboard: InlineKeyboard
+} {
+  const kb = new InlineKeyboard()
+  for (const e of entries) {
+    const dir = findDirection(e.issueKey)
+    kb.text(
+      `${dir?.label ?? e.issueKey} — ${formatMinutes(e.minutes)}`,
+      `coord:editpick:${day}:${shortId(e.issueKey)}:${e.worklogId}`,
+    ).row()
+  }
+  kb.text('↩︎ Назад', `coord:menu:${day}`)
+  return { text: `Какую запись за ${formatPollDate(day)} поправить?`, keyboard: kb }
+}
+
+/** Правка одной записи: новые минуты или удаление. */
+export function renderEditEntry(day: string, entry: DayEntry): {
+  text: string
+  keyboard: InlineKeyboard
+} {
+  const dir = findDirection(entry.issueKey)
+  const short = shortId(entry.issueKey)
+  const kb = new InlineKeyboard()
+  minuteButtons(kb, (min) => `coord:editset:${day}:${short}:${entry.worklogId}:${min}`)
+  kb.row()
+    .text('🗑 Удалить', `coord:editdel:${day}:${short}:${entry.worklogId}`)
+    .text('↩︎ Назад', `coord:edit:${day}`)
+  return {
+    text:
+      `${dir?.label ?? entry.issueKey} за ${formatPollDate(day)}: ` +
+      `сейчас ${formatMinutes(entry.minutes)}.\nНовое значение:`,
+    keyboard: kb,
+  }
+}
+
+/** Время начала записи — полдень выбранного дня в таймзоне пользователя. */
+export function worklogStart(day: string, timezone: string): string {
+  return `${day}T12:00:00.000${tzOffset(timezone, new Date(`${day}T12:00:00Z`))}`
 }

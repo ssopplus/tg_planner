@@ -5,7 +5,7 @@
 - **Date**: 2026-09-08
 - **Status**: In Progress
 - **Complexity**: High
-- **Progress**: 70%
+- **Progress**: 82%
 
 ## Context
 
@@ -139,16 +139,27 @@ tracker_default_queue: POLAERP   # куда «поднимать» внутре�
 - [ ] Дописывать ключ тикета в строку vault `tasks.md` через write-back (дубля нет — матчинг по `tgp:UUID`)
 
 ### Phase 4: Списание часов
-- [ ] Таблица `worklogs` (task_id, date, minutes, comment, tracker_worklog_id, synced_at) + миграция
-- [ ] `addWorklog()` в tracker-client: `POST /v2/issues/{key}/worklog`, duration в ISO 8601 (PT2H30M)
-- [ ] `POST /api/worklog/draft` — приём черновика таймшита от скилла `/timesheet`
-- [ ] Сообщение бота с черновиком и кнопкой «Списать» (батчем, только по подтверждению)
+Начали с координации: дейли и созвоны нигде не оставляют измеримого следа (в Claude
+их не видно, коммитов нет), а в норму дня входят — значит без опроса их не собрать.
+Рабочие задачи списываются иначе: там факт можно замерить, и он приходит из `/timesheet`.
+
+- [x] Таблица `coordination_polls` (состояние опроса + журнал внесённого) — миграция 0011
+- [x] `addWorklog()` / `listMyWorklogsForDay()` / `getMyUid()` в tracker-client, duration в ISO 8601
+- [x] Ежедневный опрос по INTCOORD: `GET /api/cron/coordination-poll`, будни, 18:00 ±7 мин в таймзоне пользователя
+- [x] Поштучный опрос на кнопках (0/15/30/45/60/90м), «Назад», «Ещё направление», итог с подтверждением
+- [x] Дедупликация: направления, уже списанные скиллом `/timesheet` за этот день, из опроса выпадают
+- [x] Команда `/coord` — вызвать опрос вручную
+- [ ] Завести крон на cron-job.org (каждые 15 минут) — ручной шаг
+- [ ] `POST /api/worklog/draft` — приём черновика таймшита от скилла `/timesheet` по рабочим задачам
 - [ ] Экран часов в Mini App: списанное за день, дефицит до нормы рабочего дня, ручная правка
 
 ## Affected Files
 
 - `src/lib/db/schema.ts` — `tasks.sortOrder`, таблица `tracker_queue_links`, таблица `worklogs`
 - `src/lib/tracker/queue-links.ts` — разбор тикета по связкам очереди
+- `src/bot/services/coordination.ts` + `src/bot/handlers/coordination.ts` — опрос по INTCOORD
+- `src/app/api/cron/coordination-poll/route.ts` — расписание опроса
+- `docs/coordination-poll.md` — как устроен опрос и как завести крон
 - `src/lib/tracker/client.ts` — снос `QUEUE_TO_PROJECT_SLUG`, фикс фильтра, `createIssue`, `addWorklog`
 - `src/app/api/cron/tracker-sync/route.ts` — маппинг из БД, статусы, reconciliation
 - `src/app/(mini-app)/tasks/page.tsx` — разделы, сквозной drag-n-drop

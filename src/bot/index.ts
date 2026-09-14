@@ -9,6 +9,7 @@ import { handleProjects } from './handlers/projects'
 import { handleTasks } from './handlers/tasks'
 import { userMiddleware } from './middleware/user'
 import { initAI } from '@/lib/ai/init'
+import { handleCoordCommand } from './handlers/coordination'
 
 const token = process.env.BOT_TOKEN
 if (!token) {
@@ -30,6 +31,7 @@ bot.command('app', handleApp)
 bot.command('projects', handleProjects)
 bot.command('tasks', handleTasks)
 bot.command('today', handleTasks) // /today — «Мой день»
+bot.command('coord', handleCoordCommand) // /coord — опрос по координации вручную
 
 // Callback queries (inline-кнопки)
 bot.on('callback_query:data', handleCallback)

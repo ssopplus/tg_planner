@@ -13,6 +13,7 @@ export async function handleHelp(ctx: Context) {
       '/today — ☀️ Мой день (автоматический план)\n' +
       '/tasks — все активные задачи\n' +
       '/projects — управление проектами\n' +
+      '/coord — ⏱ списать координацию за сегодня\n' +
       '/app — 📱 открыть Mini App\n' +
       '/help — эта справка\n\n' +
       '**Примеры ввода:**\n' +

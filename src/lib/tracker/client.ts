@@ -229,3 +229,135 @@ export async function closeIssue(args: {
   }
   return { ok: true, transitionId: target.id }
 }
+
+/** Запись учёта времени в Трекере. */
+export interface TrackerWorklog {
+  id: number
+  issueKey: string
+  /** Длительность в минутах (ISO 8601 из API уже разобран). */
+  minutes: number
+  comment: string
+  /** Начало работы, ISO с таймзоной. */
+  start: string
+}
+
+/**
+ * Разбирает длительность ISO 8601 (`PT1H30M`, `P1D`) в минуты.
+ * День в Трекере — 8 рабочих часов, а не 24.
+ */
+export function parseIsoDuration(iso: string): number {
+  const m = /^P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?)?/.exec(iso ?? '')
+  if (!m) return 0
+  const [, w, d, h, min] = m
+  return (
+    (w ? Number(w) * 5 * 8 * 60 : 0) +
+    (d ? Number(d) * 8 * 60 : 0) +
+    (h ? Number(h) * 60 : 0) +
+    (min ? Number(min) : 0)
+  )
+}
+
+/** Минуты → длительность ISO 8601 для API (`90` → `PT1H30M`). */
+export function toIsoDuration(minutes: number): string {
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return `PT${h ? `${h}H` : ''}${m || !h ? `${m}M` : ''}`
+}
+
+/** UID владельца токена. Нужен поиску ворклогов: `me()` там не работает. */
+export async function getMyUid(args: { token: string; orgId: string }): Promise<string> {
+  const res = await fetch(`${BASE}/myself`, { headers: authHeaders(args.token, args.orgId) })
+  if (!res.ok) throw new Error(`tracker myself ${res.status}: ${await res.text()}`)
+  const me = (await res.json()) as { uid: number }
+  return String(me.uid)
+}
+
+/**
+ * Ворклоги пользователя по задачам одной очереди за конкретный день.
+ *
+ * Нужны, чтобы повторный опрос не задвоил часы: если за этот день по задаче
+ * уже есть запись — направление пропускается. Фильтр по дате API применяет к
+ * `createdAt` (когда запись внесли), а нас интересует `start` (за какой день
+ * списано), поэтому берём окно с запасом и досеиваем на своей стороне.
+ *
+ * `createdBy` принимает только uid: `me()` здесь отдаёт 422
+ * «пользователи [me()] не существуют», в отличие от YQL-запросов к задачам.
+ */
+export async function listMyWorklogsForDay(args: {
+  token: string
+  orgId: string
+  queuePrefix: string
+  /** День в формате YYYY-MM-DD, в таймзоне пользователя. */
+  day: string
+  /** Смещение таймзоны пользователя, например "+03:00". */
+  tzOffset: string
+}): Promise<TrackerWorklog[]> {
+  const dayStart = new Date(`${args.day}T00:00:00${args.tzOffset}`)
+  const from = new Date(dayStart.getTime() - 7 * 24 * 3600_000)
+  const to = new Date(dayStart.getTime() + 2 * 24 * 3600_000)
+
+  const res = await fetch(`${BASE}/worklog/_search?perPage=200`, {
+    method: 'POST',
+    headers: authHeaders(args.token, args.orgId),
+    body: JSON.stringify({
+      createdBy: await getMyUid({ token: args.token, orgId: args.orgId }),
+      createdAt: { from: from.toISOString(), to: to.toISOString() },
+    }),
+  })
+  if (!res.ok) {
+    throw new Error(`tracker worklog search ${res.status}: ${await res.text()}`)
+  }
+
+  const all = (await res.json()) as Array<{
+    id: number
+    issue: { key: string }
+    duration: string
+    comment?: string
+    start: string
+  }>
+
+  const dayEnd = new Date(dayStart.getTime() + 24 * 3600_000)
+  return all
+    .filter((w) => w.issue.key.startsWith(args.queuePrefix))
+    .filter((w) => {
+      const t = new Date(w.start)
+      return t >= dayStart && t < dayEnd
+    })
+    .map((w) => ({
+      id: w.id,
+      issueKey: w.issue.key,
+      minutes: parseIsoDuration(w.duration),
+      comment: (w.comment ?? '').trim(),
+      start: w.start,
+    }))
+}
+
+/**
+ * Списывает время в задачу Трекера.
+ *
+ * @param start — начало работы, ISO с таймзоной (`2026-09-11T18:00:00.000+03:00`).
+ *   Трекер относит запись к тому дню, который стоит здесь, а не ко дню запроса.
+ */
+export async function addWorklog(args: {
+  token: string
+  orgId: string
+  issueKey: string
+  minutes: number
+  comment: string
+  start: string
+}): Promise<{ ok: true; worklogId: number } | { ok: false; reason: string }> {
+  const res = await fetch(`${BASE}/issues/${args.issueKey}/worklog`, {
+    method: 'POST',
+    headers: authHeaders(args.token, args.orgId),
+    body: JSON.stringify({
+      start: args.start,
+      duration: toIsoDuration(args.minutes),
+      comment: args.comment,
+    }),
+  })
+  if (!res.ok) {
+    return { ok: false, reason: `worklog ${res.status}: ${(await res.text()).slice(0, 300)}` }
+  }
+  const body = (await res.json()) as { id: number }
+  return { ok: true, worklogId: body.id }
+}

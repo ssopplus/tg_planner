@@ -292,3 +292,55 @@ export const remindersRelations = relations(reminders, ({ one }) => ({
   task: one(tasks, { fields: [reminders.taskId], references: [tasks.id] }),
   user: one(users, { fields: [reminders.userId], references: [users.id] }),
 }))
+
+/**
+ * Состояние ежедневного опроса по координации (очередь INTCOORD).
+ *
+ * Опрос идёт поштучно: бот спрашивает про направление, пользователь жмёт
+ * кнопку с минутами, бот переходит к следующему. Ответы нельзя держать в
+ * `callback_data` — там 64 байта, — поэтому состояние живёт здесь, по строке
+ * на пользователя и день. Она же служит журналом: после подтверждения в
+ * `answers` остаются внесённые суммы, а в `worklogIds` — id записей Трекера.
+ *
+ * Уникальность (user_id, poll_date) не даёт завести второй опрос за тот же
+ * день: повторный вызов крона переиспользует существующую строку.
+ */
+export const coordinationPolls = pgTable(
+  'coordination_polls',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    /** День, ЗА который списывается время (в таймзоне пользователя). */
+    pollDate: date('poll_date').notNull(),
+    /**
+     * Ответы: `{ "INTCOORD-1": 30, "INTCOORD-3": 15 }`, минуты.
+     * Направление, которого нет в объекте, ещё не спрошено; 0 — «не было».
+     */
+    answers: jsonb('answers').$type<Record<string, number>>().default({}).notNull(),
+    /** Ключи направлений в порядке опроса — с ними сверяется текущий шаг. */
+    steps: jsonb('steps').$type<string[]>().default([]).notNull(),
+    /** Индекс текущего вопроса в `steps`; равен длине — все спрошены. */
+    step: integer('step').default(0).notNull(),
+    /**
+     * asking — идёт опрос, confirming — показан итог, submitted — записано
+     * в Трекер, skipped — пользователь сказал «сегодня не было».
+     */
+    status: text('status').default('asking').notNull(),
+    /** Сообщение бота, которое редактируется на каждом шаге. */
+    chatId: text('chat_id'),
+    messageId: integer('message_id'),
+    /** id внесённых записей Трекера — чтобы видеть, что именно ушло. */
+    worklogIds: jsonb('worklog_ids').$type<Record<string, number>>().default({}).notNull(),
+    submittedAt: timestamp('submitted_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [uniqueIndex('coordination_polls_user_date_idx').on(table.userId, table.pollDate)],
+)

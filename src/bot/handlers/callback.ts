@@ -7,6 +7,7 @@ import { addToMyDay, removeFromMyDay } from '../services/my-day'
 import { parseRecurrenceToRRule } from '@/lib/reminders/rrule-parser'
 import { BotContext } from '../middleware/user'
 import { buildDevTaskPrompt } from '@/lib/prompts/dev-task'
+import { handleCoordinationCallback } from './coordination'
 
 /**
  * Обработчик callback queries от inline-кнопок.
@@ -15,6 +16,9 @@ import { buildDevTaskPrompt } from '@/lib/prompts/dev-task'
 export async function handleCallback(ctx: Context) {
   const data = ctx.callbackQuery?.data
   if (!data) return
+
+  // Опрос по координации держит своё состояние в БД и разбирает data сам.
+  if (await handleCoordinationCallback(ctx)) return
 
   const { dbUser } = ctx as BotContext
   const parts = data.split(':')

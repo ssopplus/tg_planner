@@ -15,12 +15,13 @@
  * в callback_data всего 64 байта.
  */
 import { Context, InlineKeyboard } from 'grammy'
-import { and, eq } from 'drizzle-orm'
+import { and, desc, eq, isNotNull } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { coordinationPolls } from '@/lib/db/schema'
 import { addWorklog, deleteWorklog, updateWorklog } from '@/lib/tracker/client'
 import { BotContext } from '../middleware/user'
 import {
+  COMMENT_PRESETS,
   ensurePollForDay,
   EXTRA_DIRECTIONS,
   findDirection,
@@ -30,14 +31,20 @@ import {
   renderDay,
   renderEditEntry,
   renderEditList,
+  renderEditComment,
+  renderPickComment,
   renderPickDirection,
   renderPickMinutes,
+  presetComment,
   renderPoll,
   submitPoll,
   todayInTz,
   worklogStart,
   type PollRow,
 } from '../services/coordination'
+
+/** Сколько ждём текст комментария, прежде чем считать запрос забытым. */
+const PENDING_INPUT_TTL_MS = 15 * 60 * 1000
 
 /** Токен и орг Трекера; без них экран координации не работает. */
 function trackerEnv(): { token: string; orgId: string } | null {
@@ -143,17 +150,25 @@ export async function handleCoordinationCallback(ctx: Context): Promise<boolean>
       return true
     }
 
+    case 'addcom': {
+      // Минуты выбраны — спрашиваем комментарий.
+      await paint(ctx, renderPickComment(arg1, fromShortId(arg2), Number(arg3)))
+      await ctx.answerCallbackQuery()
+      return true
+    }
+
     case 'addset': {
       const issueKey = fromShortId(arg2)
       const minutes = Number(arg3)
       const dir = findDirection(issueKey)
+      const comment = presetComment(Number(arg4)) ?? dir?.comment ?? 'Координация'
       await ctx.answerCallbackQuery({ text: 'Списываю…' })
 
       const res = await addWorklog({
         ...env,
         issueKey,
         minutes,
-        comment: dir?.comment ?? 'Координация',
+        comment,
         start: worklogStart(arg1, dbUser.timezone),
       })
       if (!res.ok) {
@@ -161,6 +176,25 @@ export async function handleCoordinationCallback(ctx: Context): Promise<boolean>
         return true
       }
       await paintDay(ctx, arg1, env)
+      return true
+    }
+
+    case 'addtext': {
+      // Ждём комментарий обычным сообщением — контекст кладём в БД.
+      const issueKey = fromShortId(arg2)
+      await setPendingInput(dbUser.id, arg1, {
+        kind: 'comment-new',
+        issueKey,
+        minutes: Number(arg3),
+      })
+      const dir = findDirection(issueKey)
+      await paint(ctx, {
+        text:
+          `${dir?.label ?? issueKey}, ${formatMinutes(Number(arg3))} за ${arg1}.\n` +
+          'Напиши комментарий сообщением — спишу с ним.',
+        keyboard: new InlineKeyboard().text('↩︎ Отмена', `coord:menu:${arg1}`),
+      })
+      await ctx.answerCallbackQuery()
       return true
     }
 
@@ -188,6 +222,51 @@ export async function handleCoordinationCallback(ctx: Context): Promise<boolean>
         return true
       }
       await paint(ctx, renderEditEntry(arg1, entry))
+      await ctx.answerCallbackQuery()
+      return true
+    }
+
+    case 'editcomment': {
+      const entries = await loadDay(dbUser, arg1, env)
+      const entry = entries.find((e) => e.worklogId === Number(arg3))
+      if (!entry) {
+        await ctx.answerCallbackQuery({ text: 'Запись уже изменилась' })
+        await paintDay(ctx, arg1, env)
+        return true
+      }
+      await paint(ctx, renderEditComment(arg1, entry))
+      await ctx.answerCallbackQuery()
+      return true
+    }
+
+    case 'editcom': {
+      const issueKey = fromShortId(arg2)
+      const comment = presetComment(Number(arg4))
+      if (!comment) {
+        await ctx.answerCallbackQuery({ text: 'Неизвестный комментарий' })
+        return true
+      }
+      await ctx.answerCallbackQuery({ text: 'Меняю…' })
+      const res = await updateWorklogComment(env, dbUser, arg1, issueKey, Number(arg3), comment)
+      if (!res.ok) {
+        await ctx.reply(`⚠️ Не удалось изменить комментарий: ${res.reason}`)
+        return true
+      }
+      await paintDay(ctx, arg1, env)
+      return true
+    }
+
+    case 'editcomtext': {
+      const issueKey = fromShortId(arg2)
+      await setPendingInput(dbUser.id, arg1, {
+        kind: 'comment-edit',
+        issueKey,
+        worklogId: Number(arg3),
+      })
+      await paint(ctx, {
+        text: 'Напиши новый комментарий сообщением.',
+        keyboard: new InlineKeyboard().text('↩︎ Отмена', `coord:menu:${arg1}`),
+      })
       await ctx.answerCallbackQuery()
       return true
     }
@@ -442,4 +521,128 @@ export function parseDayArg(arg: string, timezone: string, now = new Date()): st
   }
 
   return null
+}
+
+/**
+ * Запоминает, что от пользователя ждём текст комментария.
+ *
+ * Контекст кладём в строку дня: если её ещё нет (например, добавляем время за
+ * день, когда опроса не было), заводим пустую — она же потом послужит журналом.
+ */
+async function setPendingInput(
+  userId: string,
+  day: string,
+  input: NonNullable<PollRow['pendingInput']>,
+): Promise<void> {
+  const [existing] = await db
+    .select()
+    .from(coordinationPolls)
+    .where(and(eq(coordinationPolls.userId, userId), eq(coordinationPolls.pollDate, day)))
+
+  if (existing) {
+    await db
+      .update(coordinationPolls)
+      .set({ pendingInput: input })
+      .where(eq(coordinationPolls.id, existing.id))
+    return
+  }
+
+  await db
+    .insert(coordinationPolls)
+    .values({ userId, pollDate: day, steps: [], step: 0, status: 'menu', pendingInput: input })
+}
+
+/** Меняет комментарий записи, сохраняя её длительность. */
+async function updateWorklogComment(
+  env: { token: string; orgId: string },
+  user: BotContext['dbUser'],
+  day: string,
+  issueKey: string,
+  worklogId: number,
+  comment: string,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  // Длительность передаём явно, текущую: так правка комментария заведомо не
+  // заденет время, какой бы ни была семантика частичного PATCH у Трекера.
+  const entries = await loadDay(user, day, env)
+  const entry = entries.find((e) => e.worklogId === worklogId)
+  if (!entry) return { ok: false, reason: 'запись не найдена' }
+
+  return updateWorklog({ ...env, issueKey, worklogId, minutes: entry.minutes, comment })
+}
+
+/**
+ * Текстовый ответ на запрос комментария.
+ *
+ * Вызывается из общего обработчика сообщений ДО парсера задач: иначе
+ * «Обсуждение фикстур» превратилось бы в новую задачу вместо комментария.
+ *
+ * @returns true, если сообщение было комментарием и уже обработано.
+ */
+export async function handleCoordinationText(ctx: Context): Promise<boolean> {
+  const text = ctx.message?.text?.trim()
+  if (!text) return false
+
+  const { dbUser } = ctx as BotContext
+  const [waiting] = await db
+    .select()
+    .from(coordinationPolls)
+    .where(
+      and(eq(coordinationPolls.userId, dbUser.id), isNotNull(coordinationPolls.pendingInput)),
+    )
+    .orderBy(desc(coordinationPolls.updatedAt))
+    .limit(1)
+
+  const input = waiting?.pendingInput
+  if (!waiting || !input) return false
+
+  // Ожидание живёт ограниченное время: забытый запрос не должен молча съедать
+  // задачу, которую человек напишет через час.
+  if (Date.now() - waiting.updatedAt.getTime() > PENDING_INPUT_TTL_MS) {
+    await db
+      .update(coordinationPolls)
+      .set({ pendingInput: null })
+      .where(eq(coordinationPolls.id, waiting.id))
+    return false
+  }
+
+  const env = trackerEnv()
+  if (!env) return false
+
+  const day = waiting.pollDate
+  await db
+    .update(coordinationPolls)
+    .set({ pendingInput: null })
+    .where(eq(coordinationPolls.id, waiting.id))
+
+  if (input.kind === 'comment-new') {
+    const res = await addWorklog({
+      ...env,
+      issueKey: input.issueKey,
+      minutes: input.minutes ?? 0,
+      comment: text,
+      start: worklogStart(day, dbUser.timezone),
+    })
+    if (!res.ok) {
+      await ctx.reply(`⚠️ Не удалось списать ${input.issueKey}: ${res.reason}`)
+      return true
+    }
+  } else {
+    const res = await updateWorklogComment(
+      env,
+      dbUser,
+      day,
+      input.issueKey,
+      input.worklogId ?? 0,
+      text,
+    )
+    if (!res.ok) {
+      await ctx.reply(`⚠️ Не удалось изменить комментарий: ${res.reason}`)
+      return true
+    }
+  }
+
+  const entries = await loadDay(dbUser, day, env)
+  const view = renderDay(day, entries)
+  await ctx.reply(view.text, { reply_markup: view.keyboard })
+  return true
 }

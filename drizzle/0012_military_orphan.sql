@@ -1,0 +1,1 @@
+ALTER TABLE "coordination_polls" ADD COLUMN "pending_input" jsonb;

@@ -54,6 +54,29 @@ export const EXTRA_DIRECTIONS: Direction[] = [
 
 export const ALL_DIRECTIONS = [...REGULAR_DIRECTIONS, ...EXTRA_DIRECTIONS]
 
+/**
+ * Готовые комментарии к записи учёта времени.
+ *
+ * Одно и то же направление закрывает разную работу: у «ПолаРайз» это и дейли,
+ * и разбор конкретной задачи, и обсуждение нового функционала. В Трекере это
+ * видно только по комментарию, поэтому его можно выбрать кнопкой или написать
+ * своими словами.
+ *
+ * Порядок важен: индекс в этом массиве уезжает в `callback_data` вместо самого
+ * текста — кириллица там съела бы весь лимит в 64 байта.
+ */
+export const COMMENT_PRESETS = [
+  'Дейли',
+  'Обсуждение задачи',
+  'Новый функционал',
+  'Созвон',
+  'Планирование',
+] as const
+
+export function presetComment(index: number): string | undefined {
+  return COMMENT_PRESETS[index]
+}
+
 export function findDirection(key: string): Direction | undefined {
   return ALL_DIRECTIONS.find((d) => d.key === key)
 }
@@ -285,6 +308,7 @@ export interface DayEntry {
   issueKey: string
   worklogId: number
   minutes: number
+  comment: string
 }
 
 /**
@@ -307,7 +331,12 @@ export async function loadDay(
     tzOffset: tzOffset(user.timezone),
   })
   return logged
-    .map((w) => ({ issueKey: w.issueKey, worklogId: w.id, minutes: w.minutes }))
+    .map((w) => ({
+      issueKey: w.issueKey,
+      worklogId: w.id,
+      minutes: w.minutes,
+      comment: w.comment,
+    }))
     .sort((a, b) => a.issueKey.localeCompare(b.issueKey, 'en', { numeric: true }))
 }
 
@@ -336,7 +365,10 @@ export function renderDay(day: string, entries: DayEntry[]): {
   } else {
     for (const e of entries) {
       const dir = findDirection(e.issueKey)
-      lines.push(`• ${dir?.label ?? e.issueKey} — ${formatMinutes(e.minutes)}`)
+      // Комментарий, дословно повторяющий название направления, ничего не
+      // добавляет — «Общий дейли — 30м · Общий дейли» читается как ошибка.
+      const comment = e.comment && e.comment !== dir?.label ? ` · ${e.comment}` : ''
+      lines.push(`• ${dir?.label ?? e.issueKey} — ${formatMinutes(e.minutes)}${comment}`)
     }
     lines.push('', `Итого: ${formatMinutes(total)}`)
   }
@@ -366,10 +398,56 @@ export function renderPickMinutes(day: string, issueKey: string): {
 } {
   const dir = findDirection(issueKey)
   const kb = new InlineKeyboard()
-  minuteButtons(kb, (min) => `coord:addset:${day}:${shortId(issueKey)}:${min}`)
+  minuteButtons(kb, (min) => `coord:addcom:${day}:${shortId(issueKey)}:${min}`)
   kb.row().text('↩︎ Назад', `coord:add:${day}`)
   return {
     text: `${dir?.label ?? issueKey} за ${formatPollDate(day)} — сколько списать?`,
+    keyboard: kb,
+  }
+}
+
+/**
+ * Выбор комментария к новой записи: пресет, дефолт направления или свой текст.
+ */
+export function renderPickComment(day: string, issueKey: string, minutes: number): {
+  text: string
+  keyboard: InlineKeyboard
+} {
+  const dir = findDirection(issueKey)
+  const short = shortId(issueKey)
+  const kb = new InlineKeyboard()
+  COMMENT_PRESETS.forEach((preset, i) => {
+    if (i > 0 && i % 2 === 0) kb.row()
+    kb.text(preset, `coord:addset:${day}:${short}:${minutes}:${i}`)
+  })
+  kb.row().text('✏️ Свой текст', `coord:addtext:${day}:${short}:${minutes}`)
+  kb.row().text('↩︎ Назад', `coord:addpick:${day}:${short}`)
+  return {
+    text:
+      `${dir?.label ?? issueKey}, ${formatMinutes(minutes)} за ${formatPollDate(day)}.\n` +
+      'Что писать в комментарии?',
+    keyboard: kb,
+  }
+}
+
+/** Смена комментария у существующей записи. */
+export function renderEditComment(day: string, entry: DayEntry): {
+  text: string
+  keyboard: InlineKeyboard
+} {
+  const dir = findDirection(entry.issueKey)
+  const short = shortId(entry.issueKey)
+  const kb = new InlineKeyboard()
+  COMMENT_PRESETS.forEach((preset, i) => {
+    if (i > 0 && i % 2 === 0) kb.row()
+    kb.text(preset, `coord:editcom:${day}:${short}:${entry.worklogId}:${i}`)
+  })
+  kb.row().text('✏️ Свой текст', `coord:editcomtext:${day}:${short}:${entry.worklogId}`)
+  kb.row().text('↩︎ Назад', `coord:editpick:${day}:${short}:${entry.worklogId}`)
+  return {
+    text:
+      `${dir?.label ?? entry.issueKey} за ${formatPollDate(day)}: ` +
+      `сейчас «${entry.comment || 'без комментария'}».\nНовый комментарий:`,
     keyboard: kb,
   }
 }
@@ -400,13 +478,15 @@ export function renderEditEntry(day: string, entry: DayEntry): {
   const short = shortId(entry.issueKey)
   const kb = new InlineKeyboard()
   minuteButtons(kb, (min) => `coord:editset:${day}:${short}:${entry.worklogId}:${min}`)
+  kb.row().text('💬 Комментарий', `coord:editcomment:${day}:${short}:${entry.worklogId}`)
   kb.row()
     .text('🗑 Удалить', `coord:editdel:${day}:${short}:${entry.worklogId}`)
     .text('↩︎ Назад', `coord:edit:${day}`)
+  const comment = entry.comment ? ` · «${entry.comment}»` : ''
   return {
     text:
       `${dir?.label ?? entry.issueKey} за ${formatPollDate(day)}: ` +
-      `сейчас ${formatMinutes(entry.minutes)}.\nНовое значение:`,
+      `сейчас ${formatMinutes(entry.minutes)}${comment}.\nНовое значение:`,
     keyboard: kb,
   }
 }

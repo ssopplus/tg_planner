@@ -7,6 +7,7 @@ import { addPendingTask } from '../services/pending-store'
 import { confirmKeyboard, confirmMultiKeyboard } from '../keyboards/task'
 import { BotContext } from '../middleware/user'
 import { formatTaskPreview } from '../services/format'
+import { handleCoordinationText } from './coordination'
 
 /**
  * Обработчик текстовых сообщений.
@@ -15,6 +16,10 @@ import { formatTaskPreview } from '../services/format'
 export async function handleMessage(ctx: Context) {
   const text = ctx.message?.text
   if (!text) return
+
+  // Если бот ждёт комментарий к списанию времени — текст принадлежит ему,
+  // иначе «Обсуждение фикстур» уедет в парсер и станет новой задачей.
+  if (await handleCoordinationText(ctx)) return
 
   const { dbUser } = ctx as BotContext
 

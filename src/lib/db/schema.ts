@@ -335,6 +335,21 @@ export const coordinationPolls = pgTable(
     messageId: integer('message_id'),
     /** id внесённых записей Трекера — чтобы видеть, что именно ушло. */
     worklogIds: jsonb('worklog_ids').$type<Record<string, number>>().default({}).notNull(),
+    /**
+     * Что бот ждёт от пользователя следующим сообщением.
+     *
+     * Комментарий к записи можно не только выбрать кнопкой, но и написать
+     * текстом — а текст приходит обычным сообщением, вне callback'а. Здесь
+     * лежит контекст этого ожидания: за какой день, в какое направление и
+     * сколько минут писать (или id записи, если правим существующую).
+     * null — ничего не ждём, текст уходит обычному парсеру задач.
+     */
+    pendingInput: jsonb('pending_input').$type<{
+      kind: 'comment-new' | 'comment-edit'
+      issueKey: string
+      minutes?: number
+      worklogId?: number
+    } | null>(),
     submittedAt: timestamp('submitted_at'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at')

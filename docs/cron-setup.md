@@ -16,12 +16,14 @@
 | `/api/cron/digest` | Утренний и вечерний дайджест задач каждому пользователю по его `morningDigestTime` / `eveningDigestTime`. | каждые 15 минут |
 | `/api/cron/pending-cleanup` | Удаляет просроченные `pending_tasks` (распарсенные AI задачи, не подтверждённые в течение 5 минут). | каждые 5 минут |
 | `/api/cron/archive` | Переводит DONE-задачи старше 7 дней в `ARCHIVED`. | раз в день, 03:00 МСК |
+| `/api/cron/tracker-sync` | Тянет активные задачи из Яндекс.Трекера, закрывает пропавшие. Подробности: [yandex-tracker-sync.md](yandex-tracker-sync.md). | каждые 30 минут |
+| `/api/cron/coordination-poll` | Опрос по координации (INTCOORD) в будни в 18:00 и списание времени. Подробности: [coordination-poll.md](coordination-poll.md). | каждые 15 минут |
 
 ## Шаги настройки cron-job.org
 
 1. Зарегистрируйся на [cron-job.org](https://cron-job.org) и подтверди email.
 2. В кабинете → **Cronjobs** → **Create cronjob**.
-3. Для каждого из четырёх эндпоинтов выше заполни:
+3. Для каждого эндпоинта из таблицы выше заполни:
    - **Title** — например, `tg-planer reminders`.
    - **URL** — `https://<твой-домен>.vercel.app/api/cron/reminders`
      (заменяя путь под нужный эндпоинт).
@@ -40,12 +42,15 @@
 - `/api/cron/digest` → `{ "ok": true, "sent": <число> }`
 - `/api/cron/pending-cleanup` → `{ "ok": true, "removed": <число> }`
 - `/api/cron/archive` → `{ "ok": true, "archived": <число> }`
+- `/api/cron/tracker-sync` → `{ "ok": true, "summary": { "fetched": <число>, … } }`
+- `/api/cron/coordination-poll` → `{ "ok": true, "sent": <число>, "skipped": <число> }`
+  (`sent: 0, skipped: 1` вне 18:00–23:00 — норма, роут сам выбирает время)
 
 Если возвращается `401 Unauthorized` — неправильный `CRON_SECRET` в
 заголовке. Если `500` — открой Vercel Logs → выбери функцию → найди
 причину.
 
-## Почему 4 отдельных job'а, а не 1 общий
+## Почему отдельные job'ы, а не 1 общий
 
 Можно было сделать единый `/api/cron/tick`, который сам решает,
 кого запускать по минутам. Но:
@@ -63,10 +68,12 @@
      { "path": "/api/cron/reminders", "schedule": "* * * * *" },
      { "path": "/api/cron/digest", "schedule": "*/15 * * * *" },
      { "path": "/api/cron/pending-cleanup", "schedule": "*/5 * * * *" },
-     { "path": "/api/cron/archive", "schedule": "0 3 * * *" }
+     { "path": "/api/cron/archive", "schedule": "0 3 * * *" },
+     { "path": "/api/cron/tracker-sync", "schedule": "*/30 * * * *" },
+     { "path": "/api/cron/coordination-poll", "schedule": "*/15 * * * *" }
    ]
    ```
-2. В cron-job.org поставь все 4 job'а на паузу.
+2. В cron-job.org поставь все job'ы на паузу.
 3. Vercel автоматически добавляет правильный заголовок авторизации,
    `CRON_SECRET` проверяется в каждом роуте.
 

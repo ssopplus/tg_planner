@@ -19,13 +19,18 @@ import { alreadyLoggedNote } from '@/bot/handlers/coordination'
  * Дальше опрос живёт на кнопках (см. src/bot/handlers/coordination.ts), а
  * подтверждённые суммы уходят в Трекер через учёт времени.
  *
- * Крон дёргается каждые 15 минут, роут сам решает, чей сейчас час: окно ±7
- * минут вокруг POLL_TIME в таймзоне пользователя — как у дайджестов.
- * Повторный вызов в то же окно ничего не дублирует: опрос за день один
- * (уникальный индекс user_id + poll_date), а уже отправленный не пересылается.
+ * Роут сам решает, чей сейчас час, поэтому расписание крона от времени опроса
+ * не зависит — менять надо только POLL_TIME.
+ *
+ * Условие отправки намеренно не «попали в узкое окно», а «уже не раньше
+ * POLL_TIME, ещё не позже CUTOFF, и сегодня не отправляли»: пропущенный прогон
+ * (сбой сети, лежащий планировщик, дрейф расписания на минуту) иначе съедал бы
+ * опрос за весь день. Дублей это не создаёт — опрос за день один (уникальный
+ * индекс user_id + poll_date), а уже отправленному проставлен message_id.
  */
 const POLL_TIME = '18:00'
-const WINDOW_MINUTES = 7
+/** После этого часа спрашивать бессмысленно — день закончился. */
+const CUTOFF_TIME = '23:00'
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization')
@@ -63,7 +68,7 @@ export async function GET(request: Request) {
           minute: '2-digit',
           hour12: false,
         }).format(now)
-        if (!isTimeInWindow(local, POLL_TIME, WINDOW_MINUTES)) {
+        if (!isWithinPollHours(local)) {
           skipped++
           continue
         }
@@ -112,10 +117,16 @@ export async function GET(request: Request) {
   return NextResponse.json({ ok: true, sent, skipped, details })
 }
 
-/** Попадает ли `currentTime` в окно ±`windowMinutes` от `targetTime` (HH:MM). */
-function isTimeInWindow(currentTime: string, targetTime: string, windowMinutes: number): boolean {
-  const [curH, curM] = currentTime.split(':').map(Number)
-  const [tarH, tarM] = targetTime.split(':').map(Number)
-  const diff = Math.abs(curH * 60 + curM - (tarH * 60 + tarM))
-  return diff <= windowMinutes || diff >= 1440 - windowMinutes
+/** Наступило ли время опроса и не прошёл ли срок (HH:MM в таймзоне пользователя). */
+export function isWithinPollHours(
+  currentTime: string,
+  from = POLL_TIME,
+  to = CUTOFF_TIME,
+): boolean {
+  const minutes = (hhmm: string) => {
+    const [h, m] = hhmm.split(':').map(Number)
+    return h * 60 + m
+  }
+  const now = minutes(currentTime)
+  return now >= minutes(from) && now < minutes(to)
 }

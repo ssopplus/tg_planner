@@ -17,7 +17,7 @@
 | `/api/cron/pending-cleanup` | Удаляет просроченные `pending_tasks` (распарсенные AI задачи, не подтверждённые в течение 5 минут). | каждые 5 минут |
 | `/api/cron/archive` | Переводит DONE-задачи старше 7 дней в `ARCHIVED`. | раз в день, 03:00 МСК |
 | `/api/cron/tracker-sync` | Тянет активные задачи из Яндекс.Трекера, закрывает пропавшие. Подробности: [yandex-tracker-sync.md](yandex-tracker-sync.md). | каждые 30 минут |
-| `/api/cron/coordination-poll` | Опрос по координации (INTCOORD) в будни в 18:00 и списание времени. Подробности: [coordination-poll.md](coordination-poll.md). | раз в сутки, `0 18 * * 1-5` в таймзоне пользователя |
+| `/api/cron/coordination-poll` | Опрос по координации (INTCOORD) в будни в 17:00 и списание времени. Подробности: [coordination-poll.md](coordination-poll.md). | раз в сутки, `0 17 * * 1-5` в таймзоне пользователя |
 
 ## Шаги настройки cron-job.org
 
@@ -44,7 +44,7 @@
 - `/api/cron/archive` → `{ "ok": true, "archived": <число> }`
 - `/api/cron/tracker-sync` → `{ "ok": true, "summary": { "fetched": <число>, … } }`
 - `/api/cron/coordination-poll` → `{ "ok": true, "sent": <число>, "skipped": <число> }`
-  (`sent: 0, skipped: 1` вне 18:00–23:00 — норма, роут сам выбирает время)
+  (`sent: 0, skipped: 1` вне 16:50–23:00 — норма, роут сам выбирает время)
 
 Если возвращается `401 Unauthorized` — неправильный `CRON_SECRET` в
 заголовке. Если `500` — открой Vercel Logs → выбери функцию → найди
@@ -70,7 +70,7 @@
      { "path": "/api/cron/pending-cleanup", "schedule": "*/5 * * * *" },
      { "path": "/api/cron/archive", "schedule": "0 3 * * *" },
      { "path": "/api/cron/tracker-sync", "schedule": "*/30 * * * *" },
-     { "path": "/api/cron/coordination-poll", "schedule": "0 15 * * 1-5" }
+     { "path": "/api/cron/coordination-poll", "schedule": "0 14 * * 1-5" }
    ]
    ```
 2. В cron-job.org поставь все job'ы на паузу.

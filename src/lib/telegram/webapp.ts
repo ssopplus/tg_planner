@@ -62,9 +62,39 @@ export async function whenWebAppReady(timeoutMs = 2000): Promise<TelegramWebApp 
   return null
 }
 
-/** Расширить Mini App на весь экран */
+/** Расширить Mini App на максимальную высоту окна */
 export function webAppExpand() {
   getWebApp()?.expand()
+}
+
+/**
+ * Развернуть Mini App на весь экран (Bot API 8.0+).
+ *
+ * `expand()` этого не делает: он лишь тянет окно до максимальной высоты внутри
+ * клиента, а полноэкранный режим — отдельный метод. На старых клиентах его
+ * нет — молча пропускаем.
+ *
+ * Только для десктопа. На телефоне полноэкранный режим уводит контент под
+ * системную шапку и под панель Telegram, и вёрстке нужны отступы по
+ * safe-area — это отдельная работа, а выигрыша там нет: приложение и так
+ * занимает весь экран.
+ */
+export function webAppRequestFullscreen() {
+  const wa = getWebApp()
+  if (!wa || typeof wa.requestFullscreen !== 'function') return
+  if (!isDesktopPlatform()) return
+  try {
+    wa.requestFullscreen()
+  } catch {
+    // Клиент может отказать (уже в fullscreen, неподдерживаемое окно) —
+    // приложение от этого работать не перестаёт.
+  }
+}
+
+/** Десктопный ли клиент Telegram. */
+export function isDesktopPlatform(): boolean {
+  const platform = getWebApp()?.platform
+  return platform === 'tdesktop' || platform === 'macos' || platform === 'windows'
 }
 
 /**
@@ -101,6 +131,12 @@ interface TelegramWebApp {
   ready: () => void
   expand: () => void
   close: () => void
+  /** Bot API 8.0+, есть не во всех клиентах. */
+  requestFullscreen?: () => void
+  exitFullscreen?: () => void
+  isFullscreen?: boolean
+  /** 'tdesktop' | 'macos' | 'windows' | 'android' | 'ios' | 'weba' | … */
+  platform?: string
   disableVerticalSwipes?: () => void
   enableVerticalSwipes?: () => void
   BackButton: {

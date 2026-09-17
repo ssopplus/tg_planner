@@ -91,6 +91,46 @@ export function webAppRequestFullscreen() {
   }
 }
 
+/**
+ * Отступ сверху, который нужен контенту, чтобы не оказаться под интерфейсом
+ * Telegram.
+ *
+ * В полноэкранном режиме клиент рисует «Закрыть», «⌄» и «…» поверх страницы, а
+ * на телефоне сверху ещё и системная шапка с вырезом. Клиент отдаёт обе
+ * величины: `safeAreaInset` — системную, `contentSafeAreaInset` — свою.
+ * Суммируем, потому что вторая отсчитывается от первой.
+ *
+ * Если клиент ничего не отдал (старая версия, где полей нет, но кнопки уже
+ * плавающие) — берём минимум под ряд кнопок, иначе заголовок оказывается под
+ * ними.
+ */
+export function webAppTopInset(): number {
+  const wa = getWebApp()
+  if (!wa?.isFullscreen) return 0
+  const system = wa.safeAreaInset?.top ?? 0
+  const content = wa.contentSafeAreaInset?.top ?? 0
+  return Math.max(system + content, MIN_FULLSCREEN_TOP_INSET)
+}
+
+/** Высота ряда кнопок Telegram в полноэкранном режиме, по замеру на iOS. */
+const MIN_FULLSCREEN_TOP_INSET = 56
+
+/**
+ * Подписка на изменения, после которых отступ надо пересчитать: вход и выход
+ * из полноэкранного режима, поворот экрана, смена системных вставок.
+ *
+ * @returns функция отписки.
+ */
+export function onWebAppInsetChange(handler: () => void): () => void {
+  const wa = getWebApp()
+  if (!wa?.onEvent || !wa.offEvent) return () => {}
+  const events = ['fullscreenChanged', 'safeAreaChanged', 'contentSafeAreaChanged', 'viewportChanged']
+  for (const e of events) wa.onEvent(e, handler)
+  return () => {
+    for (const e of events) wa.offEvent?.(e, handler)
+  }
+}
+
 /** Десктопный ли клиент Telegram. */
 export function isDesktopPlatform(): boolean {
   const platform = getWebApp()?.platform
@@ -106,6 +146,21 @@ export function webAppDisableVerticalSwipes() {
   const wa = getWebApp()
   if (wa && typeof wa.disableVerticalSwipes === 'function') {
     wa.disableVerticalSwipes()
+  }
+}
+
+/**
+ * Короткая вибрация — подтверждение, что действие «схвачено».
+ *
+ * Используется в момент, когда удержание карточки переходит в перетаскивание:
+ * на телефоне это единственный способ сказать «теперь тащи», пока палец
+ * закрывает собой карточку.
+ */
+export function hapticImpact(style: 'light' | 'medium' | 'rigid' = 'medium') {
+  try {
+    getWebApp()?.HapticFeedback?.impactOccurred(style)
+  } catch {
+    // Старые клиенты без HapticFeedback — не повод падать.
   }
 }
 
@@ -135,6 +190,15 @@ interface TelegramWebApp {
   requestFullscreen?: () => void
   exitFullscreen?: () => void
   isFullscreen?: boolean
+  /** Системные вставки (вырез, статус-бар), Bot API 8.0+. */
+  safeAreaInset?: { top: number; bottom: number; left: number; right: number }
+  /** Вставки под интерфейс самого Telegram, отсчитываются от safeAreaInset. */
+  contentSafeAreaInset?: { top: number; bottom: number; left: number; right: number }
+  onEvent?: (event: string, handler: () => void) => void
+  offEvent?: (event: string, handler: () => void) => void
+  HapticFeedback?: {
+    impactOccurred: (style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft') => void
+  }
   /** 'tdesktop' | 'macos' | 'windows' | 'android' | 'ios' | 'weba' | … */
   platform?: string
   disableVerticalSwipes?: () => void

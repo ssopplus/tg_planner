@@ -4,7 +4,7 @@ import { useState } from 'react'
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
+  MouseSensor,
   TouchSensor,
   useSensor,
   useSensors,
@@ -14,6 +14,7 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core'
 import { TaskCard, type TaskCardData } from './task-card'
+import { hapticImpact } from '@/lib/telegram/webapp'
 
 type Status = 'TODO' | 'IN_PROGRESS' | 'DONE'
 
@@ -40,12 +41,16 @@ function DraggableCard({
     id: task.id,
   })
 
+  // touch-manipulation, а не touch-none: последний запрещает прокрутку
+  // касанием прямо по карточке, а карточки занимают почти всю колонку — доску
+  // было не пролистать, палец почти всегда попадал на карточку. Перетаскивание
+  // начинается по удержанию (см. sensors), поэтому отбирать скролл не нужно.
   return (
     <div
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      className={`touch-none ${isDragging ? 'opacity-30' : ''}`}
+      className={`touch-manipulation transition-opacity ${isDragging ? 'opacity-30' : ''}`}
     >
       <TaskCard task={task} onToggle={onToggle} />
     </div>
@@ -110,9 +115,14 @@ function DroppableColumn({
 export function KanbanBoard({ tasks, onStatusChange, onToggle }: KanbanBoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
 
+  // Мышь и касание разведены намеренно. PointerSensor обслуживал и то, и
+  // другое, поэтому свайп по доске на 8px запускал перетаскивание вместо
+  // прокрутки. Теперь мышь тащит сразу, а палец — только после удержания;
+  // сдвинулся раньше времени больше, чем на tolerance — это прокрутка, и
+  // перетаскивание не начинается.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   )
 
   // Внутри колонки — ручной порядок (tasks.sort_order), а не сортировка
@@ -128,6 +138,10 @@ export function KanbanBoard({ tasks, onStatusChange, onToggle }: KanbanBoardProp
   const activeTask = activeId ? tasks.find((t) => t.id === activeId) : null
 
   function handleDragStart(event: DragStartEvent) {
+    // Палец закрывает карточку собой, поэтому момент «удержал достаточно,
+    // теперь тащи» подтверждаем вибрацией — иначе он угадывается только по
+    // тому, поехала карточка или прокрутилась доска.
+    hapticImpact('medium')
     setActiveId(event.active.id as string)
   }
 
@@ -177,9 +191,11 @@ export function KanbanBoard({ tasks, onStatusChange, onToggle }: KanbanBoardProp
         ))}
       </div>
 
-      <DragOverlay>
+      {/* Поднятая карточка: наклон и тень показывают, что она «оторвана» от
+          доски, кольцо — что перетаскивание началось и её есть куда отпустить. */}
+      <DragOverlay dropAnimation={null}>
         {activeTask ? (
-          <div className="opacity-80 rotate-2 scale-105">
+          <div className="rotate-2 scale-105 rounded-xl shadow-2xl ring-2 ring-[var(--tg-theme-button-color,#007aff)]">
             <TaskCard task={activeTask} />
           </div>
         ) : null}

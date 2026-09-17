@@ -22,6 +22,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { GripVertical } from 'lucide-react'
 import { TaskCard, type TaskCardData } from './task-card'
 import { mutateSafely } from '@/lib/api/mutate'
+import { hapticImpact } from '@/lib/telegram/webapp'
 
 /**
  * Список задач с ручным ранжированием перетаскиванием.
@@ -127,6 +128,7 @@ export function SortableTaskList({
   )
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
+    hapticImpact('medium')
     setActiveId(event.active.id as string)
   }, [])
 

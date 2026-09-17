@@ -1,4 +1,4 @@
-import { Context, Keyboard } from 'grammy'
+import { Context } from 'grammy'
 import { db } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
@@ -8,18 +8,6 @@ import { miniAppKeyboard } from '../keyboards/task'
 /**
  * /start — приветствие, создание дефолтного проекта "Входящие"
  */
-/**
- * Постоянная кнопка над полем ввода, открывающая Mini App.
- *
- * Нужна потому, что кнопка меню слева отдана списку команд: Telegram
- * позволяет там только одно, а команды без неё не найти. Reply-клавиатура
- * висит всегда (`persistent`), так что быстрый вход в приложение сохраняется.
- */
-function miniAppReplyKeyboard(webappUrl: string | undefined): Keyboard | undefined {
-  if (!webappUrl) return undefined
-  return new Keyboard().webApp('📱 Планировщик', webappUrl).resized().persistent()
-}
-
 export async function handleStart(ctx: Context) {
   const { dbUser } = ctx as BotContext
 
@@ -38,18 +26,22 @@ export async function handleStart(ctx: Context) {
     })
   }
 
-  // Кнопка слева от поля ввода — список команд, а не Mini App.
+  // Кнопка слева от поля ввода открывает Mini App во весь экран.
   //
-  // Она там одна: кнопка типа web_app вытесняет стандартное меню, и тогда
-  // команды вообще негде посмотреть. Mini App от этого не теряется — она
-  // уезжает на постоянную кнопку над полем ввода (см. ниже) и остаётся
-  // доступна командой /app.
+  // Вариант type: 'commands' здесь не нужен: подсказка команд при вводе «/»
+  // работает от setMyCommands и от этой кнопки не зависит (см. bot/commands.ts).
+  // А web_app с reply-клавиатуры Telegram открывает компактно, во весь экран —
+  // только отсюда.
   const webappUrl = process.env.WEBAPP_URL
-  if (ctx.chat) {
+  if (webappUrl && ctx.chat) {
     try {
       await ctx.api.setChatMenuButton({
         chat_id: ctx.chat.id,
-        menu_button: { type: 'commands' },
+        menu_button: {
+          type: 'web_app',
+          text: '📱 Планировщик',
+          web_app: { url: webappUrl },
+        },
       })
     } catch (e) {
       console.error('Не удалось установить Menu Button:', e)
@@ -70,6 +62,8 @@ export async function handleStart(ctx: Context) {
       '/coord — списать координацию\n' +
       '/app — открыть Mini App\n' +
       '/help — помощь',
-    { parse_mode: 'Markdown', reply_markup: miniAppReplyKeyboard(webappUrl) },
+    // Снимаем reply-клавиатуру, если она осталась от прежней версии: Mini App
+    // открывается кнопкой меню, отдельная кнопка над полем ввода лишняя.
+    { parse_mode: 'Markdown', reply_markup: { remove_keyboard: true } },
   )
 }

@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { projects, tasks } from '@/lib/db/schema'
 import { eq, count } from 'drizzle-orm'
 import { BotContext } from '../middleware/user'
+import { escapeMarkdown } from '../services/markdown'
 
 /**
  * /projects — список проектов с количеством задач
@@ -32,7 +33,7 @@ export async function handleProjects(ctx: Context) {
   const lines = userProjects.map((p) => {
     const icon = p.type === 'SHOPPING' ? '🛒' : '📁'
     const def = p.isDefault ? ' (по умолчанию)' : ''
-    return `${icon} **${p.name}**${def} — ${p.taskCount} задач`
+    return `${icon} **${escapeMarkdown(p.name)}**${def} — ${p.taskCount} задач`
   })
 
   await ctx.reply('📂 **Твои проекты:**\n\n' + lines.join('\n'), {

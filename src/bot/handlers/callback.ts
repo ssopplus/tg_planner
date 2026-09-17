@@ -8,6 +8,7 @@ import { parseRecurrenceToRRule } from '@/lib/reminders/rrule-parser'
 import { BotContext } from '../middleware/user'
 import { buildDevTaskPrompt } from '@/lib/prompts/dev-task'
 import { handleCoordinationCallback } from './coordination'
+import { escapeMarkdown } from '../services/markdown'
 
 /**
  * Обработчик callback queries от inline-кнопок.
@@ -36,7 +37,7 @@ export async function handleCallback(ctx: Context) {
       }
 
       const task = await createTaskFromPending(id, dbUser.id, pending)
-      await ctx.editMessageText(`✅ Задача создана: **${task.title}**`, {
+      await ctx.editMessageText(`✅ Задача создана: **${escapeMarkdown(task.title)}**`, {
         parse_mode: 'Markdown',
       })
       await ctx.answerCallbackQuery()

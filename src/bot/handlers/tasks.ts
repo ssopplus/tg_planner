@@ -6,6 +6,7 @@ import { BotContext } from '../middleware/user'
 import { taskActionsKeyboard, myDayKeyboard } from '../keyboards/task'
 import { getMyDayTasks } from '../services/my-day'
 import { sortByScore } from '../services/scoring'
+import { escapeMarkdown } from '../services/markdown'
 
 /**
  * /tasks — список активных задач (отсортированных по автоприоритету)
@@ -33,12 +34,12 @@ export async function handleTasks(ctx: Context) {
       const deadline = task.deadlineAt
         ? ` | 📅 ${task.deadlineAt.toLocaleDateString('ru-RU')}`
         : ''
-      const project = task.projectName ? ` | 📁 ${task.projectName}` : ''
+      const project = task.projectName ? ` | 📁 ${escapeMarkdown(task.projectName)}` : ''
       const isOverdue = task.deadlineAt && task.deadlineAt < new Date() ? ' ⚠️' : ''
       const isInMyDay = task.myDayDate === todayStr
 
       await ctx.reply(
-        `${priorityIcon} **${task.title}**${deadline}${project}${isOverdue}`,
+        `${priorityIcon} **${escapeMarkdown(task.title)}**${deadline}${project}${isOverdue}`,
         {
           parse_mode: 'Markdown',
           reply_markup: myDayKeyboard(task.id, isInMyDay),
@@ -80,11 +81,11 @@ export async function handleTasks(ctx: Context) {
       const deadline = task.deadlineAt
         ? ` | 📅 ${task.deadlineAt.toLocaleDateString('ru-RU')}`
         : ''
-      const project = task.projectName ? ` | 📁 ${task.projectName}` : ''
+      const project = task.projectName ? ` | 📁 ${escapeMarkdown(task.projectName)}` : ''
       const isOverdue = task.deadlineAt && task.deadlineAt < new Date() ? ' ⚠️' : ''
 
       await ctx.reply(
-        `${priorityIcon} **${task.title}**${deadline}${project}${isOverdue}`,
+        `${priorityIcon} **${escapeMarkdown(task.title)}**${deadline}${project}${isOverdue}`,
         {
           parse_mode: 'Markdown',
           reply_markup: taskActionsKeyboard(task.id, task.projectKind === 'dev'),

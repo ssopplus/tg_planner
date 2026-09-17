@@ -4,6 +4,7 @@ import { eq, and, lte, lt, gte, sql } from 'drizzle-orm'
 import { bot } from '@/bot'
 import { sortByScore } from './scoring'
 import { overdueKeyboard, myDayKeyboard } from '../keyboards/task'
+import { escapeMarkdown } from './markdown'
 
 /**
  * Отправить утренний дайджест пользователю.
@@ -88,7 +89,7 @@ export async function sendMorningDigest(user: typeof users.$inferSelect) {
       const time = t.deadlineAt
         ? t.deadlineAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
         : ''
-      lines.push(`${icon} ${t.title}${time ? ` (${time})` : ''}`)
+      lines.push(`${icon} ${escapeMarkdown(t.title)}${time ? ` (${time})` : ''}`)
     }
     lines.push('')
   }
@@ -99,7 +100,7 @@ export async function sendMorningDigest(user: typeof users.$inferSelect) {
       const daysOverdue = Math.floor(
         (todayStart.getTime() - (t.deadlineAt?.getTime() ?? 0)) / (1000 * 60 * 60 * 24),
       )
-      lines.push(`🔴 ${t.title} (${daysOverdue} дн. назад)`)
+      lines.push(`🔴 ${escapeMarkdown(t.title)} (${daysOverdue} дн. назад)`)
     }
     lines.push('')
   }
@@ -107,7 +108,7 @@ export async function sendMorningDigest(user: typeof users.$inferSelect) {
   if (highPrioTasks.length > 0) {
     lines.push('🔥 **Важное без даты:**')
     for (const t of highPrioTasks) {
-      lines.push(`🔴 ${t.title}`)
+      lines.push(`🔴 ${escapeMarkdown(t.title)}`)
     }
     lines.push('')
   }
@@ -127,7 +128,7 @@ export async function sendMorningDigest(user: typeof users.$inferSelect) {
   for (const t of overdueTasks.slice(0, 3)) {
     await bot.api.sendMessage(
       user.telegramId.toString(),
-      `⚠️ **${t.title}** — просрочена. Что делаем?`,
+      `⚠️ **${escapeMarkdown(t.title)}** — просрочена. Что делаем?`,
       {
         parse_mode: 'Markdown',
         reply_markup: overdueKeyboard(t.id),

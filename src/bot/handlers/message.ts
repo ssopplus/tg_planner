@@ -8,6 +8,7 @@ import { confirmKeyboard, confirmMultiKeyboard } from '../keyboards/task'
 import { BotContext } from '../middleware/user'
 import { formatTaskPreview } from '../services/format'
 import { handleCoordinationText } from './coordination'
+import { escapeMarkdown } from '../services/markdown'
 
 /**
  * Обработчик текстовых сообщений.
@@ -99,7 +100,7 @@ export async function handleMessage(ctx: Context) {
 
     for (let i = 0; i < parsedTasks.length; i++) {
       const parsed = parsedTasks[i]
-      lines.push(`${i + 1}. **${parsed.title}**`)
+      lines.push(`${i + 1}. **${escapeMarkdown(parsed.title)}**`)
       if (parsed.deadlineAt) {
         const date = new Date(parsed.deadlineAt)
         lines.push(

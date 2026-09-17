@@ -8,6 +8,7 @@ import { addPendingTask } from '../services/pending-store'
 import { confirmKeyboard, confirmMultiKeyboard } from '../keyboards/task'
 import { BotContext } from '../middleware/user'
 import { formatTaskPreview } from '../services/format'
+import { escapeMarkdown } from '../services/markdown'
 
 /**
  * Обработчик голосовых сообщений.
@@ -115,7 +116,7 @@ export async function handleVoice(ctx: Context) {
       for (let i = 0; i < parsedTasks.length; i++) {
         const parsed = parsedTasks[i]
         const targetProjectId = pendingIds[i]
-        lines.push(`${i + 1}. **${parsed.title}**`)
+        lines.push(`${i + 1}. **${escapeMarkdown(parsed.title)}**`)
         if (parsed.deadlineAt) {
           const date = new Date(parsed.deadlineAt)
           lines.push(

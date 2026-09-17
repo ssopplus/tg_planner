@@ -1,10 +1,11 @@
 import { ParsedTask } from '@/lib/ai/types'
+import { escapeMarkdown } from './markdown'
 
 /**
  * Формирует текстовое превью распарсенной задачи для подтверждения.
  */
 export function formatTaskPreview(parsed: ParsedTask, projectName?: string): string {
-  const lines: string[] = [`📝 **${parsed.title}**`]
+  const lines: string[] = [`📝 **${escapeMarkdown(parsed.title)}**`]
 
   if (parsed.deadlineAt) {
     const date = new Date(parsed.deadlineAt)
@@ -27,7 +28,7 @@ export function formatTaskPreview(parsed: ParsedTask, projectName?: string): str
     lines.push(`🔁 Повторение: ${parsed.recurrence}`)
   }
 
-  lines.push(`📁 Проект: ${projectName ?? 'Входящие'}`)
+  lines.push(`📁 Проект: ${escapeMarkdown(projectName ?? 'Входящие')}`)
 
   return lines.join('\n')
 }
@@ -45,7 +46,7 @@ export function formatTaskLine(task: {
   const deadline = task.deadlineAt
     ? ` | 📅 ${task.deadlineAt.toLocaleDateString('ru-RU')}`
     : ''
-  const project = task.projectName ? ` | 📁 ${task.projectName}` : ''
+  const project = task.projectName ? ` | 📁 ${escapeMarkdown(task.projectName)}` : ''
 
-  return `${priorityIcon} **${task.title}**${deadline}${project}`
+  return `${priorityIcon} **${escapeMarkdown(task.title)}**${deadline}${project}`
 }

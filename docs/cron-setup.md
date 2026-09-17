@@ -83,3 +83,23 @@
 - [Upstash QStash](https://upstash.com/docs/qstash) — 500 запросов/день бесплатно;
 - [EasyCron](https://www.easycron.com) — платный, более стабильный;
 - Запуск бота отдельным процессом на VPS — тогда cron-логику можно занести в `setInterval` внутри процесса, эндпоинты больше не нужны.
+
+## Два бота: тестовый и боевой
+
+| Где | Бот | Токен |
+|---|---|---|
+| локальный `.env` | `@vpv_planner_bot` (VpVPlannerTest) | для разработки |
+| Vercel production | `@vpvPlannerBot` (VpVPlanner) | боевой |
+
+Всё, что настраивается **через Bot API, а не через деплой** — меню команд
+(`setMyCommands`), кнопка меню (`setChatMenuButton`), вебхук — применяется к
+тому боту, чей токен взят из окружения. `pnpm bot:commands` по умолчанию берёт
+`.env`, то есть **тестового** бота, и печатает, к какому боту применяется.
+
+Для боевого бота нужен прод-токен:
+
+```bash
+npx vercel env pull /tmp/prod.env --environment=production --yes
+BOT_TOKEN=$(grep '^BOT_TOKEN' /tmp/prod.env | cut -d= -f2- | tr -d '"') pnpm bot:commands
+rm /tmp/prod.env
+```

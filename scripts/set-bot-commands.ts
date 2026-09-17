@@ -1,6 +1,15 @@
 /**
  * Регистрация меню команд бота в Telegram.
- * Запуск: pnpm bot:commands
+ *
+ *   pnpm bot:commands                      — бот из .env (тестовый)
+ *   BOT_TOKEN=<прод-токен> pnpm bot:commands — боевой бот
+ *
+ * Токен в .env принадлежит ТЕСТОВОМУ боту (@vpv_planner_bot), а прод работает
+ * под @vpvPlannerBot с токеном из Vercel env. Скрипт печатает, к какому боту
+ * применяется: однажды все настройки молча уехали в тестового, и полдня было
+ * неясно, почему в боевом ничего не меняется.
+ *
+ * Прод-токен: `npx vercel env pull` → строка BOT_TOKEN.
  */
 import 'dotenv/config'
 import { bot } from '../src/bot'
@@ -17,6 +26,9 @@ const SCOPES = [
 ]
 
 async function main() {
+  const me = await bot.api.getMe()
+  console.log(`🤖 Бот: @${me.username} (${me.first_name})`)
+
   for (const scope of SCOPES) {
     await bot.api.setMyCommands(BOT_COMMANDS, scope ? { scope } : undefined)
   }

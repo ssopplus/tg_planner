@@ -8,6 +8,8 @@ import { parseRecurrenceToRRule } from '@/lib/reminders/rrule-parser'
 import { BotContext } from '../middleware/user'
 import { buildDevTaskPrompt } from '@/lib/prompts/dev-task'
 import { handleCoordinationCallback } from './coordination'
+import { handleWorklogCallback } from './worklog'
+import { resolveBoardForText, resolveDueFromText } from './quick-actions'
 import { escapeMarkdown } from '../services/markdown'
 
 /**
@@ -20,6 +22,9 @@ export async function handleCallback(ctx: Context) {
 
   // Опрос по координации держит своё состояние в БД и разбирает data сам.
   if (await handleCoordinationCallback(ctx)) return
+
+  // Списание времени с клавиатуры: шаги задача → минуты → комментарий.
+  if (await handleWorklogCallback(ctx)) return
 
   const { dbUser } = ctx as BotContext
   const parts = data.split(':')
@@ -272,11 +277,21 @@ async function createTaskFromPending(
     recurrence?: string
   },
 ) {
+  // Дело, заведённое из переписки, должно попасть на доску — иначе его не
+  // видно в личном разделе. Доску угадываем по тексту, срок — по фразе;
+  // не угадали, значит «Входящие» без срока, разложить можно потом.
+  const board = await resolveBoardForText(userId, pending.title)
+  const dueDate =
+    pending.deadlineAt?.toLocaleDateString('en-CA') ??
+    resolveDueFromText(pending.title, new Date().toLocaleDateString('en-CA'))
+
   const [task] = await db
     .insert(tasks)
     .values({
       userId,
       projectId: pending.projectId,
+      boardId: board.id,
+      dueDate,
       title: pending.title,
       description: pending.description ?? null,
       priority: (pending.priority as 'LOW' | 'MEDIUM' | 'HIGH') ?? 'MEDIUM',

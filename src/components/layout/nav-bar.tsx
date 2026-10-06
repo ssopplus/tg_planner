@@ -2,13 +2,21 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Sun, ListTodo, FolderOpen, Settings } from 'lucide-react'
+import { Briefcase, CheckSquare, NotebookText, Settings } from 'lucide-react'
 
+/**
+ * Разделы приложения. Две половины — рабочая (Трекер) и жизненная (доски) —
+ * равноправны и не пересекаются. «Архив» показывает задачи из Obsidian только
+ * на чтение, поэтому стоит после них, а не между.
+ *
+ * Доски в эту панель не выносятся: их может стать сколько угодно, а сюда
+ * влезает четыре пункта. Переключение досок живёт лентой внутри раздела.
+ */
 const tabs = [
-  { href: '/today', label: 'Мой день', icon: Sun },
-  { href: '/tasks', label: 'Задачи', icon: ListTodo },
-  { href: '/projects', label: 'Проекты', icon: FolderOpen },
-  { href: '/settings', label: 'Настройки', icon: Settings },
+  { href: '/tracker', label: 'Трекер', icon: Briefcase },
+  { href: '/boards', label: 'Личное', icon: CheckSquare },
+  { href: '/archive', label: 'Архив', icon: NotebookText },
+  { href: '/settings', label: 'Ещё', icon: Settings },
 ]
 
 export function NavBar() {

@@ -85,6 +85,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       updateData.sortOrder = (minOrder ?? 0) - 1
     }
   }
+  if (body.body !== undefined) updateData.body = body.body
+  if (body.boardId !== undefined) updateData.boardId = body.boardId
+  // Срок-день личного дела: он же колонка на доске, поэтому меняется и
+  // перетаскиванием карточки, и выбором даты в карточке.
+  if (body.dueDate !== undefined) updateData.dueDate = body.dueDate
   if (body.deadlineAt !== undefined) updateData.deadlineAt = body.deadlineAt ? new Date(body.deadlineAt) : null
   if (body.deadlineType !== undefined) updateData.deadlineType = body.deadlineType
   if (body.projectId !== undefined) updateData.projectId = body.projectId

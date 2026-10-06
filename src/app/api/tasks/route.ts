@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { tasks, projects, subtasks } from '@/lib/db/schema'
 import { eq, and, sql, inArray, or, ilike, isNull, isNotNull, asc } from 'drizzle-orm'
 import { authorizeMiniApp } from '@/lib/telegram/auth'
+import { ensureInboxBoard } from '@/lib/boards/inbox'
 
 /** GET /api/tasks — список задач пользователя */
 export async function GET(request: NextRequest) {
@@ -17,6 +18,9 @@ export async function GET(request: NextRequest) {
   // Источник задач: рабочие из Трекера или внутренние (Obsidian + заведённые
   // руками). Разделение идёт по external_source — отдельного поля не нужно.
   const source = searchParams.get('source') ?? 'all'
+  // Доска личных дел. `board_id=any` — все дела с любой доски, нужен боту
+  // для сводки дня, когда конкретная доска неважна.
+  const boardId = searchParams.get('board_id')
   const page = parseInt(searchParams.get('page') ?? '1')
   const limit = parseInt(searchParams.get('limit') ?? '50')
   const q = searchParams.get('q')?.trim() ?? ''
@@ -33,6 +37,11 @@ export async function GET(request: NextRequest) {
   } else {
     conditions.push(inArray(tasks.status, ['TODO', 'IN_PROGRESS']))
   }
+  if (boardId === 'any') {
+    conditions.push(isNotNull(tasks.boardId))
+  } else if (boardId) {
+    conditions.push(eq(tasks.boardId, boardId))
+  }
   if (source === 'tracker') {
     conditions.push(isNotNull(tasks.externalSource))
   } else if (source === 'internal') {
@@ -43,7 +52,11 @@ export async function GET(request: NextRequest) {
     // не превращал текст в wildcard-паттерн.
     const escaped = q.replace(/[\\%_]/g, (m) => `\\${m}`)
     const pattern = `%${escaped}%`
-    const searchCondition = or(ilike(tasks.title, pattern), ilike(tasks.description, pattern))
+    const searchCondition = or(
+      ilike(tasks.title, pattern),
+      ilike(tasks.description, pattern),
+      ilike(tasks.body, pattern),
+    )
     if (searchCondition) conditions.push(searchCondition)
   }
 
@@ -52,6 +65,9 @@ export async function GET(request: NextRequest) {
       id: tasks.id,
       title: tasks.title,
       description: tasks.description,
+      body: tasks.body,
+      dueDate: tasks.dueDate,
+      boardId: tasks.boardId,
       priority: tasks.priority,
       status: tasks.status,
       deadlineAt: tasks.deadlineAt,
@@ -118,6 +134,10 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json()
   const { title, projectId, priority, deadlineAt, deadlineType, description, myDayDate } = body
+  // Личное дело: доска, текст заметки и срок-день. boardId не передали —
+  // кладём во «Входящие», иначе дело не попадёт ни на одну доску.
+  const { boardId, dueDate } = body as { boardId?: string | null; dueDate?: string | null }
+  const noteBody = (body as { body?: string | null }).body ?? null
 
   if (!title) {
     return NextResponse.json({ error: 'title обязателен' }, { status: 400 })
@@ -141,6 +161,8 @@ export async function POST(request: NextRequest) {
     resolvedProjectId = defaultProject.id
   }
 
+  const resolvedBoardId = boardId === undefined ? (await ensureInboxBoard(user.id)).id : boardId
+
   const [task] = await db
     .insert(tasks)
     .values({
@@ -148,6 +170,9 @@ export async function POST(request: NextRequest) {
       projectId: resolvedProjectId,
       title,
       description: description ?? null,
+      body: noteBody,
+      boardId: resolvedBoardId,
+      dueDate: dueDate ?? null,
       priority: priority ?? 'MEDIUM',
       deadlineAt: deadlineAt ? new Date(deadlineAt) : null,
       deadlineType: deadlineType ?? null,

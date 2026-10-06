@@ -3,7 +3,7 @@ import { db } from '@/lib/db'
 import { projects } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
 import { BotContext } from '../middleware/user'
-import { miniAppKeyboard } from '../keyboards/task'
+import { mainKeyboard } from '../keyboards/main'
 
 /**
  * /start — приветствие, создание дефолтного проекта "Входящие"
@@ -50,20 +50,13 @@ export async function handleStart(ctx: Context) {
 
   await ctx.reply(
     `Привет, ${dbUser.firstName ?? 'друг'}! 👋\n\n` +
-      'Я помогу тебе управлять задачами. Просто напиши задачу текстом, и я разберу её.\n\n' +
-      '**Примеры:**\n' +
-      '• "купить молоко завтра 18:00"\n' +
-      '• "позвонить маме в пятницу"\n' +
-      '• "сдать отчёт до 5 марта"\n\n' +
-      '**Команды:**\n' +
-      '/tasks — список задач\n' +
-      '/projects — проекты\n' +
-      '/today — задачи на сегодня\n' +
-      '/coord — списать координацию\n' +
-      '/app — открыть Mini App\n' +
-      '/help — помощь',
-    // Снимаем reply-клавиатуру, если она осталась от прежней версии: Mini App
-    // открывается кнопкой меню, отдельная кнопка над полем ввода лишняя.
-    { parse_mode: 'Markdown', reply_markup: { remove_keyboard: true } },
+      'Планировщик состоит из двух половин: рабочей — задачи Яндекс.Трекера ' +
+      'со списанием времени, и личной — доски дел по срокам.\n\n' +
+      '**Дело пишется обычным сообщением:**\n' +
+      '• «поменять резину на машине на следующей неделе»\n' +
+      '• «записаться к врачу в четверг»\n\n' +
+      'Кнопки под полем ввода — для частого: новое дело, списание времени, ' +
+      'сводка дня и координация.',
+    { parse_mode: 'Markdown', reply_markup: mainKeyboard() },
   )
 }

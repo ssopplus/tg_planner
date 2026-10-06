@@ -10,6 +10,7 @@ import { handleTasks } from './handlers/tasks'
 import { userMiddleware } from './middleware/user'
 import { initAI } from '@/lib/ai/init'
 import { handleCoordCommand } from './handlers/coordination'
+import { askWhichIssue, sendToday } from './handlers/quick-actions'
 
 const token = process.env.BOT_TOKEN
 if (!token) {
@@ -29,9 +30,10 @@ bot.command('start', handleStart)
 bot.command('help', handleHelp)
 bot.command('app', handleApp)
 bot.command('projects', handleProjects)
-bot.command('tasks', handleTasks)
-bot.command('today', handleTasks) // /today — «Мой день»
-bot.command('coord', handleCoordCommand) // /coord — опрос по координации вручную
+bot.command('tasks', handleTasks) // задачи Трекера
+bot.command('today', sendToday) // сводка дня: работа + личные дела
+bot.command('time', askWhichIssue) // списание времени в задачу Трекера
+bot.command('coord', handleCoordCommand) // опрос по координации вручную
 
 // Callback queries (inline-кнопки)
 bot.on('callback_query:data', handleCallback)

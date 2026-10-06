@@ -12,10 +12,10 @@
 import type { BotCommand } from 'grammy/types'
 
 export const BOT_COMMANDS: BotCommand[] = [
-  { command: 'today', description: '☀️ Мой день' },
-  { command: 'tasks', description: '📋 Все активные задачи' },
-  { command: 'coord', description: '⏱ Координация: списать время' },
-  { command: 'projects', description: '📁 Проекты' },
+  { command: 'today', description: '📅 Что сегодня' },
+  { command: 'tasks', description: '🗂 Задачи Трекера' },
+  { command: 'time', description: '⏱ Списать время' },
+  { command: 'coord', description: '🤝 Координация' },
   { command: 'app', description: '📱 Открыть планировщик' },
   { command: 'help', description: '❓ Справка' },
 ]

@@ -142,15 +142,13 @@ export function TrackerDescription({
   // SDK Telegram'а на iOS WKWebView инициализируется чуть позже первого render,
   // поэтому ждём whenWebAppReady() прежде чем подставлять initData в src
   // картинок — иначе первая попытка fetch'а уходит с пустым auth и получает 401.
-  const [initData, setInitData] = useState<string | null>(null)
+  // Начальное значение берём сразу: на десктопе SDK обычно уже готов, и
+  // лишний проход рендера с пустым auth только мигает битыми картинками.
+  const [initData, setInitData] = useState<string | null>(() => getInitData() || null)
   useEffect(() => {
-    const immediate = getInitData()
-    if (immediate) {
-      setInitData(immediate)
-      return
-    }
-    whenWebAppReady().then(() => setInitData(getInitData()))
-  }, [])
+    if (initData) return
+    whenWebAppReady().then(() => setInitData(getInitData() || null))
+  }, [initData])
 
   if (blocks.length === 0) return null
 

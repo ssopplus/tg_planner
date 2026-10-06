@@ -8,6 +8,7 @@ import { confirmKeyboard, confirmMultiKeyboard } from '../keyboards/task'
 import { BotContext } from '../middleware/user'
 import { formatTaskPreview } from '../services/format'
 import { handleCoordinationText } from './coordination'
+import { handleQuickAction } from './quick-actions'
 import { escapeMarkdown } from '../services/markdown'
 
 /**
@@ -21,6 +22,10 @@ export async function handleMessage(ctx: Context) {
   // Если бот ждёт комментарий к списанию времени — текст принадлежит ему,
   // иначе «Обсуждение фикстур» уедет в парсер и станет новой задачей.
   if (await handleCoordinationText(ctx)) return
+
+  // Кнопки постоянной клавиатуры приходят обычным текстом, поэтому их надо
+  // отсечь до AI-парсера: иначе «📅 Что сегодня» станет задачей.
+  if (await handleQuickAction(ctx, text)) return
 
   const { dbUser } = ctx as BotContext
 

@@ -145,6 +145,52 @@ export const trackerQueueLinks = pgTable(
   ],
 )
 
+/**
+ * Доска личных дел: «Дом», «Машина», «Финансы».
+ *
+ * Отдельная сущность, а не `projects`: проекты связаны с очередями Трекера и
+ * путями в Obsidian-vault, а доска — просто область жизни с эмодзи и цветом.
+ * Смешивать их в одной таблице значит тащить рабочие поля в бытовые списки.
+ *
+ * Колонки на доске — не статусы, а сроки (сегодня / на неделе / потом / без
+ * даты), поэтому у доски нет настроек колонок: они одинаковы у всех.
+ */
+export const boards = pgTable(
+  'boards',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    name: text('name').notNull(),
+    /** Эмодзи для ленты переключения досок; одного символа достаточно. */
+    emoji: text('emoji'),
+    /** HEX-цвет полоски карточек, например `#1f6feb`. NULL — цвет темы. */
+    color: text('color'),
+    sortOrder: integer('sort_order').default(0).notNull(),
+    /**
+     * Доска по умолчанию: сюда падают дела, для которых доска не названа
+     * (быстрая запись из бота). Такая доска у пользователя одна.
+     */
+    isInbox: boolean('is_inbox').default(false).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index('boards_user_order_idx').on(table.userId, table.sortOrder),
+    // «Входящие» у пользователя одни: частичный индекс, потому что обычных
+    // досок с is_inbox = false сколько угодно.
+    uniqueIndex('boards_user_inbox_idx')
+      .on(table.userId)
+      .where(sql`${table.isInbox}`),
+  ],
+)
+
 export const tasks = pgTable(
   'tasks',
   {
@@ -157,8 +203,25 @@ export const tasks = pgTable(
     userId: text('user_id')
       .references(() => users.id, { onDelete: 'cascade' })
       .notNull(),
+    /**
+     * Доска личных дел. NULL у задач Трекера и у задач из Obsidian-vault —
+     * они живут в своих разделах и на досках не показываются.
+     */
+    boardId: text('board_id').references(() => boards.id, { onDelete: 'set null' }),
     title: text('title').notNull(),
     description: text('description'),
+    /**
+     * Текст заметки личного дела: адреса, телефоны, размеры, подпункты.
+     * Отдельно от `description`, куда синк кладёт описание задачи Трекера, —
+     * иначе следующий прогон синка затёр бы написанное руками.
+     */
+    body: text('body'),
+    /**
+     * Срок личного дела — день без времени. Определяет колонку на доске и
+     * меняется перетаскиванием карточки. Отдельно от `deadline_at`: тот
+     * хранит момент со временем и обслуживает напоминания.
+     */
+    dueDate: date('due_date'),
     status: taskStatusEnum('status').default('TODO').notNull(),
     priority: priorityEnum('priority').default('MEDIUM').notNull(),
     deadlineAt: timestamp('deadline_at'),
@@ -279,6 +342,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
 
 export const tasksRelations = relations(tasks, ({ one, many }) => ({
   project: one(projects, { fields: [tasks.projectId], references: [projects.id] }),
+  board: one(boards, { fields: [tasks.boardId], references: [boards.id] }),
   user: one(users, { fields: [tasks.userId], references: [users.id] }),
   reminders: many(reminders),
   subtasks: many(subtasks),
@@ -359,3 +423,55 @@ export const coordinationPolls = pgTable(
   },
   (table) => [uniqueIndex('coordination_polls_user_date_idx').on(table.userId, table.pollDate)],
 )
+
+/**
+ * Зеркало списаний времени в Яндекс.Трекере.
+ *
+ * Трекер остаётся источником правды: запись создаётся там, здесь сохраняется
+ * её копия с `tracker_worklog_id`. Нужна, чтобы экран дня не дёргал API на
+ * каждую строку — поиск по worklog'ам требует отдельного запроса с числовым
+ * uid и отвечает заметно медленнее, чем выборка по индексу.
+ *
+ * Расхождения чинятся перечитыванием дня из Трекера: его ответ побеждает.
+ */
+export const worklogEntries = pgTable(
+  'worklog_entries',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    /** Ключ задачи, например `VDHWEBNEW-212`. */
+    issueKey: text('issue_key').notNull(),
+    /** Заголовок задачи на момент списания — чтобы не ходить за ним в API. */
+    issueTitle: text('issue_title'),
+    minutes: integer('minutes').notNull(),
+    comment: text('comment'),
+    /** id записи в Трекере. NULL только у строк, которые туда ещё не ушли. */
+    trackerWorklogId: integer('tracker_worklog_id'),
+    /** День, ЗА который списано время, в таймзоне пользователя. */
+    workDate: date('work_date').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index('worklog_entries_user_date_idx').on(table.userId, table.workDate),
+    // Одна запись Трекера — одна строка здесь. Повторная синхронизация дня
+    // обновляет существующую, а не плодит дубли.
+    uniqueIndex('worklog_entries_tracker_id_idx').on(table.userId, table.trackerWorklogId),
+  ],
+)
+
+export const boardsRelations = relations(boards, ({ one, many }) => ({
+  user: one(users, { fields: [boards.userId], references: [users.id] }),
+  tasks: many(tasks),
+}))
+
+export const worklogEntriesRelations = relations(worklogEntries, ({ one }) => ({
+  user: one(users, { fields: [worklogEntries.userId], references: [users.id] }),
+}))

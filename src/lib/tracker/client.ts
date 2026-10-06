@@ -286,7 +286,8 @@ export async function getMyUid(args: { token: string; orgId: string }): Promise<
 export async function listMyWorklogsForDay(args: {
   token: string
   orgId: string
-  queuePrefix: string
+  /** Ключ очереди для фильтра. Не указан — записи по всем очередям. */
+  queuePrefix?: string
   /** День в формате YYYY-MM-DD, в таймзоне пользователя. */
   day: string
   /** Смещение таймзоны пользователя, например "+03:00". */
@@ -318,7 +319,7 @@ export async function listMyWorklogsForDay(args: {
 
   const dayEnd = new Date(dayStart.getTime() + 24 * 3600_000)
   return all
-    .filter((w) => w.issue.key.startsWith(args.queuePrefix))
+    .filter((w) => !args.queuePrefix || w.issue.key.startsWith(args.queuePrefix))
     .filter((w) => {
       const t = new Date(w.start)
       return t >= dayStart && t < dayEnd
@@ -405,4 +406,122 @@ export async function deleteWorklog(args: {
     return { ok: false, reason: `worklog delete ${res.status}: ${(await res.text()).slice(0, 300)}` }
   }
   return { ok: true }
+}
+
+/** Переход между статусами, доступный конкретной задаче прямо сейчас. */
+export interface TrackerTransition {
+  id: string
+  display: string
+  to: { key: string; display: string }
+}
+
+/**
+ * Переходы, доступные задаче.
+ *
+ * Набор свой у каждой очереди и зависит от текущего статуса, поэтому он
+ * всегда запрашивается для конкретной задачи, а не берётся из справочника.
+ * В POLAERP, например, «В работу» идёт двумя шагами через «По плану».
+ */
+export async function listTransitions(args: {
+  token: string
+  orgId: string
+  issueKey: string
+}): Promise<TrackerTransition[]> {
+  const res = await fetch(`${BASE}/issues/${args.issueKey}/transitions`, {
+    headers: authHeaders(args.token, args.orgId),
+  })
+  if (!res.ok) {
+    throw new Error(`Tracker transitions ${res.status}: ${await res.text()}`)
+  }
+  return (await res.json()) as TrackerTransition[]
+}
+
+/**
+ * Выполнить переход.
+ *
+ * `fields` нужен тем очередям, где переход требует заполнить обязательное
+ * поле: в REVENUERADAR без `taskType` переход отбивается 422-й.
+ */
+export async function executeTransition(args: {
+  token: string
+  orgId: string
+  issueKey: string
+  transitionId: string
+  fields?: Record<string, unknown>
+}): Promise<{ ok: boolean; reason?: string }> {
+  const res = await fetch(
+    `${BASE}/issues/${args.issueKey}/transitions/${args.transitionId}/_execute`,
+    {
+      method: 'POST',
+      headers: authHeaders(args.token, args.orgId),
+      body: JSON.stringify(args.fields ?? {}),
+    },
+  )
+  if (!res.ok) {
+    return { ok: false, reason: `execute ${res.status}: ${await res.text()}` }
+  }
+  return { ok: true }
+}
+
+/** Комментарий задачи. */
+export interface TrackerComment {
+  id: number
+  text: string
+  createdBy?: { id: string; display: string }
+  createdAt: string
+  updatedAt?: string
+}
+
+export async function listComments(args: {
+  token: string
+  orgId: string
+  issueKey: string
+  /** Трекер отдаёт комментарии страницами; для карточки хватает последних. */
+  perPage?: number
+}): Promise<TrackerComment[]> {
+  const url = new URL(`${BASE}/issues/${args.issueKey}/comments`)
+  url.searchParams.set('perPage', String(args.perPage ?? 50))
+
+  const res = await fetch(url, { headers: authHeaders(args.token, args.orgId) })
+  if (!res.ok) {
+    throw new Error(`Tracker comments ${res.status}: ${await res.text()}`)
+  }
+  return (await res.json()) as TrackerComment[]
+}
+
+export async function addComment(args: {
+  token: string
+  orgId: string
+  issueKey: string
+  text: string
+}): Promise<TrackerComment> {
+  const res = await fetch(`${BASE}/issues/${args.issueKey}/comments`, {
+    method: 'POST',
+    headers: authHeaders(args.token, args.orgId),
+    body: JSON.stringify({ text: args.text }),
+  })
+  if (!res.ok) {
+    throw new Error(`Tracker addComment ${res.status}: ${await res.text()}`)
+  }
+  return (await res.json()) as TrackerComment
+}
+
+/**
+ * Записи учёта времени по одной задаче.
+ *
+ * Отличается от `listMyWorklogsForDay`: там поиск по автору и дню через
+ * `/worklog/_search`, здесь — все записи задачи, включая чужие.
+ */
+export async function listIssueWorklogs(args: {
+  token: string
+  orgId: string
+  issueKey: string
+}): Promise<TrackerWorklog[]> {
+  const res = await fetch(`${BASE}/issues/${args.issueKey}/worklog`, {
+    headers: authHeaders(args.token, args.orgId),
+  })
+  if (!res.ok) {
+    throw new Error(`Tracker issue worklog ${res.status}: ${await res.text()}`)
+  }
+  return (await res.json()) as TrackerWorklog[]
 }

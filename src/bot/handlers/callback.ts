@@ -3,7 +3,6 @@ import { db } from '@/lib/db'
 import { tasks, projects, reminders, subtasks } from '@/lib/db/schema'
 import { and, eq } from 'drizzle-orm'
 import { getPendingTask, deletePendingTask } from '../services/pending-store'
-import { addToMyDay, removeFromMyDay } from '../services/my-day'
 import { parseRecurrenceToRRule } from '@/lib/reminders/rrule-parser'
 import { BotContext } from '../middleware/user'
 import { buildDevTaskPrompt } from '@/lib/prompts/dev-task'
@@ -185,17 +184,7 @@ export async function handleCallback(ctx: Context) {
       break
     }
 
-    case 'myday_add': {
-      await addToMyDay(id)
-      await ctx.answerCallbackQuery({ text: '☀️ Добавлено в «Мой день»' })
-      break
-    }
 
-    case 'myday_remove': {
-      await removeFromMyDay(id)
-      await ctx.answerCallbackQuery({ text: '🚫 Убрано из «Моего дня»' })
-      break
-    }
 
     case 'prompt': {
       // Промт для dev-задачи: отправляем отдельным сообщением в <pre>,

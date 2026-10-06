@@ -26,15 +26,20 @@
 ```
 src/
   app/(mini-app)/             # Telegram Mini App (клиентские страницы)
-    today/                    # «Мой день» с drag-n-drop
-    tasks/                    # Список задач + детали задачи [id]
-    projects/                 # Проекты + задачи проекта [id]
-    settings/                 # Настройки (timezone, дайджест)
-    archive/                  # Архив выполненных задач
+    tracker/                  # Рабочая половина: задачи Трекера, [id] — карточка,
+                              #   time/ — экран дня со списаниями
+    boards/                   # Жизненная половина: доски дел по срокам,
+                              #   task/[id] — карточка-заметка
+    archive/                  # Задачи из Obsidian-vault, только чтение
+    settings/                 # Настройки (timezone, дайджест, очереди Трекера)
+    today/, tasks/            # Редиректы со старых адресов (ссылки в боте)
   app/api/telegram/webhook/   # Telegram webhook endpoint
   app/api/tasks/              # REST API: задачи (CRUD + подзадачи)
   app/api/projects/           # REST API: проекты (CRUD)
-  app/api/today/              # REST API: «Мой день» (GET/PATCH reorder)
+  app/api/boards/             # REST API: доски личных дел (CRUD)
+  app/api/worklog/            # REST API: списания времени (день, создание, правка)
+  app/api/tracker/issues/     # REST API: переходы статусов и комментарии Трекера
+  app/api/vault/              # REST API: задачи из Obsidian, только чтение
   app/api/settings/           # REST API: настройки пользователя
   app/api/cron/reminders/     # Cron Job: отправка напоминаний (каждую минуту)
   app/api/cron/digest/        # Cron Job: утренний/вечерний дайджест (каждые 15 мин)
@@ -47,12 +52,14 @@ src/
     handlers/                 # Обработчики: start, help, message, voice, callback, projects, tasks
     keyboards/                # Inline-клавиатуры (confirm, reminder, overdue, myDay)
     middleware/                # Middleware (user extraction)
-    services/                 # Бизнес-логика (pending-store, my-day, digest, scoring, format)
+    services/                 # Бизнес-логика (pending-store, digest, coordination, format)
   lib/ai/                     # LLM абстракция и провайдеры
     prompts/                  # Системные промпты (парсинг мульти-задач + повторения)
   lib/speech/                 # Whisper API клиент
   lib/reminders/              # Логика повторений (rrule-parser)
   lib/telegram/               # WebApp SDK утилиты + auth (HMAC валидация)
+  lib/boards/                 # Доски: «Входящие» и логика колонок-сроков
+  lib/worklog/                # Списания времени: синк с Трекером и зеркало в БД
   lib/db/                     # Drizzle ORM (schema + client)
 drizzle/                      # SQL миграции
 docs/plans/                   # Планы разработки (ADR workflow)
@@ -67,14 +74,17 @@ docs/plans/                   # Планы разработки (ADR workflow)
 - **Pending store** — in-memory Map с TTL 5 мин для распарсенных задач до подтверждения
 - **Cron — внешний триггер** ([cron-job.org](https://cron-job.org)), потому что free Vercel ограничен 1 запуском/сутки. Эндпоинты живут в `/api/cron/*`, проверяют `Authorization: Bearer ${CRON_SECRET}`. Расписание и URL — см. [docs/cron-setup.md](docs/cron-setup.md). `vercel.json` не содержит секции `crons`.
 - **Миграции БД — только через GitHub Actions** (`.github/workflows/db-migrate.yml`). На прод вручную не накатывать. См. [docs/migrations.md](docs/migrations.md).
-- **Автоприоритет** — скоринг задач: дедлайн сегодня (+100/+80), просрочено (+90), завтра (+70/+55), HIGH (+50), давность (+5/день до +30), переносы (+10 за каждый)
-- **«Мой день»** — автоформирование: жёсткие дедлайны → просроченные → мягкие дедлайны → HIGH без даты, лимит 7 задач
+- **Две половины** — рабочая (Трекер) и жизненная (доски) не пересекаются: у рабочих задач часы, статусы очереди и комментарии, у личных — доска, срок-день и текст заметки. Разделение по полям: `external_source` у рабочих, `board_id` у личных
+- **Колонки доски — сроки, а не статусы** (Сегодня · На неделе · Потом · Без даты). Перенос карточки проставляет дату; логика в [src/lib/boards/due-dates.ts](src/lib/boards/due-dates.ts)
+- **Списания зеркалятся в БД** — источник правды Трекер, но список задач берёт суммы из `worklog_entries`, иначе каждая карточка тянула бы отдельный запрос
+- **Переходы статусов не зашиты в код** — набор свой у каждой очереди и зависит от текущего статуса, поэтому запрашивается для конкретной задачи
+- **Клавиатура бота, а не кнопка меню** — кнопка меню остаётся `web_app`, только она открывает Mini App во весь экран; быстрые действия живут на постоянной reply-клавиатуре
 - **Мульти-парсинг** — AI возвращает массив `ParsedTask[]`, одно сообщение = несколько задач
 - **Повторения** — rrule RFC 5545, автосоздание следующего напоминания при срабатывании
 
 ## БД (Drizzle схема)
 
-5 таблиц: `users`, `projects`, `tasks`, `reminders`, `subtasks`
+Таблицы: `users`, `projects`, `boards`, `tasks`, `reminders`, `subtasks`, `worklog_entries`, `tracker_queue_links`, `coordination_polls`, `pending_tasks`
 - Enums: `project_type`, `task_status`, `priority`, `deadline_type`, `reminder_type`, `reminder_status`
 - Relations: user → projects → tasks → reminders
 - Каскадное удаление через foreign keys

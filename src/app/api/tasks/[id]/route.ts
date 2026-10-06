@@ -23,7 +23,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       status: tasks.status,
       deadlineAt: tasks.deadlineAt,
       deadlineType: tasks.deadlineType,
-      myDayDate: tasks.myDayDate,
       overdueCount: tasks.overdueCount,
       completedAt: tasks.completedAt,
       createdAt: tasks.createdAt,
@@ -93,7 +92,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (body.deadlineAt !== undefined) updateData.deadlineAt = body.deadlineAt ? new Date(body.deadlineAt) : null
   if (body.deadlineType !== undefined) updateData.deadlineType = body.deadlineType
   if (body.projectId !== undefined) updateData.projectId = body.projectId
-  if (body.myDayDate !== undefined) updateData.myDayDate = body.myDayDate
 
   const [updated] = await db
     .update(tasks)

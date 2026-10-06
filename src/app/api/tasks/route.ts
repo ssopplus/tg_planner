@@ -72,7 +72,6 @@ export async function GET(request: NextRequest) {
       status: tasks.status,
       deadlineAt: tasks.deadlineAt,
       deadlineType: tasks.deadlineType,
-      myDayDate: tasks.myDayDate,
       overdueCount: tasks.overdueCount,
       createdAt: tasks.createdAt,
       projectId: tasks.projectId,
@@ -133,7 +132,7 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
-  const { title, projectId, priority, deadlineAt, deadlineType, description, myDayDate } = body
+  const { title, projectId, priority, deadlineAt, deadlineType, description } = body
   // Личное дело: доска, текст заметки и срок-день. boardId не передали —
   // кладём во «Входящие», иначе дело не попадёт ни на одну доску.
   const { boardId, dueDate } = body as { boardId?: string | null; dueDate?: string | null }
@@ -176,7 +175,6 @@ export async function POST(request: NextRequest) {
       priority: priority ?? 'MEDIUM',
       deadlineAt: deadlineAt ? new Date(deadlineAt) : null,
       deadlineType: deadlineType ?? null,
-      myDayDate: myDayDate ?? null,
     })
     .returning()
 

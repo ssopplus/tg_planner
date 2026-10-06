@@ -52,14 +52,3 @@ export function miniAppKeyboard(): InlineKeyboard {
   return new InlineKeyboard().webApp('📱 Открыть планировщик', url)
 }
 
-/** Кнопки «Мой день» */
-export function myDayKeyboard(taskId: string, isInMyDay: boolean): InlineKeyboard {
-  if (isInMyDay) {
-    return new InlineKeyboard()
-      .text('✅ Готово', `done:${taskId}`)
-      .text('🚫 Убрать из дня', `myday_remove:${taskId}`)
-  }
-  return new InlineKeyboard()
-    .text('✅ Готово', `done:${taskId}`)
-    .text('☀️ В мой день', `myday_add:${taskId}`)
-}

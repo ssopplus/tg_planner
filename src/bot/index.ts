@@ -5,7 +5,6 @@ import { handleApp } from './handlers/app'
 import { handleMessage } from './handlers/message'
 import { handleVoice } from './handlers/voice'
 import { handleCallback } from './handlers/callback'
-import { handleProjects } from './handlers/projects'
 import { handleTasks } from './handlers/tasks'
 import { userMiddleware } from './middleware/user'
 import { initAI } from '@/lib/ai/init'
@@ -29,7 +28,6 @@ bot.use(userMiddleware)
 bot.command('start', handleStart)
 bot.command('help', handleHelp)
 bot.command('app', handleApp)
-bot.command('projects', handleProjects)
 bot.command('tasks', handleTasks) // задачи Трекера
 bot.command('today', sendToday) // сводка дня: работа + личные дела
 bot.command('time', askWhichIssue) // списание времени в задачу Трекера

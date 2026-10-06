@@ -1,198 +1,156 @@
 import { db } from '@/lib/db'
-import { tasks, projects, users } from '@/lib/db/schema'
-import { eq, and, lte, lt, gte, sql } from 'drizzle-orm'
+import { boards, tasks, users } from '@/lib/db/schema'
+import { eq, and, lte, lt, gte, sql, isNotNull, isNull, inArray, or } from 'drizzle-orm'
 import { bot } from '@/bot'
-import { sortByScore } from './scoring'
-import { overdueKeyboard, myDayKeyboard } from '../keyboards/task'
 import { escapeMarkdown } from './markdown'
+import { formatMinutes, readWorklogDay, todayInTz } from '@/lib/worklog/service'
+import { miniAppUrl } from '@/lib/telegram/mini-app-url'
+import { InlineKeyboard } from 'grammy'
 
 /**
- * Отправить утренний дайджест пользователю.
+ * Утренний дайджест: две половины дня в одном сообщении.
+ *
+ * Сверху рабочее — что осталось в работе в Трекере, снизу личное — дела,
+ * у которых срок сегодня или уже прошёл. Скоринга и автоподбора семи задач
+ * больше нет: порядок задаёт сам пользователь на доске и в Трекере, а
+ * дайджест только напоминает, что там лежит.
  */
 export async function sendMorningDigest(user: typeof users.$inferSelect) {
-  const today = new Date()
-  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-  const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59)
+  const timezone = user.timezone || 'Europe/Moscow'
+  const today = todayInTz(timezone)
 
-  // Задачи на сегодня (с дедлайном сегодня)
-  const todayTasks = await db
-    .select({
-      id: tasks.id,
-      title: tasks.title,
-      priority: tasks.priority,
-      deadlineAt: tasks.deadlineAt,
-      deadlineType: tasks.deadlineType,
-      overdueCount: tasks.overdueCount,
-      createdAt: tasks.createdAt,
-    })
+  const inWork = await db
+    .select({ title: tasks.title, externalId: tasks.externalId })
     .from(tasks)
+    .where(
+      and(eq(tasks.userId, user.id), isNotNull(tasks.externalId), eq(tasks.status, 'IN_PROGRESS')),
+    )
+    .limit(10)
+
+  // Личные дела: срок сегодня или раньше. Будущие не берём — утром они
+  // только отвлекают, их место на доске в колонке «На неделе».
+  const personal = await db
+    .select({ title: tasks.title, dueDate: tasks.dueDate, emoji: boards.emoji })
+    .from(tasks)
+    .leftJoin(boards, eq(tasks.boardId, boards.id))
     .where(
       and(
         eq(tasks.userId, user.id),
-        eq(tasks.status, 'TODO'),
-        gte(tasks.deadlineAt, todayStart),
-        lte(tasks.deadlineAt, todayEnd),
+        isNotNull(tasks.boardId),
+        inArray(tasks.status, ['TODO', 'IN_PROGRESS']),
+        lte(tasks.dueDate, today),
       ),
     )
+    .limit(15)
 
-  // Просроченные задачи
-  const overdueTasks = await db
-    .select({
-      id: tasks.id,
-      title: tasks.title,
-      priority: tasks.priority,
-      deadlineAt: tasks.deadlineAt,
-      deadlineType: tasks.deadlineType,
-      overdueCount: tasks.overdueCount,
-      createdAt: tasks.createdAt,
-    })
-    .from(tasks)
-    .where(
-      and(eq(tasks.userId, user.id), eq(tasks.status, 'TODO'), lt(tasks.deadlineAt, todayStart)),
-    )
+  const lines: string[] = ['☀️ *Доброе утро*']
 
-  // Задачи с высоким приоритетом без даты
-  const highPrioTasks = await db
-    .select({
-      id: tasks.id,
-      title: tasks.title,
-      priority: tasks.priority,
-      deadlineAt: tasks.deadlineAt,
-      deadlineType: tasks.deadlineType,
-      overdueCount: tasks.overdueCount,
-      createdAt: tasks.createdAt,
-    })
-    .from(tasks)
-    .where(
-      and(
-        eq(tasks.userId, user.id),
-        eq(tasks.status, 'TODO'),
-        eq(tasks.priority, 'HIGH'),
-        sql`${tasks.deadlineAt} IS NULL`,
-      ),
-    )
-    .limit(3)
-
-  // Общее количество активных задач
-  const [{ count: totalCount }] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(tasks)
-    .where(and(eq(tasks.userId, user.id), eq(tasks.status, 'TODO')))
-
-  // Формируем сообщение
-  const lines: string[] = ['☀️ **Доброе утро! Вот план на сегодня:**\n']
-
-  if (todayTasks.length > 0) {
-    lines.push(`📅 **На сегодня (${todayTasks.length}):**`)
-    for (const t of sortByScore(todayTasks)) {
-      const icon = t.priority === 'HIGH' ? '🔴' : t.priority === 'MEDIUM' ? '🟡' : '🟢'
-      const time = t.deadlineAt
-        ? t.deadlineAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-        : ''
-      lines.push(`${icon} ${escapeMarkdown(t.title)}${time ? ` (${time})` : ''}`)
+  if (inWork.length > 0) {
+    lines.push('', `*В работе в Трекере (${inWork.length})*`)
+    for (const task of inWork) {
+      lines.push(`• \`${task.externalId}\` ${escapeMarkdown(trim(task.title, 44))}`)
     }
-    lines.push('')
   }
 
-  if (overdueTasks.length > 0) {
-    lines.push(`⚠️ **Просрочено (${overdueTasks.length}):**`)
-    for (const t of overdueTasks.slice(0, 5)) {
-      const daysOverdue = Math.floor(
-        (todayStart.getTime() - (t.deadlineAt?.getTime() ?? 0)) / (1000 * 60 * 60 * 24),
-      )
-      lines.push(`🔴 ${escapeMarkdown(t.title)} (${daysOverdue} дн. назад)`)
+  if (personal.length > 0) {
+    const overdue = personal.filter((t) => t.dueDate && t.dueDate < today)
+    lines.push('', `*Личные дела (${personal.length})*`)
+    for (const task of personal.slice(0, 10)) {
+      const mark = task.emoji ? `${task.emoji} ` : ''
+      const late = task.dueDate && task.dueDate < today ? ' ⚠️' : ''
+      lines.push(`• ${mark}${escapeMarkdown(trim(task.title, 42))}${late}`)
     }
-    lines.push('')
-  }
-
-  if (highPrioTasks.length > 0) {
-    lines.push('🔥 **Важное без даты:**')
-    for (const t of highPrioTasks) {
-      lines.push(`🔴 ${escapeMarkdown(t.title)}`)
+    if (overdue.length > 0) {
+      lines.push(`_Просрочено: ${overdue.length}_`)
     }
-    lines.push('')
   }
 
-  if (todayTasks.length === 0 && overdueTasks.length === 0 && highPrioTasks.length === 0) {
-    lines.push('На сегодня задач нет! Свободный день 🎉')
+  if (inWork.length === 0 && personal.length === 0) {
+    lines.push('', 'Ни задач в работе, ни дел со сроком на сегодня. Свободный день 🎉')
   }
 
-  lines.push(`\n📊 Всего активных задач: ${totalCount}`)
-
-  // Отправляем основное сообщение
   await bot.api.sendMessage(user.telegramId.toString(), lines.join('\n'), {
     parse_mode: 'Markdown',
+    reply_markup: openAppKeyboard(),
   })
-
-  // Отправляем просроченные с кнопками отдельными сообщениями
-  for (const t of overdueTasks.slice(0, 3)) {
-    await bot.api.sendMessage(
-      user.telegramId.toString(),
-      `⚠️ **${escapeMarkdown(t.title)}** — просрочена. Что делаем?`,
-      {
-        parse_mode: 'Markdown',
-        reply_markup: overdueKeyboard(t.id),
-      },
-    )
-  }
 }
 
 /**
- * Отправить вечерний итог пользователю.
+ * Вечерний итог: что закрыто и сколько времени списано.
+ *
+ * Списанные часы здесь главное: дайджест приходит в конце дня, и это
+ * последний момент, когда пропущенное списание ещё можно вспомнить.
  */
 export async function sendEveningDigest(user: typeof users.$inferSelect) {
-  const today = new Date()
-  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const timezone = user.timezone || 'Europe/Moscow'
+  const today = todayInTz(timezone)
+  const todayStart = new Date(`${today}T00:00:00`)
 
-  // Выполненные сегодня
   const [{ count: completedToday }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(tasks)
     .where(
-      and(
-        eq(tasks.userId, user.id),
-        eq(tasks.status, 'DONE'),
-        gte(tasks.completedAt, todayStart),
-      ),
+      and(eq(tasks.userId, user.id), eq(tasks.status, 'DONE'), gte(tasks.completedAt, todayStart)),
     )
 
-  // Осталось активных
-  const [{ count: remaining }] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(tasks)
-    .where(and(eq(tasks.userId, user.id), eq(tasks.status, 'TODO')))
-
-  // Просрочено
   const [{ count: overdue }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(tasks)
     .where(
-      and(eq(tasks.userId, user.id), eq(tasks.status, 'TODO'), lt(tasks.deadlineAt, todayStart)),
+      and(
+        eq(tasks.userId, user.id),
+        inArray(tasks.status, ['TODO', 'IN_PROGRESS']),
+        or(lt(tasks.dueDate, today), and(isNull(tasks.dueDate), lt(tasks.deadlineAt, todayStart))),
+      ),
     )
 
-  const lines: string[] = ['🌙 **Итоги дня:**\n']
+  const spent = await readWorklogDay(user.id, today)
+  const total = spent.reduce((sum, row) => sum + row.minutes, 0)
 
-  if (completedToday > 0) {
-    lines.push(`✅ Выполнено: ${completedToday}`)
-  } else {
-    lines.push('Сегодня задачи не выполнялись.')
+  const lines: string[] = ['🌙 *Итоги дня*', '']
+
+  lines.push(
+    total > 0
+      ? `⏱ Списано: ${formatMinutes(total)} по ${pluralIssues(countIssues(spent))}`
+      : '⏱ За сегодня ничего не списано',
+  )
+
+  if (total > 0 && total < 8 * 60) {
+    lines.push(`_До нормы: ${formatMinutes(8 * 60 - total)}_`)
   }
 
-  lines.push(`📋 Активных задач: ${remaining}`)
+  lines.push(completedToday > 0 ? `✅ Закрыто дел: ${completedToday}` : '✅ Дела не закрывались')
 
   if (overdue > 0) {
     lines.push(`⚠️ Просрочено: ${overdue}`)
   }
 
-  if (completedToday >= 5) {
-    lines.push('\n🏆 Отличная работа!')
-  } else if (completedToday >= 3) {
-    lines.push('\n👍 Хороший день!')
-  }
-
-  lines.push('\nХорошего вечера! 🌃')
-
   await bot.api.sendMessage(user.telegramId.toString(), lines.join('\n'), {
     parse_mode: 'Markdown',
+    reply_markup: openAppKeyboard('/tracker/time'),
   })
+}
+
+function openAppKeyboard(path = '/tracker') {
+  const url = miniAppUrl(path)
+  if (!url) return undefined
+  return new InlineKeyboard().webApp(
+    path === '/tracker/time' ? '⏱ Проверить время' : '📱 Открыть планировщик',
+    url,
+  )
+}
+
+function countIssues(rows: Array<{ issueKey: string }>): number {
+  return new Set(rows.map((row) => row.issueKey)).size
+}
+
+function pluralIssues(count: number): string {
+  const mod10 = count % 10
+  const mod100 = count % 100
+  if (mod10 === 1 && mod100 !== 11) return `${count} задаче`
+  return `${count} задачам`
+}
+
+function trim(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text
 }

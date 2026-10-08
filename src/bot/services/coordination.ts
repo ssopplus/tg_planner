@@ -353,10 +353,12 @@ function minuteButtons(kb: InlineKeyboard, data: (min: number) => string, withZe
  * Главный экран координации за день: что списано, сколько всего, что можно
  * сделать. Он же — то, куда возвращается любое действие.
  */
-export function renderDay(day: string, entries: DayEntry[]): {
-  text: string
-  keyboard: InlineKeyboard
-} {
+export function renderDay(
+  day: string,
+  entries: DayEntry[],
+  /** Сегодняшняя дата пользователя: по ней решаем, показывать ли «вперёд». */
+  today = day,
+): { text: string; keyboard: InlineKeyboard } {
   const total = entries.reduce((sum, e) => sum + e.minutes, 0)
   const lines = [`⏱ Координация за ${formatPollDate(day)}`, '']
 
@@ -375,9 +377,48 @@ export function renderDay(day: string, entries: DayEntry[]): {
 
   const kb = new InlineKeyboard().text('➕ Добавить', `coord:add:${day}`)
   if (entries.length > 0) kb.text('✏️ Изменить', `coord:edit:${day}`)
+
+  // Навигация по дням: координацию часто списывают задним числом, и до
+  // появления этих кнопок единственным способом был аргумент команды
+  // (`/coord вчера`), о котором нужно помнить.
+  kb.row()
+    .text('⬅️', `coord:day:${shiftDay(day, -1)}`)
+    .text('📅 День', `coord:days:${day}`)
+  if (day < today) {
+    kb.text('➡️', `coord:day:${shiftDay(day, 1)}`)
+  }
   kb.row().text('🔄 Обновить', `coord:menu:${day}`)
 
   return { text: lines.join('\n'), keyboard: kb }
+}
+
+/** Сдвиг даты `YYYY-MM-DD` на N дней. */
+export function shiftDay(day: string, delta: number): string {
+  const date = new Date(`${day}T12:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + delta)
+  return date.toISOString().slice(0, 10)
+}
+
+/**
+ * Выбор дня списком: две недели назад.
+ *
+ * Дальше двух недель заходить незачем — списания закрывают неделю, максимум
+ * предыдущую; а длинный список кнопок в Telegram листается хуже, чем
+ * стрелки «вперёд-назад» на самом экране.
+ */
+export function renderDayPicker(
+  current: string,
+  today: string,
+): { text: string; keyboard: InlineKeyboard } {
+  const kb = new InlineKeyboard()
+  for (let i = 0; i < 14; i++) {
+    const day = shiftDay(today, -i)
+    const mark = day === current ? '• ' : ''
+    kb.text(`${mark}${formatPollDate(day)}`, `coord:day:${day}`)
+    if (i % 2 === 1) kb.row()
+  }
+  kb.row().text('↩︎ Назад', `coord:menu:${current}`)
+  return { text: 'За какой день смотрим координацию?', keyboard: kb }
 }
 
 /** Выбор направления при добавлении времени. */

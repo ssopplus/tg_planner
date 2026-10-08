@@ -28,6 +28,7 @@ import {
   fromShortId,
   loadDay,
   renderDay,
+  renderDayPicker,
   renderEditEntry,
   renderEditList,
   renderEditComment,
@@ -82,7 +83,7 @@ async function paintDay(
 ): Promise<void> {
   const { dbUser } = ctx as BotContext
   const entries = await loadDay(dbUser, day, env)
-  await paint(ctx, renderDay(day, entries))
+  await paint(ctx, renderDay(day, entries, todayInTz(dbUser.timezone)))
 }
 
 /**
@@ -133,6 +134,19 @@ export async function handleCoordinationCallback(ctx: Context): Promise<boolean>
 
     case 'menu': {
       await paintDay(ctx, arg1, env)
+      await ctx.answerCallbackQuery()
+      return true
+    }
+
+    // Другой день: стрелками по одному или списком за две недели.
+    case 'day': {
+      await paintDay(ctx, arg1, env)
+      await ctx.answerCallbackQuery()
+      return true
+    }
+
+    case 'days': {
+      await paint(ctx, renderDayPicker(arg1, todayInTz(dbUser.timezone)))
       await ctx.answerCallbackQuery()
       return true
     }
@@ -419,7 +433,7 @@ async function handlePollAction(
       // После списания показываем экран дня — с него можно добавить ещё
       // или поправить только что внесённое.
       const entries = await loadDay(dbUser, poll.pollDate, env)
-      await paint(ctx, renderDay(poll.pollDate, entries))
+      await paint(ctx, renderDay(poll.pollDate, entries, todayInTz(dbUser.timezone)))
 
       if (failed.length) {
         const lines = failed.map((f) => `• ${f.key}: ${f.reason}`).join('\n')
@@ -486,7 +500,7 @@ export async function handleCoordCommand(ctx: Context): Promise<void> {
     }
   }
 
-  const view = renderDay(day, entries)
+  const view = renderDay(day, entries, todayInTz(dbUser.timezone))
   await ctx.reply(view.text, { reply_markup: view.keyboard })
 }
 
@@ -641,7 +655,7 @@ export async function handleCoordinationText(ctx: Context): Promise<boolean> {
   }
 
   const entries = await loadDay(dbUser, day, env)
-  const view = renderDay(day, entries)
+  const view = renderDay(day, entries, todayInTz(dbUser.timezone))
   await ctx.reply(view.text, { reply_markup: view.keyboard })
   return true
 }

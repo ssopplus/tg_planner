@@ -1,18 +1,21 @@
 import { db } from '@/lib/db'
-import { boards, tasks, users } from '@/lib/db/schema'
-import { eq, and, lte, lt, gte, sql, isNotNull, isNull, inArray, or } from 'drizzle-orm'
+import { boards, calendarEvents, tasks, users } from '@/lib/db/schema'
+import { eq, and, lte, lt, gte, sql, isNotNull, isNull, inArray, or, ne, asc } from 'drizzle-orm'
 import { bot } from '@/bot'
 import { escapeMarkdown } from './markdown'
 import { formatMinutes, readWorklogDay, todayInTz } from '@/lib/worklog/service'
 import { miniAppUrl } from '@/lib/telegram/mini-app-url'
+import { startOfToday } from '@/lib/calendar/format'
 import { InlineKeyboard } from 'grammy'
+import { digestLine } from './calendar-notify'
 
 /**
- * Утренний дайджест: две половины дня в одном сообщении.
+ * Утренний дайджест: день в одном сообщении.
  *
- * Сверху рабочее — что осталось в работе в Трекере, снизу личное — дела,
- * у которых срок сегодня или уже прошёл. Скоринга и автоподбора семи задач
- * больше нет: порядок задаёт сам пользователь на доске и в Трекере, а
+ * Сверху встречи — они единственное, что привязано к часам и сдвинуть что
+ * нельзя. Дальше рабочее: что осталось в работе в Трекере. Внизу личное —
+ * дела, у которых срок сегодня или уже прошёл. Скоринга и автоподбора семи
+ * задач больше нет: порядок задаёт сам пользователь на доске и в Трекере, а
  * дайджест только напоминает, что там лежит.
  */
 export async function sendMorningDigest(user: typeof users.$inferSelect) {
@@ -43,7 +46,36 @@ export async function sendMorningDigest(user: typeof users.$inferSelect) {
     )
     .limit(15)
 
+  // Встречи дня: окно — текущие сутки пользователя.
+  const dayStart = startOfToday(timezone)
+  const dayEnd = new Date(dayStart.getTime() + 86_400_000)
+  const meetings = await db
+    .select({
+      summary: calendarEvents.summary,
+      startsAt: calendarEvents.startsAt,
+      endsAt: calendarEvents.endsAt,
+      allDay: calendarEvents.allDay,
+      partstat: calendarEvents.partstat,
+    })
+    .from(calendarEvents)
+    .where(
+      and(
+        eq(calendarEvents.userId, user.id),
+        gte(calendarEvents.startsAt, dayStart),
+        lt(calendarEvents.startsAt, dayEnd),
+        ne(calendarEvents.status, 'CANCELLED'),
+      ),
+    )
+    .orderBy(asc(calendarEvents.startsAt))
+
   const lines: string[] = ['☀️ *Доброе утро*']
+
+  if (meetings.length > 0) {
+    lines.push('', `*Встречи (${meetings.length})*`)
+    for (const meeting of meetings) {
+      lines.push(escapeMarkdown(digestLine(meeting, timezone)))
+    }
+  }
 
   if (inWork.length > 0) {
     lines.push('', `*В работе в Трекере (${inWork.length})*`)
@@ -65,8 +97,8 @@ export async function sendMorningDigest(user: typeof users.$inferSelect) {
     }
   }
 
-  if (inWork.length === 0 && personal.length === 0) {
-    lines.push('', 'Ни задач в работе, ни дел со сроком на сегодня. Свободный день 🎉')
+  if (inWork.length === 0 && personal.length === 0 && meetings.length === 0) {
+    lines.push('', 'Ни встреч, ни задач в работе, ни дел со сроком на сегодня. Свободный день 🎉')
   }
 
   await bot.api.sendMessage(user.telegramId.toString(), lines.join('\n'), {

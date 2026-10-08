@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { and, eq } from 'drizzle-orm'
+import { db } from '@/lib/db'
+import { tasks } from '@/lib/db/schema'
 import { authorizeMiniApp } from '@/lib/telegram/auth'
-import { executeTransition, listTransitions } from '@/lib/tracker/client'
+import {
+  EXTERNAL_SOURCE_TRACKER,
+  executeTransition,
+  getIssue,
+  listTransitions,
+  mapTrackerStatus,
+} from '@/lib/tracker/client'
 import { trackerConfig, TRACKER_NOT_CONFIGURED } from '@/lib/tracker/config'
 
 /**
@@ -56,6 +65,31 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // 422 от Трекера обычно значит незаполненное обязательное поле очереди —
     // показываем его текст целиком, иначе причина отказа теряется.
     return NextResponse.json({ error: result.reason ?? 'Трекер отказал' }, { status: 422 })
+  }
+
+  // Своё же изменение сразу записываем к себе. Иначе ближайший синк увидит
+  // расхождение статусов и пришлёт уведомление о том, что пользователь только
+  // что сделал руками.
+  try {
+    const issue = await getIssue({ ...config, issueKey: key })
+    await db
+      .update(tasks)
+      .set({
+        status: mapTrackerStatus(issue.status.key),
+        trackerStatus: issue.status.display,
+        trackerUpdatedAt: new Date(issue.updatedAt),
+      })
+      .where(
+        and(
+          eq(tasks.userId, user.id),
+          eq(tasks.externalSource, EXTERNAL_SOURCE_TRACKER),
+          eq(tasks.externalId, key),
+        ),
+      )
+  } catch (error) {
+    // Не критично: следующий синк всё равно выровняет статус, в худшем случае
+    // с лишним уведомлением.
+    console.error(`Не удалось обновить локальный статус ${key}:`, error)
   }
 
   // После перехода отдаём новый список: следующий шаг зависит от нового статуса.

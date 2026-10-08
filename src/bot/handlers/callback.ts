@@ -8,6 +8,7 @@ import { BotContext } from '../middleware/user'
 import { buildDevTaskPrompt } from '@/lib/prompts/dev-task'
 import { handleCoordinationCallback } from './coordination'
 import { handleWorklogCallback } from './worklog'
+import { handleCalendarCallback } from './calendar'
 import { resolveBoardForText, resolveDueFromText } from './quick-actions'
 import { escapeMarkdown } from '../services/markdown'
 
@@ -24,6 +25,9 @@ export async function handleCallback(ctx: Context) {
 
   // Списание времени с клавиатуры: шаги задача → минуты → комментарий.
   if (await handleWorklogCallback(ctx)) return
+
+  // Ответ на приглашение: пишется прямо в Яндекс.Календарь.
+  if (await handleCalendarCallback(ctx)) return
 
   const { dbUser } = ctx as BotContext
   const parts = data.split(':')

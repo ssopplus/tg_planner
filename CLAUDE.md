@@ -44,6 +44,7 @@ src/
   app/api/cron/reminders/     # Cron Job: отправка напоминаний (каждую минуту)
   app/api/cron/digest/        # Cron Job: утренний/вечерний дайджест (каждые 15 мин)
   app/api/cron/archive/       # Cron Job: автоархивация DONE>7д (раз в день 03:00)
+  app/api/cron/calendar-sync/ # Cron Job: встречи из Яндекс.Календаря (каждые 15 мин)
   components/ui/              # UI компоненты (Button, Card, Badge, Checkbox, Progress, PullToRefresh)
   components/layout/          # Layout (NavBar, Header)
   components/tasks/           # TaskCard, TaskList, SortableTaskList, SwipeableTaskCard
@@ -59,6 +60,7 @@ src/
   lib/reminders/              # Логика повторений (rrule-parser)
   lib/telegram/               # WebApp SDK утилиты + auth (HMAC валидация)
   lib/boards/                 # Доски: «Входящие» и логика колонок-сроков
+  lib/calendar/               # Яндекс.Календарь: CalDAV-клиент, разбор ICS, синк встреч
   lib/worklog/                # Списания времени: синк с Трекером и зеркало в БД
   lib/db/                     # Drizzle ORM (schema + client)
 drizzle/                      # SQL миграции
@@ -78,13 +80,15 @@ docs/plans/                   # Планы разработки (ADR workflow)
 - **Колонки доски — сроки, а не статусы** (Сегодня · На неделе · Потом · Без даты). Перенос карточки проставляет дату; логика в [src/lib/boards/due-dates.ts](src/lib/boards/due-dates.ts)
 - **Списания зеркалятся в БД** — источник правды Трекер, но список задач берёт суммы из `worklog_entries`, иначе каждая карточка тянула бы отдельный запрос
 - **Переходы статусов не зашиты в код** — набор свой у каждой очереди и зависит от текущего статуса, поэтому запрашивается для конкретной задачи
+- **Уведомления об изменениях считаются в синке**, а не через вебхуки Трекера: триггер настраивается на стороне очереди, а очереди чужие. Комментарии дотягиваются только для задач со сдвинувшимся `updatedAt` — Трекер двигает его на любую запись в changelog. См. [docs/tracker-change-notifications.md](docs/tracker-change-notifications.md)
+- **Календарь — только CalDAV**: REST API у Яндекс.Календаря нет, доступ по паролю приложения. Зеркало `calendar_events` хранит экземпляры встреч (у серии — строка на каждый день), повторения разворачиваются на нашей стороне через `rrule`. См. [docs/yandex-calendar.md](docs/yandex-calendar.md)
 - **Клавиатура бота, а не кнопка меню** — кнопка меню остаётся `web_app`, только она открывает Mini App во весь экран; быстрые действия живут на постоянной reply-клавиатуре
 - **Мульти-парсинг** — AI возвращает массив `ParsedTask[]`, одно сообщение = несколько задач
 - **Повторения** — rrule RFC 5545, автосоздание следующего напоминания при срабатывании
 
 ## БД (Drizzle схема)
 
-Таблицы: `users`, `projects`, `boards`, `tasks`, `reminders`, `subtasks`, `worklog_entries`, `tracker_queue_links`, `coordination_polls`, `pending_tasks`
+Таблицы: `users`, `projects`, `boards`, `tasks`, `reminders`, `subtasks`, `worklog_entries`, `tracker_queue_links`, `coordination_polls`, `pending_tasks`, `calendar_events`
 - Enums: `project_type`, `task_status`, `priority`, `deadline_type`, `reminder_type`, `reminder_status`
 - Relations: user → projects → tasks → reminders
 - Каскадное удаление через foreign keys
@@ -156,3 +160,8 @@ docs/plans/                   # Планы разработки (ADR workflow)
 | `YANDEX_TRACKER_TOKEN` | OAuth-токен Яндекс Трекера для pull-синхронизации (см. `docs/yandex-tracker-sync.md`) |
 | `YANDEX_TRACKER_ORG_ID` | Числовой ID организации Яндекс 360 (напр. `7026646` — vodohod.ru), передаётся в заголовке `X-Org-ID` |
 | `TRACKER_SYNC_USER_ID` | UUID пользователя для привязки YT-тикетов (опционально, если в БД один user) |
+| `YANDEX_CALDAV_LOGIN` | Полный адрес аккаунта Яндекс для CalDAV (см. `docs/yandex-calendar.md`) |
+| `YANDEX_CALDAV_PASSWORD` | **Пароль приложения** из id.yandex.ru → Безопасность → Пароли приложений → Календарь |
+| `YANDEX_CALDAV_EMAIL` | Адрес, по которому искать себя среди участников встречи (по умолчанию — логин) |
+| `YANDEX_CALDAV_URL` | Базовый URL CalDAV (default: `https://caldav.yandex.ru`) |
+| `CALENDAR_SYNC_USER_ID` | UUID пользователя для встреч (опционально; fallback — `TRACKER_SYNC_USER_ID`, затем единственный user) |

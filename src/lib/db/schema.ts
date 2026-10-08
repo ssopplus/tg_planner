@@ -246,6 +246,26 @@ export const tasks = pgTable(
     externalId: text('external_id'),
     /** Когда last-synced с внешней системой. Нужен для echo-suppression при двусторонней синхронизации. */
     externalSyncedAt: timestamp('external_synced_at'),
+    /**
+     * Последний виденный `updatedAt` тикета Трекера.
+     *
+     * Трекер сдвигает его на любую запись в changelog, включая добавление
+     * комментария (проверено 08.10.2026 на WEBSH-413). Поэтому сравнение с
+     * этим полем отвечает на вопрос «в задаче вообще что-то происходило» —
+     * и комментарии дотягиваются только для шевельнувшихся задач, а не для
+     * всех активных на каждом прогоне синка.
+     */
+    trackerUpdatedAt: timestamp('tracker_updated_at'),
+    /** Id последнего комментария, о котором уже уведомили. */
+    trackerLastCommentId: integer('tracker_last_comment_id'),
+    /**
+     * Статус тикета словами Трекера («Тестируется»), а не нашими TODO/IN_PROGRESS.
+     *
+     * Нужен уведомлениям: половина переходов очереди укладывается в один наш
+     * статус, и «Можно тестировать → Тестируется» на стороне tg-planer
+     * выглядело бы как отсутствие изменений.
+     */
+    trackerStatus: text('tracker_status'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at')
       .defaultNow()
@@ -475,3 +495,53 @@ export const boardsRelations = relations(boards, ({ one, many }) => ({
 export const worklogEntriesRelations = relations(worklogEntries, ({ one }) => ({
   user: one(users, { fields: [worklogEntries.userId], references: [users.id] }),
 }))
+
+/**
+ * Зеркало встреч из Яндекс.Календаря (CalDAV).
+ *
+ * Строка — не событие, а его **экземпляр**: у повторяющейся встречи своя
+ * строка на каждый день. Иначе «дейли в 11:00» было бы одной записью, и
+ * отменить один вторник без остальных не получилось бы ни показать, ни
+ * заметить.
+ *
+ * Зеркало нужно ровно для одного: сравнить то, что отдал сервер, с тем, что
+ * мы уже видели, и отличить новое приглашение от переноса и от отмены.
+ */
+export const calendarEvents = pgTable(
+  'calendar_events',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    /** UID из ICS — общий у всех экземпляров серии. */
+    uid: text('uid').notNull(),
+    startsAt: timestamp('starts_at').notNull(),
+    endsAt: timestamp('ends_at').notNull(),
+    allDay: boolean('all_day').default(false).notNull(),
+    summary: text('summary').notNull(),
+    location: text('location'),
+    description: text('description'),
+    organizer: text('organizer'),
+    /** CONFIRMED | TENTATIVE | CANCELLED — статус самой встречи. */
+    status: text('status').default('CONFIRMED').notNull(),
+    /** Мой ответ: NEEDS-ACTION | ACCEPTED | DECLINED | TENTATIVE. */
+    partstat: text('partstat').default('NEEDS-ACTION').notNull(),
+    /** Адрес объекта на сервере — по нему возвращаем ответ на приглашение. */
+    href: text('href').notNull(),
+    etag: text('etag'),
+    /** Когда уже уведомили — чтобы не слать одно и то же каждые 15 минут. */
+    notifiedAt: timestamp('notified_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex('calendar_events_instance_idx').on(table.userId, table.uid, table.startsAt),
+    index('calendar_events_user_start_idx').on(table.userId, table.startsAt),
+  ],
+)

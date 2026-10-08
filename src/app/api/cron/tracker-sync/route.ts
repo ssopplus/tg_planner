@@ -4,12 +4,23 @@ import { tasks, projects, users, trackerQueueLinks } from '@/lib/db/schema'
 import { and, eq, inArray, isNotNull, notInArray, sql } from 'drizzle-orm'
 import {
   EXTERNAL_SOURCE_TRACKER,
+  getMyUid,
+  listComments,
   listMyActiveIssues,
   mapTrackerPriority,
   mapTrackerStatus,
   type TrackerIssue,
 } from '@/lib/tracker/client'
-import { notifyNewTasks, type NewTaskNotice } from '@/bot/services/tracker-notify'
+import {
+  notifyClosedTasks,
+  notifyNewTasks,
+  notifyTaskChanges,
+  type ClosedTaskNotice,
+  type CommentNotice,
+  type NewTaskNotice,
+  type TaskChangeNotice,
+} from '@/bot/services/tracker-notify'
+import { diffTask } from '@/lib/tracker/changes'
 import { resolveProjectForIssue, type QueueLink } from '@/lib/tracker/queue-links'
 
 /**
@@ -31,7 +42,21 @@ import { resolveProjectForIssue, type QueueLink } from '@/lib/tracker/queue-link
  *
  * Обратная запись (DONE в tg-planer → transition в YT) живёт в
  * src/app/api/tasks/[id]/route.ts через closeIssue().
+ *
+ * Синк же и уведомляет: новая задача, изменение существующей (статус,
+ * дедлайн, приоритет, заголовок, описание, чужой комментарий) и закрытие.
+ * Комментарии дотягиваются отдельным запросом и только для задач, у которых
+ * сдвинулся `updatedAt`, — Трекер двигает его на любую запись в changelog,
+ * включая добавление комментария.
  */
+
+/**
+ * Предохранитель на добор комментариев: столько задач за прогон мы готовы
+ * опросить отдельными запросами. Шевельнуться за полчаса может и сотня
+ * тикетов (массовая правка полей роботом очереди), и тогда синк упёрся бы в
+ * лимит времени функции.
+ */
+const MAX_COMMENT_FETCHES = 20
 
 async function resolveUser(): Promise<{ id: string; telegramId: bigint } | null> {
   const fromEnv = process.env.TRACKER_SYNC_USER_ID
@@ -130,6 +155,15 @@ export async function GET(request: Request) {
 
   // Новые задачи этого прогона — для уведомления в конце (кроме первого синка).
   const newTasks: NewTaskNotice[] = []
+  // Изменившиеся задачи и те, у кого надо дотянуть комментарии.
+  const changed: TaskChangeNotice[] = []
+  const commentCandidates: Array<{
+    taskId: string
+    issueKey: string
+    title: string
+    lastCommentId: number | null
+    since: Date | null
+  }> = []
 
   // Ключи, реально пришедшие из Трекера — база для reconciliation ниже.
   const seenKeys = new Set<string>()
@@ -147,7 +181,17 @@ export async function GET(request: Request) {
     const values = buildTaskValues({ issue, userId, projectId, now })
 
     const [existing] = await db
-      .select({ id: tasks.id })
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        description: tasks.description,
+        priority: tasks.priority,
+        deadlineAt: tasks.deadlineAt,
+        trackerStatus: tasks.trackerStatus,
+        trackerUpdatedAt: tasks.trackerUpdatedAt,
+        trackerLastCommentId: tasks.trackerLastCommentId,
+        externalSyncedAt: tasks.externalSyncedAt,
+      })
       .from(tasks)
       .where(
         and(
@@ -159,6 +203,48 @@ export async function GET(request: Request) {
       .limit(1)
 
     if (existing) {
+      // Разницу считаем ДО записи: после update старые значения уже не достать.
+      const changes = diffTask(
+        {
+          title: existing.title,
+          description: existing.description,
+          trackerStatus: existing.trackerStatus,
+          priority: existing.priority,
+          deadlineAt: existing.deadlineAt,
+        },
+        {
+          title: values.title,
+          description: values.description,
+          trackerStatus: values.trackerStatus,
+          priority: values.priority,
+          deadlineAt: values.deadlineAt,
+        },
+      )
+      if (changes.length > 0) {
+        changed.push({
+          taskId: existing.id,
+          issueKey: issue.key,
+          title: values.title,
+          changes,
+          comments: [],
+        })
+      }
+
+      // `updatedAt` сдвигается на любую запись в changelog, комментарии в том
+      // числе. Это и есть дешёвый фильтр: опрашиваем только шевельнувшихся.
+      const movedInTracker =
+        !existing.trackerUpdatedAt ||
+        existing.trackerUpdatedAt.getTime() !== new Date(issue.updatedAt).getTime()
+      if (movedInTracker) {
+        commentCandidates.push({
+          taskId: existing.id,
+          issueKey: issue.key,
+          title: values.title,
+          lastCommentId: existing.trackerLastCommentId,
+          since: existing.externalSyncedAt,
+        })
+      }
+
       await db
         .update(tasks)
         .set({
@@ -172,6 +258,8 @@ export async function GET(request: Request) {
           // Локальный DONE при активном тикете сбрасывается сознательно —
           // это признак того, что closeIssue не сработал.
           status: values.status,
+          trackerStatus: values.trackerStatus,
+          trackerUpdatedAt: values.trackerUpdatedAt,
           externalSyncedAt: now,
         })
         .where(eq(tasks.id, existing.id))
@@ -202,10 +290,11 @@ export async function GET(request: Request) {
   // вернуть оптимизацию `updatedSince`, выборка станет частичной и «пропавшая»
   // задача перестанет означать «закрытая» — reconciliation придётся выключить.
   let closedLocally = 0
+  const closedNotices: ClosedTaskNotice[] = []
   if (issues.length > 0) {
     const activeQueues = linkedQueues
     const stale = await db
-      .select({ id: tasks.id, externalId: tasks.externalId })
+      .select({ id: tasks.id, externalId: tasks.externalId, title: tasks.title })
       .from(tasks)
       .where(
         and(
@@ -216,15 +305,14 @@ export async function GET(request: Request) {
         ),
       )
 
-    const staleIds = stale
-      .filter((row) => {
-        const key = row.externalId
-        if (!key || seenKeys.has(key)) return false
-        // "POLAERP-42" → "POLAERP": закрываем только то, что реально опрашивали.
-        const queueKey = key.split('-')[0]?.toUpperCase()
-        return Boolean(queueKey && activeQueues.includes(queueKey))
-      })
-      .map((row) => row.id)
+    const staleRows = stale.filter((row) => {
+      const key = row.externalId
+      if (!key || seenKeys.has(key)) return false
+      // "POLAERP-42" → "POLAERP": закрываем только то, что реально опрашивали.
+      const queueKey = key.split('-')[0]?.toUpperCase()
+      return Boolean(queueKey && activeQueues.includes(queueKey))
+    })
+    const staleIds = staleRows.map((row) => row.id)
 
     if (staleIds.length > 0) {
       await db
@@ -232,6 +320,59 @@ export async function GET(request: Request) {
         .set({ status: 'DONE', completedAt: now, externalSyncedAt: now })
         .where(inArray(tasks.id, staleIds))
       closedLocally = staleIds.length
+      closedNotices.push(
+        ...staleRows.map((row) => ({
+          taskId: row.id,
+          issueKey: row.externalId ?? '',
+          title: row.title,
+        })),
+      )
+    }
+  }
+
+  // Комментарии — единственное, ради чего синк ходит в Трекер повторно,
+  // поэтому и только для шевельнувшихся задач, и под потолком запросов.
+  let myUid: string | null = null
+  for (const candidate of commentCandidates.slice(0, MAX_COMMENT_FETCHES)) {
+    try {
+      if (!myUid) myUid = await getMyUid({ token, orgId })
+      const comments = await listComments({ token, orgId, issueKey: candidate.issueKey })
+      if (comments.length === 0) continue
+
+      const maxId = Math.max(...comments.map((c) => c.id))
+      // Базовая линия: если id последнего комментария ещё не запомнен (задача
+      // синхронизирована до появления колонки), берём время прошлого синка —
+      // иначе первый прогон вывалил бы всю историю обсуждения разом.
+      const fresh: CommentNotice[] = comments
+        .filter((c) => {
+          if (c.createdBy?.id && myUid && c.createdBy.id === myUid) return false
+          if (candidate.lastCommentId !== null) return c.id > candidate.lastCommentId
+          return candidate.since ? new Date(c.createdAt) > candidate.since : false
+        })
+        .map((c) => ({ author: c.createdBy?.display ?? 'без автора', text: c.text }))
+
+      await db
+        .update(tasks)
+        .set({ trackerLastCommentId: maxId })
+        .where(eq(tasks.id, candidate.taskId))
+
+      if (fresh.length === 0) continue
+      const existingNotice = changed.find((n) => n.taskId === candidate.taskId)
+      if (existingNotice) {
+        existingNotice.comments = fresh
+      } else {
+        changed.push({
+          taskId: candidate.taskId,
+          issueKey: candidate.issueKey,
+          title: candidate.title,
+          changes: [],
+          comments: fresh,
+        })
+      }
+    } catch (error) {
+      // Отдельный тикет может быть недоступен (права, удалён) — это не повод
+      // ронять весь синк: остальные задачи уже сохранены.
+      console.error(`Не удалось прочитать комментарии ${candidate.issueKey}:`, error)
     }
   }
 
@@ -239,6 +380,8 @@ export async function GET(request: Request) {
   // молчим — иначе прилетит пачка «новых» про давно существующие тикеты.
   if (!isFirstSync) {
     await notifyNewTasks(resolvedUser.telegramId, newTasks)
+    await notifyTaskChanges(resolvedUser.telegramId, changed)
+    await notifyClosedTasks(resolvedUser.telegramId, closedNotices)
   }
 
   return NextResponse.json({
@@ -247,7 +390,9 @@ export async function GET(request: Request) {
       ...summary,
       closedLocally,
       queues: linkedQueues,
-      notified: isFirstSync ? 0 : newTasks.length,
+      changed: changed.length,
+      commentChecks: Math.min(commentCandidates.length, MAX_COMMENT_FETCHES),
+      notified: isFirstSync ? 0 : newTasks.length + changed.length + closedNotices.length,
       firstSync: isFirstSync,
     },
   })
@@ -271,6 +416,10 @@ function buildTaskValues(args: {
     deadlineType: deadlineAt ? ('HARD' as const) : null,
     // backlog/open/asPlanned → TODO, inProgress/testing/intest → IN_PROGRESS
     status: mapTrackerStatus(issue.status.key),
+    // Статус словами Трекера нужен уведомлениям: «Можно тестировать →
+    // Тестируется» в наших TODO/IN_PROGRESS неразличимо.
+    trackerStatus: issue.status.display,
+    trackerUpdatedAt: new Date(issue.updatedAt),
     externalSource: EXTERNAL_SOURCE_TRACKER,
     externalId: issue.key,
     externalSyncedAt: now,

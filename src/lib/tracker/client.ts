@@ -408,6 +408,27 @@ export async function deleteWorklog(args: {
   return { ok: true }
 }
 
+/**
+ * Одна задача по ключу.
+ *
+ * Нужна после собственных действий (переход статуса из Mini App), чтобы
+ * сразу записать новое состояние к себе: иначе ближайший синк увидит разницу
+ * и пришлёт уведомление о том, что пользователь сделал сам.
+ */
+export async function getIssue(args: {
+  token: string
+  orgId: string
+  issueKey: string
+}): Promise<TrackerIssue> {
+  const res = await fetch(`${BASE}/issues/${args.issueKey}`, {
+    headers: authHeaders(args.token, args.orgId),
+  })
+  if (!res.ok) {
+    throw new Error(`Tracker issue ${res.status}: ${await res.text()}`)
+  }
+  return (await res.json()) as TrackerIssue
+}
+
 /** Переход между статусами, доступный конкретной задаче прямо сейчас. */
 export interface TrackerTransition {
   id: string

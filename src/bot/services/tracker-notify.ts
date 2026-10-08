@@ -10,46 +10,90 @@ import { formatDate, type TaskChange } from '@/lib/tracker/changes'
  * заголовок, описание, новый комментарий), задачу закрыли. Все три приходят с
  * такта синка — раз в 30 минут, мгновенности тут нет и не предполагается.
  *
- * Сообщения намеренно НЕ используют Markdown внутри заголовков задач:
- * summary из Трекера может содержать *, _, [, ] и ломать разметку.
- * Всё сообщение отправляется как plain text; кнопка ведёт на карточку
- * задачи в Mini App.
+ * Разметка — HTML, а не Markdown, и каждый кусок текста из Трекера проходит
+ * через `esc`. Тема тикета и комментарий пишутся людьми и спокойно содержат
+ * `*`, `_`, `[`, `<`; в Markdown на таком ломается всё сообщение, а в HTML
+ * достаточно экранировать три символа.
+ *
+ * Ключ задачи идёт отдельной строкой в `<code>`: в Telegram моноширинный
+ * текст копируется касанием, и ключ можно сразу вставить в поиск, коммит или
+ * ветку, не открывая Трекер.
  */
+
+const TRACKER_BASE = 'https://tracker.yandex.ru'
+
+/** Экранирование для parse_mode HTML — Telegram требует ровно эти три. */
+function esc(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
 
 /** Данные новой задачи, достаточные для формирования уведомления. */
 export interface NewTaskNotice {
   /** UUID задачи в БД tg-planer (для deep-link в Mini App). */
   taskId: string
+  /** Ключ тикета, например "POLAERP-194". */
+  issueKey: string
   /** Заголовок (summary тикета). */
   title: string
   /** Имя проекта в tg-planer, куда легла задача. */
   projectName: string
+  /** Статус словами Трекера. */
+  status: string | null
   /** Дедлайн, если задан. */
   deadlineAt: Date | null
 }
 
-/** Одна строка описания задачи для сводного/одиночного сообщения. */
+/**
+ * Шапка сообщения: тема, ключ для копирования и поля задачи.
+ *
+ * Ключ стоит второй строкой, а не в заголовке: так он занимает всю строку и
+ * в него легко попасть пальцем, чтобы скопировать.
+ */
+function issueCard(args: {
+  issueKey: string
+  title: string
+  projectName?: string | null
+  status?: string | null
+  deadlineAt?: Date | null
+}): string[] {
+  const lines = [esc(args.title), `<code>${esc(args.issueKey)}</code>`]
+  const facts: string[] = []
+  if (args.projectName) facts.push(`Проект: ${esc(args.projectName)}`)
+  if (args.status) facts.push(`Статус: ${esc(args.status)}`)
+  if (args.deadlineAt) facts.push(`Дедлайн: ${formatDate(args.deadlineAt)}`)
+  if (facts.length > 0) lines.push(facts.join('\n'))
+  return lines
+}
+
+/** Одна строка описания задачи для сводного сообщения. */
 function taskLine(t: NewTaskNotice): string {
-  const parts = [`• ${t.title}`, `  проект: ${t.projectName}`]
+  const parts = [`• <code>${esc(t.issueKey)}</code> ${esc(t.title)}`, `  проект: ${esc(t.projectName)}`]
   if (t.deadlineAt) parts.push(`  дедлайн: ${formatDate(t.deadlineAt)}`)
   return parts.join('\n')
 }
 
-/** Кнопка «Открыть» — ведёт на карточку конкретной задачи в Mini App. */
-function openTaskKeyboard(taskId: string): InlineKeyboard | undefined {
-  const url = miniAppUrl(`/tracker/${taskId}`)
-  if (!url) return undefined
-  return new InlineKeyboard().webApp('📱 Открыть', url)
+/**
+ * Кнопки под сообщением: карточка в Mini App и сам тикет в Трекере.
+ *
+ * Вторая кнопка нужна для того, чего в Mini App нет, — вложений, связей,
+ * истории. Она не заменяет копируемый ключ: ключ чаще нужен не чтобы открыть
+ * задачу, а чтобы упомянуть её в другом месте.
+ */
+function issueKeyboard(taskId: string, issueKey: string): InlineKeyboard {
+  const keyboard = new InlineKeyboard()
+  const app = miniAppUrl(`/tracker/${taskId}`)
+  if (app) keyboard.webApp('📱 Открыть', app)
+  keyboard.url('🔗 В Трекере', `${TRACKER_BASE}/${issueKey}`)
+  return keyboard
 }
 
 /**
  * Отправляет пользователю уведомление о новых задачах из Трекера.
  *
  * - 0 задач — ничего не делает.
- * - 1 задача — короткое сообщение с кнопкой «Открыть» на эту задачу.
- * - N задач — одно сводное сообщение со списком (кнопка ведёт на первую,
- *   т.к. inline-кнопка одна на сообщение; из списка юзер откроет остальные
- *   в Mini App).
+ * - 1 задача — карточка с кнопками.
+ * - N задач — одно сводное сообщение со списком (кнопки ведут на первую,
+ *   клавиатура одна на сообщение; остальные открываются из Mini App).
  *
  * Ошибки отправки логируются, но не пробрасываются — сбой Telegram не должен
  * ронять синк (задачи в БД уже сохранены к этому моменту).
@@ -65,18 +109,29 @@ export async function notifyNewTasks(
   try {
     if (newTasks.length === 1) {
       const t = newTasks[0]
-      const lines = [`🆕 Новая задача: ${t.title}`, `Проект: ${t.projectName}`]
-      if (t.deadlineAt) lines.push(`Дедлайн: ${formatDate(t.deadlineAt)}`)
-      await bot.api.sendMessage(chatId, lines.join('\n'), {
-        reply_markup: openTaskKeyboard(t.taskId),
+      const text = [
+        '🆕 <b>Новая задача</b>',
+        '',
+        ...issueCard({
+          issueKey: t.issueKey,
+          title: t.title,
+          projectName: t.projectName,
+          status: t.status,
+          deadlineAt: t.deadlineAt,
+        }),
+      ].join('\n')
+      await bot.api.sendMessage(chatId, text, {
+        parse_mode: 'HTML',
+        reply_markup: issueKeyboard(t.taskId, t.issueKey),
       })
       return
     }
 
-    const header = `🆕 Новые задачи (${newTasks.length}):`
+    const header = `🆕 <b>Новые задачи (${newTasks.length})</b>`
     const body = newTasks.map(taskLine).join('\n\n')
     await bot.api.sendMessage(chatId, `${header}\n\n${body}`, {
-      reply_markup: openTaskKeyboard(newTasks[0].taskId),
+      parse_mode: 'HTML',
+      reply_markup: issueKeyboard(newTasks[0].taskId, newTasks[0].issueKey),
     })
   } catch (error) {
     console.error('Ошибка отправки уведомления о новых задачах из Трекера:', error)
@@ -111,12 +166,14 @@ const DETAILED_LIMIT = 5
 /** Комментарий в уведомлении — одна-две строки, остальное в карточке. */
 function commentLine(c: CommentNotice): string {
   const text = c.text.replace(/\s+/g, ' ').trim()
-  return `💬 ${c.author}: ${text.length > 160 ? `${text.slice(0, 159)}…` : text}`
+  const short = text.length > 160 ? `${text.slice(0, 159)}…` : text
+  return `💬 ${esc(c.author)}: ${esc(short)}`
 }
 
 function changeMessage(notice: TaskChangeNotice): string {
-  const lines = [`🔄 ${notice.issueKey} · ${notice.title}`]
-  for (const change of notice.changes) lines.push(change.text)
+  const lines = ['🔄 <b>Задача изменилась</b>', '', ...issueCard(notice)]
+  lines.push('')
+  for (const change of notice.changes) lines.push(esc(change.text))
   for (const comment of notice.comments) lines.push(commentLine(comment))
   return lines.join('\n')
 }
@@ -124,10 +181,10 @@ function changeMessage(notice: TaskChangeNotice): string {
 /**
  * Уведомляет об изменениях в существующих задачах.
  *
- * До пяти задач — отдельным сообщением на каждую, с кнопкой на карточку:
- * изменение почти всегда требует действия, и кнопка под ним экономит
- * два касания. Больше пяти — одна сводка, иначе бот устраивает очередь
- * сообщений, которую никто не читает.
+ * До пяти задач — отдельным сообщением на каждую, с кнопками: изменение почти
+ * всегда требует действия, и кнопка под ним экономит два касания. Больше пяти
+ * — одна сводка, иначе бот устраивает очередь сообщений, которую никто не
+ * читает.
  *
  * Ошибки отправки гасятся: задачи в БД уже обновлены, и падать из-за
  * Telegram синку незачем.
@@ -143,21 +200,23 @@ export async function notifyTaskChanges(
     if (notices.length <= DETAILED_LIMIT) {
       for (const notice of notices) {
         await bot.api.sendMessage(chatId, changeMessage(notice), {
-          reply_markup: openTaskKeyboard(notice.taskId),
+          parse_mode: 'HTML',
+          reply_markup: issueKeyboard(notice.taskId, notice.issueKey),
         })
       }
       return
     }
 
-    const header = `🔄 Изменились задачи (${notices.length}):`
+    const header = `🔄 <b>Изменились задачи (${notices.length})</b>`
     const body = notices
       .map((n) => {
-        const what = [...n.changes.map((c) => c.text), ...n.comments.map(commentLine)]
-        return `• ${n.issueKey} ${n.title}\n  ${what.join('\n  ')}`
+        const what = [...n.changes.map((c) => esc(c.text)), ...n.comments.map(commentLine)]
+        return `• <code>${esc(n.issueKey)}</code> ${esc(n.title)}\n  ${what.join('\n  ')}`
       })
       .join('\n\n')
     await bot.api.sendMessage(chatId, `${header}\n\n${body}`, {
-      reply_markup: openTaskKeyboard(notices[0].taskId),
+      parse_mode: 'HTML',
+      reply_markup: issueKeyboard(notices[0].taskId, notices[0].issueKey),
     })
   } catch (error) {
     console.error('Ошибка отправки уведомления об изменениях задач Трекера:', error)
@@ -167,7 +226,8 @@ export async function notifyTaskChanges(
 /**
  * Уведомляет о закрытых задачах — тех, что пропали из выборки активных.
  *
- * Кнопки «Открыть» тут нет: задача закрыта, идти в неё обычно незачем.
+ * Кнопка в Трекер остаётся: у закрытой задачи как раз чаще всего смотрят
+ * резолюцию и последний комментарий.
  */
 export async function notifyClosedTasks(
   telegramId: bigint | number,
@@ -179,11 +239,20 @@ export async function notifyClosedTasks(
   try {
     if (closed.length === 1) {
       const t = closed[0]
-      await bot.api.sendMessage(chatId, `✅ Закрыта: ${t.issueKey} · ${t.title}`)
+      const text = ['✅ <b>Задача закрыта</b>', '', ...issueCard(t)].join('\n')
+      await bot.api.sendMessage(chatId, text, {
+        parse_mode: 'HTML',
+        reply_markup: issueKeyboard(t.taskId, t.issueKey),
+      })
       return
     }
-    const body = closed.map((t) => `• ${t.issueKey} ${t.title}`).join('\n')
-    await bot.api.sendMessage(chatId, `✅ Закрыты задачи (${closed.length}):\n\n${body}`)
+    const body = closed
+      .map((t) => `• <code>${esc(t.issueKey)}</code> ${esc(t.title)}`)
+      .join('\n')
+    await bot.api.sendMessage(chatId, `✅ <b>Закрыты задачи (${closed.length})</b>\n\n${body}`, {
+      parse_mode: 'HTML',
+      reply_markup: issueKeyboard(closed[0].taskId, closed[0].issueKey),
+    })
   } catch (error) {
     console.error('Ошибка отправки уведомления о закрытых задачах Трекера:', error)
   }

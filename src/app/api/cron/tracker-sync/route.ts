@@ -269,8 +269,10 @@ export async function GET(request: Request) {
       summary.created++
       newTasks.push({
         taskId: inserted.id,
+        issueKey: issue.key,
         title: values.title,
         projectName: project.name,
+        status: values.trackerStatus,
         deadlineAt: values.deadlineAt,
       })
     }

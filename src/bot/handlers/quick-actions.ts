@@ -1,7 +1,7 @@
-import { Context, InlineKeyboard } from 'grammy'
+import { Context } from 'grammy'
 import { db } from '@/lib/db'
 import { boards, tasks } from '@/lib/db/schema'
-import { and, eq, inArray, isNotNull, lte, notInArray, or, isNull } from 'drizzle-orm'
+import { and, eq, isNotNull, lte, notInArray, or, isNull } from 'drizzle-orm'
 import { BotContext } from '../middleware/user'
 import { handlePersonalCommand } from './personal'
 import { handleMeetingsCommand } from './meetings'
@@ -10,12 +10,17 @@ import { ensureInboxBoard } from '@/lib/boards/inbox'
 import { toDayString } from '@/lib/boards/due-dates'
 import { formatMinutes, readWorklogDay, todayInTz } from '@/lib/worklog/service'
 import {
+  BUTTON_COORDINATION,
   BUTTON_LOG_TIME,
   BUTTON_MEETINGS,
   BUTTON_NEW_TASK,
   BUTTON_PERSONAL,
   BUTTON_TODAY,
+  isMainButton,
 } from '../keyboards/main'
+import { handleCoordCommand } from './coordination'
+import { issueListMessage } from './worklog'
+import { cancelActiveFlows } from '../services/flows'
 
 /**
  * Быстрые действия с постоянной клавиатуры.
@@ -25,6 +30,13 @@ import {
  * строки.
  */
 export async function handleQuickAction(ctx: Context, text: string): Promise<boolean> {
+  if (!isMainButton(text)) return false
+
+  // Новое намерение отменяет старое: иначе незакрытое ожидание предыдущего
+  // сценария перехватит следующее сообщение, и текст уедет не туда.
+  const { dbUser } = ctx as BotContext
+  await cancelActiveFlows(dbUser.id)
+
   switch (text) {
     case BUTTON_NEW_TASK:
       await ctx.reply(
@@ -49,6 +61,10 @@ export async function handleQuickAction(ctx: Context, text: string): Promise<boo
       await handleMeetingsCommand(ctx)
       return true
 
+    case BUTTON_COORDINATION:
+      await handleCoordCommand(ctx)
+      return true
+
     default:
       return false
   }
@@ -62,32 +78,12 @@ export async function handleQuickAction(ctx: Context, text: string): Promise<boo
  */
 export async function askWhichIssue(ctx: Context) {
   const { dbUser } = ctx as BotContext
-
-  const rows = await db
-    .select({ externalId: tasks.externalId, title: tasks.title })
-    .from(tasks)
-    .where(
-      and(
-        eq(tasks.userId, dbUser.id),
-        isNotNull(tasks.externalId),
-        inArray(tasks.status, ['TODO', 'IN_PROGRESS']),
-      ),
-    )
-    .orderBy(tasks.status)
-    .limit(8)
-
-  if (rows.length === 0) {
+  const list = await issueListMessage(dbUser.id)
+  if (!list) {
     await ctx.reply('Активных задач Трекера нет — списывать не во что.')
     return
   }
-
-  const keyboard = new InlineKeyboard()
-  for (const row of rows) {
-    if (!row.externalId) continue
-    keyboard.text(`${row.externalId} — ${trim(row.title, 28)}`, `wl:issue:${row.externalId}`).row()
-  }
-
-  await ctx.reply('В какую задачу списать время?', { reply_markup: keyboard })
+  await ctx.reply(list.text, { reply_markup: list.keyboard })
 }
 
 /** Сводка дня: рабочее сверху, личные дела снизу. */

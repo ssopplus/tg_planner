@@ -33,7 +33,7 @@ export default function TrackerTaskPage() {
   const taskId = params.id as string
 
   const [task, setTask] = useState<TaskDetail | null>(null)
-  const [spentLabel, setSpentLabel] = useState('нет списаний')
+  const [spentLabel, setSpentLabel] = useState('сегодня не списано')
   const [loading, setLoading] = useState(true)
 
   const loadTask = useCallback(async () => {
@@ -53,7 +53,7 @@ export default function TrackerTaskPage() {
         const minutes = data.rows
           .filter((row) => row.issueKey === issueKey)
           .reduce((sum, row) => sum + row.minutes, 0)
-        setSpentLabel(minutes ? `сегодня ${formatMinutes(minutes)}` : 'нет списаний')
+        setSpentLabel(minutes ? `сегодня ${formatMinutes(minutes)}` : 'сегодня не списано')
       }),
     [],
   )

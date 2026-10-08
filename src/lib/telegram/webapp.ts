@@ -107,6 +107,10 @@ export function webAppRequestFullscreen() {
 export function webAppTopInset(): number {
   const wa = getWebApp()
   if (!wa?.isFullscreen) return 0
+  // На десктопе кнопки Telegram — один ряд в правом верхнем углу, а вставки
+  // клиент отдаёт с запасом под мобильную шапку: сверху оставалась пустая
+  // полоса в ~120px. Хватает высоты самого ряда.
+  if (isDesktopPlatform()) return MIN_FULLSCREEN_TOP_INSET
   const system = wa.safeAreaInset?.top ?? 0
   const content = wa.contentSafeAreaInset?.top ?? 0
   return Math.max(system + content, MIN_FULLSCREEN_TOP_INSET)

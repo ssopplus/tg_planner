@@ -47,27 +47,27 @@ export default function TrackerPage() {
     }
   }, [])
 
-  // Суммы времени берём из зеркала (fresh=0): список открывается часто, а
-  // поход в Трекер за каждым открытием заметно его тормозит. Актуализация
-  // происходит на экране «Время», который читает API напрямую.
-  const loadSpent = useCallback(
-    () =>
-      apiFetch('/api/worklog?fresh=0').then(async (res) => {
-        if (!res.ok) return
-        const data = (await res.json()) as {
-          rows: Array<{ issueKey: string; minutes: number }>
-          totalLabel: string
-          total: number
-        }
-        const totals: Record<string, number> = {}
-        for (const row of data.rows) {
-          totals[row.issueKey] = (totals[row.issueKey] ?? 0) + row.minutes
-        }
-        setSpent(totals)
-        setTodayTotal(data.total > 0 ? data.totalLabel : '')
-      }),
-    [],
-  )
+  // Суммы времени — за сегодня. Сначала зеркало из БД (fresh=0), чтобы список
+  // открывался сразу, затем перечитываем день из Трекера: время могли списать
+  // мимо приложения, и до открытия экрана «Время» зеркало об этом не знает.
+  const loadSpent = useCallback(async () => {
+    const apply = async (res: Response) => {
+      if (!res.ok) return
+      const data = (await res.json()) as {
+        rows: Array<{ issueKey: string; minutes: number }>
+        totalLabel: string
+        total: number
+      }
+      const totals: Record<string, number> = {}
+      for (const row of data.rows) {
+        totals[row.issueKey] = (totals[row.issueKey] ?? 0) + row.minutes
+      }
+      setSpent(totals)
+      setTodayTotal(data.total > 0 ? data.totalLabel : '')
+    }
+    await apiFetch('/api/worklog?fresh=0').then(apply)
+    await apiFetch('/api/worklog').then(apply).catch(() => undefined)
+  }, [])
 
   useEffect(() => {
     load()
@@ -170,9 +170,9 @@ function TrackerCard({ task, spentMinutes }: { task: TrackerTask; spentMinutes?:
 
       <div className="mt-1.5 flex items-center gap-2 text-[11px] text-[var(--tg-theme-hint-color,#8e8e93)]">
         {spentMinutes ? (
-          <span className="tabular-nums">🕐 {formatMinutes(spentMinutes)}</span>
+          <span className="tabular-nums">🕐 сегодня {formatMinutes(spentMinutes)}</span>
         ) : (
-          <span>🕐 нет списаний</span>
+          <span>🕐 сегодня не списано</span>
         )}
         {task.projectName ? (
           <>

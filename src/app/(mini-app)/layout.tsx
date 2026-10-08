@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { NavBar } from '@/components/layout/nav-bar'
 import { SyncIndicator } from '@/components/layout/sync-indicator'
 import { ToastHost } from '@/components/ui/toast-host'
@@ -34,9 +35,18 @@ export default function MiniAppLayout({ children }: { children: React.ReactNode 
     return () => unsubscribe()
   }, [syncInset])
 
+  // На широком окне (Telegram Desktop) карточки растягивались на всю ширину.
+  // Держим колонку под ширину телефона; исключение — сама доска «Личное»:
+  // там колонки сроков идут в ряд и ширина им нужна.
+  const pathname = usePathname()
+  const wide = pathname === '/boards'
+
   return (
     <>
-      <main className="pb-20 min-h-dvh" style={{ paddingTop: topInset }}>
+      <main
+        className={`pb-20 min-h-dvh ${wide ? '' : 'mx-auto w-full max-w-2xl'}`}
+        style={{ paddingTop: topInset }}
+      >
         {children}
       </main>
       <ToastHost />

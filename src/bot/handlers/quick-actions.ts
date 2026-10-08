@@ -3,11 +3,19 @@ import { db } from '@/lib/db'
 import { boards, tasks } from '@/lib/db/schema'
 import { and, eq, inArray, isNotNull, lte, notInArray, or, isNull } from 'drizzle-orm'
 import { BotContext } from '../middleware/user'
+import { handlePersonalCommand } from './personal'
+import { handleMeetingsCommand } from './meetings'
 import { escapeMarkdown } from '../services/markdown'
 import { ensureInboxBoard } from '@/lib/boards/inbox'
 import { toDayString } from '@/lib/boards/due-dates'
 import { formatMinutes, readWorklogDay, todayInTz } from '@/lib/worklog/service'
-import { BUTTON_LOG_TIME, BUTTON_NEW_TASK, BUTTON_TODAY } from '../keyboards/main'
+import {
+  BUTTON_LOG_TIME,
+  BUTTON_MEETINGS,
+  BUTTON_NEW_TASK,
+  BUTTON_PERSONAL,
+  BUTTON_TODAY,
+} from '../keyboards/main'
 
 /**
  * Быстрые действия с постоянной клавиатуры.
@@ -31,6 +39,14 @@ export async function handleQuickAction(ctx: Context, text: string): Promise<boo
 
     case BUTTON_TODAY:
       await sendToday(ctx)
+      return true
+
+    case BUTTON_PERSONAL:
+      await handlePersonalCommand(ctx)
+      return true
+
+    case BUTTON_MEETINGS:
+      await handleMeetingsCommand(ctx)
       return true
 
     default:

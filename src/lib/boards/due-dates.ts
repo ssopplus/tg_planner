@@ -26,7 +26,7 @@ export function toDayString(date: Date): string {
   return `${y}-${m}-${d}`
 }
 
-function addDays(day: string, delta: number): string {
+export function addDays(day: string, delta: number): string {
   const date = new Date(`${day}T12:00:00`)
   date.setDate(date.getDate() + delta)
   return toDayString(date)

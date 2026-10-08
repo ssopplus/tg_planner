@@ -10,6 +10,9 @@ import { handleCoordinationCallback } from './coordination'
 import { handleWorklogCallback } from './worklog'
 import { handleCalendarCallback } from './calendar'
 import { resolveBoardForText, resolveDueFromText } from './quick-actions'
+import { handleTaskEditCallback, resolveEditedBoard } from './task-edit'
+import { handlePersonalCallback } from './personal'
+import { handleMeetingsCallback } from './meetings'
 import { escapeMarkdown } from '../services/markdown'
 
 /**
@@ -28,6 +31,13 @@ export async function handleCallback(ctx: Context) {
 
   // Ответ на приглашение: пишется прямо в Яндекс.Календарь.
   if (await handleCalendarCallback(ctx)) return
+
+  // Правка разобранного дела до его создания.
+  if (await handleTaskEditCallback(ctx)) return
+
+  // Переключатели горизонта в списках дел и встреч.
+  if (await handlePersonalCallback(ctx)) return
+  if (await handleMeetingsCallback(ctx)) return
 
   const { dbUser } = ctx as BotContext
   const parts = data.split(':')
@@ -123,11 +133,6 @@ export async function handleCallback(ctx: Context) {
       await deletePendingTask(id)
       await ctx.editMessageText('❌ Создание отменено')
       await ctx.answerCallbackQuery()
-      break
-    }
-
-    case 'edit': {
-      await ctx.answerCallbackQuery({ text: 'Редактирование пока в разработке' })
       break
     }
 
@@ -268,15 +273,24 @@ async function createTaskFromPending(
     deadlineAt?: Date
     deadlineType?: string
     recurrence?: string
+    boardId?: string
+    dueDate?: string | null
   },
 ) {
   // Дело, заведённое из переписки, должно попасть на доску — иначе его не
   // видно в личном разделе. Доску угадываем по тексту, срок — по фразе;
   // не угадали, значит «Входящие» без срока, разложить можно потом.
-  const board = await resolveBoardForText(userId, pending.title)
+  //
+  // Выбранное руками при правке черновика перебивает угадывание: иначе
+  // правка молча откатывалась бы к тому, что разобрал парсер.
+  const board = pending.boardId
+    ? await resolveEditedBoard(userId, pending.boardId)
+    : await resolveBoardForText(userId, pending.title)
   const dueDate =
-    pending.deadlineAt?.toLocaleDateString('en-CA') ??
-    resolveDueFromText(pending.title, new Date().toLocaleDateString('en-CA'))
+    pending.dueDate !== undefined
+      ? pending.dueDate
+      : (pending.deadlineAt?.toLocaleDateString('en-CA') ??
+        resolveDueFromText(pending.title, new Date().toLocaleDateString('en-CA')))
 
   const [task] = await db
     .insert(tasks)

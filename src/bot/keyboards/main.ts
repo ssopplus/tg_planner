@@ -14,12 +14,16 @@ export const BUTTON_NEW_TASK = '➕ Новая задача'
 export const BUTTON_LOG_TIME = '⏱ Списать время'
 export const BUTTON_TODAY = '📅 Что сегодня'
 export const BUTTON_COORDINATION = '🤝 Координация'
+export const BUTTON_PERSONAL = '🏠 Мои дела'
+export const BUTTON_MEETINGS = '📆 Встречи'
 
 export const MAIN_BUTTONS = [
   BUTTON_NEW_TASK,
   BUTTON_LOG_TIME,
   BUTTON_TODAY,
   BUTTON_COORDINATION,
+  BUTTON_PERSONAL,
+  BUTTON_MEETINGS,
 ] as const
 
 export function mainKeyboard() {
@@ -29,6 +33,9 @@ export function mainKeyboard() {
     .row()
     .text(BUTTON_TODAY)
     .text(BUTTON_COORDINATION)
+    .row()
+    .text(BUTTON_PERSONAL)
+    .text(BUTTON_MEETINGS)
     .resized()
     .persistent()
 }

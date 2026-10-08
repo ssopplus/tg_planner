@@ -9,6 +9,8 @@ import { BotContext } from '../middleware/user'
 import { formatTaskPreview } from '../services/format'
 import { handleCoordinationText } from './coordination'
 import { handleQuickAction } from './quick-actions'
+import { handleTitleReply } from './task-edit'
+import { BOT_COMMANDS } from '../commands'
 import { escapeMarkdown } from '../services/markdown'
 
 /**
@@ -26,6 +28,18 @@ export async function handleMessage(ctx: Context) {
   // Кнопки постоянной клавиатуры приходят обычным текстом, поэтому их надо
   // отсечь до AI-парсера: иначе «📅 Что сегодня» станет задачей.
   if (await handleQuickAction(ctx, text)) return
+
+  // Правка названия черновика: пользователь нажал «📝 Название» и прислал
+  // новое. До парсера — иначе текст стал бы второй задачей вместо правки.
+  if (await handleTitleReply(ctx, text)) return
+
+  // Незнакомая команда со слэшем. Сюда попадают только те, под которые нет
+  // обработчика: `/projects` пережила переработку в меню Telegram, и бот
+  // заводил дело с таким названием вместо вежливого отказа.
+  if (text.startsWith('/')) {
+    await ctx.reply(unknownCommandHint(text))
+    return
+  }
 
   const { dbUser } = ctx as BotContext
 
@@ -122,4 +136,11 @@ export async function handleMessage(ctx: Context) {
       reply_markup: confirmMultiKeyboard(pendingIds),
     })
   }
+}
+
+/** Подсказка со списком живых команд вместо молчания на `/чтото`. */
+function unknownCommandHint(text: string): string {
+  const typed = text.split(/\s/)[0]
+  const list = BOT_COMMANDS.map((c) => `/${c.command} — ${c.description}`).join('\n')
+  return `Команды ${typed} нет. Что умею:\n\n${list}`
 }

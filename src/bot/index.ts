@@ -10,6 +10,8 @@ import { userMiddleware } from './middleware/user'
 import { initAI } from '@/lib/ai/init'
 import { handleCoordCommand } from './handlers/coordination'
 import { askWhichIssue, sendToday } from './handlers/quick-actions'
+import { handlePersonalCommand } from './handlers/personal'
+import { handleMeetingsCommand } from './handlers/meetings'
 
 const token = process.env.BOT_TOKEN
 if (!token) {
@@ -30,6 +32,8 @@ bot.command('help', handleHelp)
 bot.command('app', handleApp)
 bot.command('tasks', handleTasks) // задачи Трекера
 bot.command('today', sendToday) // сводка дня: работа + личные дела
+bot.command('dela', handlePersonalCommand) // личные дела: сегодня / неделя / без срока
+bot.command('meet', handleMeetingsCommand) // встречи из Яндекс.Календаря
 bot.command('time', askWhichIssue) // списание времени в задачу Трекера
 bot.command('coord', handleCoordCommand) // опрос по координации вручную
 

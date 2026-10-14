@@ -5,7 +5,7 @@ import { Plus } from 'lucide-react'
 import { apiFetch } from '@/lib/telegram/webapp'
 import { showToast } from '@/lib/api/toast'
 import { TabStrip } from '@/components/ui/tab-strip'
-import { DueBoard, type BoardTask } from '@/components/boards/due-board'
+import { DueBoard, type BoardMeta, type BoardTask } from '@/components/boards/due-board'
 import { dueForColumn, toDayString, type DueColumn } from '@/lib/boards/due-dates'
 
 interface Board {
@@ -16,9 +16,18 @@ interface Board {
   taskCount: number
 }
 
+/**
+ * Псевдо-доска «Все»: дела со всех досок сразу.
+ *
+ * Без неё увидеть всё, что накопилось, можно было только перещёлкав доски по
+ * очереди — а дел на каждой по две-три штуки, и половина экрана пустует.
+ * Идентификатор нарочно не UUID: с настоящей доской не столкнётся.
+ */
+const ALL_BOARDS = 'all'
+
 export default function BoardsPage() {
   const [boards, setBoards] = useState<Board[]>([])
-  const [activeBoard, setActiveBoard] = useState<string>('')
+  const [activeBoard, setActiveBoard] = useState<string>(ALL_BOARDS)
   const [tasks, setTasks] = useState<BoardTask[]>([])
   const [loading, setLoading] = useState(true)
   const [draft, setDraft] = useState('')
@@ -33,20 +42,29 @@ export default function BoardsPage() {
       if (!res.ok) return
       const rows = (await res.json()) as Board[]
       setBoards(rows)
-      setActiveBoard((current) => current || rows[0]?.id || '')
     } finally {
       setLoading(false)
     }
   }, [])
 
-  const loadTasks = useCallback(
-    (boardId: string) =>
-      apiFetch(`/api/tasks?board_id=${boardId}&status=TODO,IN_PROGRESS,DONE&limit=200`).then(
-        async (res) => {
-          if (res.ok) setTasks((await res.json()) as BoardTask[])
-        },
+  const loadTasks = useCallback((boardId: string) => {
+    // `any` на стороне API = все дела с любой доски; рабочие задачи Трекера
+    // под это условие не попадают — у них board_id пустой.
+    const filter = boardId === ALL_BOARDS ? 'any' : boardId
+    return apiFetch(`/api/tasks?board_id=${filter}&status=TODO,IN_PROGRESS,DONE&limit=200`).then(
+      async (res) => {
+        if (res.ok) setTasks((await res.json()) as BoardTask[])
+      },
+    )
+  }, [])
+
+  /** Карта досок для подписи на карточке — нужна только в режиме «Все». */
+  const boardsById = useMemo(
+    () =>
+      Object.fromEntries(
+        boards.map((b) => [b.id, { name: b.name, emoji: b.emoji } satisfies BoardMeta]),
       ),
-    [],
+    [boards],
   )
 
   useEffect(() => {
@@ -81,7 +99,12 @@ export default function BoardsPage() {
       method: 'PATCH',
       body: JSON.stringify({ status: done ? 'DONE' : 'TODO' }),
     })
-    if (!res.ok) loadTasks(activeBoard)
+    if (res.ok) {
+      // Счётчики во вкладках считают незакрытые дела — после галочки они врут.
+      loadBoards()
+    } else {
+      loadTasks(activeBoard)
+    }
   }
 
   async function addTask() {
@@ -91,10 +114,13 @@ export default function BoardsPage() {
 
     const res = await apiFetch('/api/tasks', {
       method: 'POST',
-      body: JSON.stringify({ title, boardId: activeBoard }),
+      // В режиме «Все» доска не выбрана: без boardId API сам положит во
+      // «Входящие», а не уронит дело в никуда.
+      body: JSON.stringify(activeBoard === ALL_BOARDS ? { title } : { title, boardId: activeBoard }),
     })
     if (res.ok) {
       loadTasks(activeBoard)
+      loadBoards()
     } else {
       showToast({ kind: 'error', message: 'Дело не записалось' })
       setDraft(title)
@@ -134,12 +160,19 @@ export default function BoardsPage() {
       <h1 className="px-4 text-xl font-bold text-[var(--tg-theme-text-color,#000)]">Личное</h1>
 
       <TabStrip
-        items={boards.map((b) => ({
-          id: b.id,
-          label: b.name,
-          emoji: b.emoji,
-          count: b.taskCount,
-        }))}
+        items={[
+          {
+            id: ALL_BOARDS,
+            label: 'Все',
+            count: boards.reduce((sum, b) => sum + b.taskCount, 0),
+          },
+          ...boards.map((b) => ({
+            id: b.id,
+            label: b.name,
+            emoji: b.emoji,
+            count: b.taskCount,
+          })),
+        ]}
         activeId={activeBoard}
         onSelect={setActiveBoard}
         action={{ label: 'Новая доска', onClick: () => setCreatingBoard((v) => !v) }}
@@ -167,7 +200,13 @@ export default function BoardsPage() {
         </div>
       ) : null}
 
-      <DueBoard tasks={tasks} today={today} onMove={move} onToggle={toggle} />
+      <DueBoard
+        tasks={tasks}
+        today={today}
+        onMove={move}
+        onToggle={toggle}
+        boards={activeBoard === ALL_BOARDS ? boardsById : undefined}
+      />
 
       <div className="flex gap-2 px-4">
         <input
@@ -177,7 +216,11 @@ export default function BoardsPage() {
           onKeyDown={(e) => {
             if (e.key === 'Enter') addTask()
           }}
-          placeholder="Быстрая запись"
+          placeholder={
+            activeBoard === ALL_BOARDS
+              ? `Быстрая запись → ${boards.find((b) => b.isInbox)?.name ?? 'Входящие'}`
+              : 'Быстрая запись'
+          }
           className="min-w-0 flex-1 rounded-lg border border-border bg-[var(--tg-theme-bg-color,#fff)] px-3 py-2.5 text-[15px] text-[var(--tg-theme-text-color,#000)]"
         />
         <button

@@ -24,6 +24,13 @@ export interface BoardTask {
   dueDate: string | null
   priority: 'LOW' | 'MEDIUM' | 'HIGH'
   status: 'TODO' | 'IN_PROGRESS' | 'DONE' | 'ARCHIVED'
+  boardId?: string | null
+}
+
+/** Доска, с которой пришло дело: нужна только для подписи на карточке. */
+export interface BoardMeta {
+  name: string
+  emoji: string | null
 }
 
 /**
@@ -38,11 +45,17 @@ export function DueBoard({
   today,
   onMove,
   onToggle,
+  boards,
 }: {
   tasks: BoardTask[]
   today: string
   onMove: (taskId: string, column: DueColumn) => void
   onToggle: (taskId: string, done: boolean) => void
+  /**
+   * Карта досок для подписи на карточке. Передаётся только в режиме «Все»:
+   * внутри одной доски подпись у всех карточек одинаковая и лишь шумит.
+   */
+  boards?: Record<string, BoardMeta>
 }) {
   const [activeId, setActiveId] = useState<string | null>(null)
 
@@ -84,6 +97,7 @@ export function DueBoard({
             tasks={tasks.filter((t) => columnForDue(t.dueDate, today) === column.id)}
             today={today}
             onToggle={onToggle}
+            boards={boards}
           />
         ))}
       </div>
@@ -91,7 +105,7 @@ export function DueBoard({
       <DragOverlay dropAnimation={null}>
         {activeTask ? (
           <div className="rotate-2 scale-105 rounded-xl shadow-2xl ring-2 ring-[var(--tg-theme-button-color,#007aff)]">
-            <TaskBody task={activeTask} today={today} />
+            <TaskBody task={activeTask} today={today} boards={boards} />
           </div>
         ) : null}
       </DragOverlay>
@@ -105,12 +119,14 @@ function Column({
   tasks,
   today,
   onToggle,
+  boards,
 }: {
   id: DueColumn
   title: string
   tasks: BoardTask[]
   today: string
   onToggle: (taskId: string, done: boolean) => void
+  boards?: Record<string, BoardMeta>
 }) {
   const { setNodeRef, isOver } = useDroppable({ id })
 
@@ -129,7 +145,13 @@ function Column({
       </h2>
 
       {tasks.map((task) => (
-        <DraggableCard key={task.id} task={task} today={today} onToggle={onToggle} />
+        <DraggableCard
+          key={task.id}
+          task={task}
+          today={today}
+          onToggle={onToggle}
+          boards={boards}
+        />
       ))}
 
       {tasks.length === 0 ? (
@@ -145,10 +167,12 @@ function DraggableCard({
   task,
   today,
   onToggle,
+  boards,
 }: {
   task: BoardTask
   today: string
   onToggle: (taskId: string, done: boolean) => void
+  boards?: Record<string, BoardMeta>
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id })
 
@@ -159,7 +183,7 @@ function DraggableCard({
       {...listeners}
       className={`touch-manipulation transition-opacity ${isDragging ? 'opacity-30' : ''}`}
     >
-      <TaskBody task={task} today={today} onToggle={onToggle} />
+      <TaskBody task={task} today={today} onToggle={onToggle} boards={boards} />
     </div>
   )
 }
@@ -168,14 +192,17 @@ function TaskBody({
   task,
   today,
   onToggle,
+  boards,
 }: {
   task: BoardTask
   today: string
   onToggle?: (taskId: string, done: boolean) => void
+  boards?: Record<string, BoardMeta>
 }) {
   const due = formatDue(task.dueDate, today)
   const overdue = task.dueDate ? task.dueDate < today : false
   const done = task.status === 'DONE'
+  const board = boards && task.boardId ? boards[task.boardId] : undefined
 
   return (
     <div className="rounded-lg border border-border bg-[var(--tg-theme-section-bg-color,#fff)] p-2.5">
@@ -213,15 +240,26 @@ function TaskBody({
             </p>
           ) : null}
 
-          {due ? (
-            <span
-              className={`mt-1 inline-block text-[11px] ${
-                overdue
-                  ? 'text-[var(--tg-theme-destructive-text-color,#d1453b)]'
-                  : 'text-[var(--tg-theme-hint-color,#8e8e93)]'
-              }`}
-            >
-              {due}
+          {due || board ? (
+            <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px]">
+              {due ? (
+                <span
+                  className={
+                    overdue
+                      ? 'text-[var(--tg-theme-destructive-text-color,#d1453b)]'
+                      : 'text-[var(--tg-theme-hint-color,#8e8e93)]'
+                  }
+                >
+                  {due}
+                </span>
+              ) : null}
+
+              {board ? (
+                <span className="rounded-full bg-[var(--tg-theme-secondary-bg-color,#efeff4)] px-1.5 py-px text-[var(--tg-theme-hint-color,#8e8e93)]">
+                  {board.emoji ? `${board.emoji} ` : ''}
+                  {board.name}
+                </span>
+              ) : null}
             </span>
           ) : null}
         </Link>

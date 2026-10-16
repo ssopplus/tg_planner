@@ -17,7 +17,7 @@
 | `/api/cron/pending-cleanup` | Удаляет просроченные `pending_tasks` (распарсенные AI задачи, не подтверждённые в течение 5 минут). | каждые 5 минут |
 | `/api/cron/archive` | Переводит DONE-задачи старше 7 дней в `ARCHIVED`. | раз в день, 03:00 МСК |
 | `/api/cron/tracker-sync` | Тянет активные задачи из Яндекс.Трекера, закрывает пропавшие. Подробности: [yandex-tracker-sync.md](yandex-tracker-sync.md). | каждые 30 минут |
-| `/api/cron/coordination-poll` | Опрос по координации (INTCOORD) в будни в 17:00 и списание времени. Подробности: [coordination-poll.md](coordination-poll.md). | раз в сутки, `0 17 * * 1-5` в таймзоне пользователя |
+| `/api/cron/coordination-poll` | Опрос по координации (INTCOORD) в будни в 16:00 и списание времени. Подробности: [coordination-poll.md](coordination-poll.md). | раз в сутки, `0 16 * * 1-5` в таймзоне пользователя |
 | `/api/cron/calendar-sync` | Встречи из Яндекс.Календаря по CalDAV: приглашения, переносы, отмены. Подробности: [yandex-calendar.md](yandex-calendar.md). | каждые 15 минут |
 
 ## Шаги настройки cron-job.org
@@ -45,7 +45,7 @@
 - `/api/cron/archive` → `{ "ok": true, "archived": <число> }`
 - `/api/cron/tracker-sync` → `{ "ok": true, "summary": { "fetched": <число>, … } }`
 - `/api/cron/coordination-poll` → `{ "ok": true, "sent": <число>, "skipped": <число> }`
-  (`sent: 0, skipped: 1` вне 16:50–23:00 — норма, роут сам выбирает время)
+  (`sent: 0, skipped: 1` вне 15:50–23:00 — норма, роут сам выбирает время)
 - `/api/cron/calendar-sync` → `{ "ok": true, "summary": { "instances": <число>, … } }`
   (`{ "ok": true, "skipped": "календарь не подключён…" }` — норма, пока нет
   пароля приложения)

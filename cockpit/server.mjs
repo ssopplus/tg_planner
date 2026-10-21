@@ -8,6 +8,7 @@
 
 import http from 'node:http';
 import net from 'node:net';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
@@ -85,6 +86,9 @@ function newState() {
     chat: [], seq: 0, toolsById: new Map(),
   };
 }
+
+// Отпечаток вызова инструмента: по нему запрос разрешения сопоставляется с вызовом в транскрипте.
+const toolKey = (name, input) => createHash('sha1').update(`${name}\n${JSON.stringify(input || {})}`).digest('hex').slice(0, 16);
 
 const clip = (s, n) => (s && s.length > n ? s.slice(0, n) + `\n… (+${s.length - n} симв.)` : s);
 
@@ -199,7 +203,7 @@ function applyEntry(st, o) {
         if (b.name === 'Bash' && inp.command) for (const d of bashDirs(inp.command)) st.dirs.set(d, (st.dirs.get(d) || 0) + 1);
         const summary = shortArg(b.name, inp);
         st.events.push({ ts, kind: 'tool', tool: b.name, text: summary });
-        const item = { kind: 'tool', ts, id: b.id, name: b.name, summary, input: clip(JSON.stringify(inp, null, 2), MAX_TOOL_IO) };
+        const item = { kind: 'tool', ts, id: b.id, name: b.name, summary, input: clip(JSON.stringify(inp, null, 2), MAX_TOOL_IO), key: toolKey(b.name, inp) };
         if (b.name === 'AskUserQuestion') item.questions = inp.questions;
         pushChat(st, item);
         st.toolsById.set(b.id, item);
@@ -431,6 +435,7 @@ function holdPermission(b, res) {
     kind: b.tool_name === 'AskUserQuestion' ? 'question' : 'permission',
     input: b.tool_input || {}, suggestions: b.permission_suggestions || null,
     mode: b.permission_mode, createdAt: Date.now(), status: 'pending',
+    key: toolKey(b.tool_name, b.tool_input),
   };
   r.respond = body => {
     clearTimeout(r.timer);
@@ -468,6 +473,22 @@ function decide(r, d) {
   r.respond({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } });
   hookLog({ event: 'request-answered', id: r.id, session: r.sessionId, behavior: decision.behavior });
   return r;
+}
+
+// Ответ в VS Code соединение хука не закрывает. Поэтому смотрим в транскрипт: у вызова
+// с тем же отпечатком появился результат — значит, решили в другом месте, запрос снимаем.
+async function closeAnsweredElsewhere() {
+  for (const r of requests.values()) {
+    if (r.status !== 'pending') continue;
+    const p = await findTranscript(r.sessionId);
+    const st = p ? await readTranscript(p) : null;
+    if (!st) continue;
+    for (let i = st.chat.length - 1; i >= 0; i--) {
+      const it = st.chat[i];
+      if (it.ts && it.ts < r.createdAt - 10_000) break;
+      if (it.kind === 'tool' && it.key === r.key && it.result !== undefined) { close(r, 'answered-elsewhere'); break; }
+    }
+  }
 }
 
 function requestsPayload() {
@@ -538,6 +559,7 @@ async function sessionsPayload() {
   const cfg = loadProjectsConfig();
   const agents = await liveAgents();
   const sessions = await Promise.all(agents.map(a => sessionSummary(a, cfg)));
+  await closeAnsweredElsewhere();
   const projects = [...new Set([...Object.values(cfg.queues || {}), ...Object.values(cfg.repos || {}), ...sessions.map(s => s.project)])].sort();
   const { pending } = requestsPayload();
   for (const s of sessions) s.requests = pending.filter(r => r.sessionId === s.sessionId);

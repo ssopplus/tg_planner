@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dev-cockpit</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<style>
+:root {
+  --bg: #f4f5f7; --panel: #ffffff; --panel2: #fafbfc; --line: #e2e5ea; --text: #1b1f24; --muted: #69717d;
+  --accent: #3b6fd8; --accent-soft: #e8effc;
+  --wait: #d97a1e; --wait-soft: #fdf1e4; --busy: #2b9a58; --busy-soft: #e5f5ec;
+  --review: #3b6fd8; --review-soft: #e8effc; --idle: #9aa3ae; --idle-soft: #f0f1f3;
+  --add-bg: #e6f6ea; --add: #1a7f37; --del-bg: #fdecec; --del: #c0362c; --hunk: #eef2fb;
+  --chip: #eef0f3; --code-bg: #f3f4f6; --user-bg: #f0f4fd;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .06);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1216; --panel: #171b20; --panel2: #1b2026; --line: #2a3038; --text: #e3e7ec; --muted: #8b95a1;
+    --accent: #6d9bff; --accent-soft: #1c2738;
+    --wait: #f0a050; --wait-soft: #2e2216; --busy: #4cc27e; --busy-soft: #142a1d;
+    --review: #6d9bff; --review-soft: #1a2436; --idle: #6b7380; --idle-soft: #1d2127;
+    --add-bg: #12301d; --add: #6fdc8c; --del-bg: #3a1716; --del: #ff8a80; --hunk: #1c2433;
+    --chip: #232a33; --code-bg: #20262e; --user-bg: #19212e;
+    --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; flex-direction: column; }
+button, input, select { font: inherit; color: inherit; }
+button { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; white-space: nowrap; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+button.ghost:hover { color: var(--text); border-color: var(--line); }
+button:disabled { opacity: .5; cursor: default; }
+input[type=text], input[type=search] { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+
+/* ---------- верхняя панель ---------- */
+header { display: flex; gap: 14px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex: none; }
+header h1 { font-size: 15px; margin: 0; letter-spacing: -.01em; }
+nav { display: flex; gap: 2px; }
+nav a { padding: 4px 10px; border-radius: 6px; color: var(--muted); text-decoration: none; font-weight: 500; }
+nav a.on { background: var(--accent-soft); color: var(--accent); }
+nav a .badge { margin-left: 4px; }
+.badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--wait); color: #fff; font-size: 11px; text-align: center; font-weight: 600; }
+.spacer { flex: 1; }
+header input[type=search] { width: 240px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; padding: 3px 9px; background: var(--panel); color: var(--muted); }
+.seg button.on { background: var(--accent-soft); color: var(--accent); }
+.stale { color: var(--del); font-size: 12px; }
+#app { flex: 1; min-height: 0; overflow: auto; }
+
+/* ---------- общие элементы ---------- */
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
+.dot.waiting { background: var(--wait); box-shadow: 0 0 0 3px color-mix(in srgb, var(--wait) 25%, transparent); }
+.dot.busy { background: var(--busy); animation: pulse 1.4s infinite; }
+.dot.review { background: var(--review); }
+.dot.idle { background: var(--idle); }
+@keyframes pulse { 50% { opacity: .35; } }
+.chip { display: inline-block; background: var(--chip); border-radius: 4px; padding: 0 6px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.chip.key { color: var(--accent); font-weight: 600; background: var(--accent-soft); }
+.time { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.muted { color: var(--muted); }
+.spin { display: inline-block; width: 10px; height: 10px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: rot .8s linear infinite; vertical-align: -1px; }
+@keyframes rot { to { transform: rotate(360deg); } }
+.empty { color: var(--muted); padding: 48px; text-align: center; }
+
+/* ---------- доска ---------- */
+.board { padding: 14px 16px 40px; }
+.cols { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)) minmax(180px, .75fr); gap: 10px; }
+.cols.nocold { grid-template-columns: repeat(3, minmax(220px, 1fr)); }
+.colhead { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; color: var(--muted); padding: 2px 4px 6px; text-transform: uppercase; letter-spacing: .04em; }
+.colhead .n { font-weight: 500; }
+.col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.col.cold .card { padding: 6px 10px; }
+.col.cold .card .prompt, .col.cold .card .foot { display: none; }
+.lane { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px 12px; margin-bottom: 12px; }
+.lanehead { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; cursor: pointer; user-select: none; }
+.lanehead h2 { font-size: 14px; margin: 0; }
+.lanehead .caret { color: var(--muted); width: 10px; }
+.lane.collapsed .cols { display: none; }
+.lane.collapsed .lanehead { margin-bottom: 0; }
+.placeholder { border: 1px dashed var(--line); border-radius: 8px; height: 34px; }
+.cols.quietrow { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.quietrow .card { padding: 6px 10px; }
+.quietrow .card .prompt, .quietrow .card .foot { display: none; }
+.lane.quiet { background: transparent; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; cursor: pointer; box-shadow: var(--shadow); min-width: 0; }
+.card:hover { border-color: var(--accent); }
+.card.waiting { border-left: 3px solid var(--wait); }
+.card.busy { border-left: 3px solid var(--busy); }
+.card.review { border-left: 3px solid var(--review); }
+.card .row { display: flex; gap: 6px; align-items: center; }
+.card .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.card .title.derived { color: var(--muted); font-style: italic; font-weight: 500; }
+.card .why { font-size: 12px; margin-top: 2px; }
+.card .why.waiting { color: var(--wait); }
+.card .prompt { color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 3px; font-size: 12.5px; }
+.card .foot { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+
+/* ---------- входящие ---------- */
+.inbox { max-width: 980px; margin: 0 auto; padding: 16px; }
+.inbox h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 18px 0 8px; }
+.irow { display: grid; grid-template-columns: 14px 1fr auto; gap: 10px; align-items: start; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; }
+.irow:hover { border-color: var(--accent); }
+.irow .dot { margin-top: 6px; }
+.irow .t { font-weight: 600; }
+.irow .ex { color: var(--muted); margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.irow .side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+
+/* ---------- страница сессии ---------- */
+.sess { display: grid; grid-template-columns: 1fr 400px; height: 100%; min-height: 0; }
+.sess-main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.sess-head { padding: 10px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.sess-head .crumbs { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.sess-head .crumbs a { color: var(--muted); }
+.sess-head .titlerow { display: flex; align-items: center; gap: 8px; margin-top: 3px; flex-wrap: wrap; }
+.sess-head h2 { font-size: 18px; margin: 0; cursor: text; }
+.sess-head h2:hover { text-decoration: underline dotted var(--muted); }
+.sess-head input.rename { font-size: 17px; font-weight: 600; width: min(560px, 100%); }
+.pill { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 500; }
+.pill.waiting { background: var(--wait-soft); color: var(--wait); }
+.pill.busy { background: var(--busy-soft); color: var(--busy); }
+.pill.review { background: var(--review-soft); color: var(--review); }
+.pill.idle { background: var(--idle-soft); color: var(--muted); }
+.chat { flex: 1; overflow: auto; padding: 16px 20px 30px; }
+.chat-inner { max-width: 900px; margin: 0 auto; }
+.msg { margin-bottom: 14px; }
+.msg .who { font-size: 12px; color: var(--muted); margin-bottom: 3px; display: flex; gap: 6px; align-items: center; }
+.msg .who b { color: var(--text); }
+.msg.user .body { background: var(--user-bg); border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); border-radius: 10px; padding: 8px 12px; }
+.msg.assistant .body { padding: 0 2px; }
+.waitbar { margin: 8px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--wait-soft); color: var(--wait); font-weight: 500; }
+.loadmore { text-align: center; color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+
+/* markdown */
+.md { overflow-wrap: anywhere; }
+.md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 8px; }
+.md h1, .md h2, .md h3, .md h4 { margin: 14px 0 6px; line-height: 1.3; }
+.md h1 { font-size: 17px; } .md h2 { font-size: 15.5px; } .md h3 { font-size: 14px; } .md h4 { font-size: 13px; }
+.md ul, .md ol { margin: 0 0 8px; padding-left: 22px; }
+.md li { margin: 2px 0; }
+.md code { font: 12px ui-monospace, Menlo, monospace; background: var(--code-bg); padding: 1px 4px; border-radius: 4px; }
+.md pre { background: var(--code-bg); padding: 8px 10px; border-radius: 6px; overflow: auto; margin: 0 0 8px; }
+.md pre code { background: none; padding: 0; }
+.md table { border-collapse: collapse; margin: 0 0 8px; display: block; overflow: auto; }
+.md th, .md td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; vertical-align: top; }
+.md th { background: var(--panel2); }
+.md blockquote { margin: 0 0 8px; padding: 2px 10px; border-left: 3px solid var(--line); color: var(--muted); }
+.md a { color: var(--accent); }
+.md hr { border: 0; border-top: 1px solid var(--line); }
+
+/* инструменты */
+details.tools { margin: -4px 0 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+details.tools > summary { padding: 5px 10px; cursor: pointer; color: var(--muted); font-size: 12px; list-style: none; display: flex; gap: 8px; align-items: center; }
+details.tools > summary::before { content: '▸'; } details.tools[open] > summary::before { content: '▾'; }
+details.tools > summary .names { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+details.tool { border-top: 1px solid var(--line); }
+details.tool > summary { padding: 3px 10px 3px 22px; cursor: pointer; font-size: 12px; list-style: none; display: grid; grid-template-columns: 16px 130px 1fr auto; gap: 6px; align-items: center; }
+details.tool > summary .tn { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+details.tool > summary .ta { font-family: ui-monospace, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.ok { color: var(--busy); } .err { color: var(--del); } .pend { color: var(--wait); }
+.io { margin: 0 10px 8px 22px; }
+.io .lbl { font-size: 11px; color: var(--muted); margin: 6px 0 2px; text-transform: uppercase; }
+.io pre { margin: 0; background: var(--code-bg); border-radius: 6px; padding: 6px 8px; font: 11.5px/1.4 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; }
+.ask { border: 1px solid color-mix(in srgb, var(--wait) 45%, var(--line)); background: var(--wait-soft); border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; }
+.ask .q { font-weight: 600; margin: 4px 0; }
+.ask ul { margin: 0 0 4px; padding-left: 20px; }
+
+/* правая панель */
+.side { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+.tabs { display: flex; gap: 2px; padding: 8px 10px 0; border-bottom: 1px solid var(--line); flex: none; }
+.tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--muted); padding: 5px 10px; }
+.tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+.tabbody { flex: 1; overflow: auto; padding: 12px 14px 30px; }
+.props { display: grid; grid-template-columns: 110px 1fr; gap: 6px 10px; align-items: baseline; }
+.props .k { color: var(--muted); font-size: 12px; }
+.props .v { min-width: 0; overflow-wrap: anywhere; }
+.props code { font: 11.5px ui-monospace, Menlo, monospace; }
+.props a, .crumbs a { color: var(--accent); }
+.btnrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+h3 { font-size: 11.5px; margin: 16px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+h3:first-child { margin-top: 0; }
+.repo { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
+.repo .head { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.files { margin: 4px 0 0; padding: 0; list-style: none; font: 11.5px ui-monospace, Menlo, monospace; }
+.files li { display: flex; gap: 6px; padding: 1px 4px; border-radius: 4px; cursor: pointer; }
+.files li:hover { background: var(--accent-soft); }
+.files .code { width: 18px; color: var(--muted); flex: none; }
+.files .f { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.add { color: var(--add); } .del { color: var(--del); }
+.commits { font-size: 12px; margin: 4px 0 0; padding: 0; list-style: none; }
+.commits li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commits code { color: var(--accent); }
+.sub { color: var(--muted); font-size: 12px; margin-top: 6px; display: flex; gap: 6px; align-items: center; }
+.ev { display: grid; grid-template-columns: 40px 1fr; gap: 6px; padding: 3px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.ev .x { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev.p .x { color: var(--accent); }
+
+/* diff поверх всего */
+.overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, .35); display: flex; justify-content: center; align-items: flex-start; padding: 40px 20px; z-index: 10; }
+.overlay .win { background: var(--panel); border-radius: 10px; width: min(1200px, 100%); max-height: calc(100vh - 80px); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line); }
+.overlay .wh { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.overlay .wh b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+pre.diff { margin: 0; font: 12px/1.4 ui-monospace, Menlo, monospace; overflow: auto; flex: 1; }
+pre.diff span { display: block; padding: 0 12px; white-space: pre; }
+pre.diff .a { background: var(--add-bg); color: var(--add); }
+pre.diff .d { background: var(--del-bg); color: var(--del); }
+pre.diff .h { background: var(--hunk); color: var(--accent); }
+pre.diff .m { color: var(--muted); font-weight: 600; }
+.toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 6px 14px; border-radius: 8px; font-size: 12.5px; z-index: 20; }
+
+@media (max-width: 1100px) { .cols { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sess { grid-template-columns: 1fr; height: auto; } .side { border-left: 0; border-top: 1px solid var(--line); } .chat { overflow: visible; } }
+@media (max-width: 640px) { .cols, .cols.nocold { grid-template-columns: 1fr; } header { flex-wrap: wrap; } header input[type=search] { width: 100%; order: 9; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>dev-cockpit</h1>
+  <nav>
+    <a href="#/board" data-view="board">Доска</a>
+    <a href="#/inbox" data-view="inbox">Входящие <span id="inboxBadge"></span></a>
+  </nav>
+  <span id="stale"></span>
+  <div class="spacer"></div>
+  <span id="boardTools"></span>
+  <input type="search" id="q" placeholder="Поиск: задача, имя, текст…">
+  <button id="autoname" title="Придумать имена сессиям без имени (Haiku через claude -p)">✨ Имена</button>
+  <button id="notifyBtn" class="ghost" title="Уведомления, когда сессия ждёт ответа">🔕</button>
+</header>
+<div id="app"></div>
+
+<script>
+// ---------- утилиты ----------
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const HOME = '/Users/vilch';
+const short = p => String(p || '').replace(HOME + '/Разработка/', '').replace(HOME, '~');
+const store = {
+  get(k, d) { try { return JSON.parse(localStorage.getItem('cockpit.' + k)) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('cockpit.' + k, JSON.stringify(v)); } catch {} },
+};
+function ago(ts) {
+  if (!ts) return '';
+  const s = Math.max(0, (Date.now() - ts) / 1000);
+  if (s < 60) return 'только что';
+  if (s < 3600) return `${Math.round(s / 60)} мин`;
+  if (s < 86400) return `${Math.round(s / 3600)} ч`;
+  return `${Math.round(s / 86400)} д`;
+}
+const hhmm = ts => ts ? new Date(ts).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) : '';
+const dayTime = ts => ts ? new Date(ts).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+function toast(text) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = text;
+  document.body.append(t); setTimeout(() => t.remove(), 1800);
+}
+async function copy(text, label) {
+  try { await navigator.clipboard.writeText(text); toast(`Скопировано: ${label || text}`); } catch { prompt('Скопируй:', text); }
+}
+async function post(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+  return r.json();
+}
+
+// Markdown → безопасный HTML. Если CDN недоступен — показываем текст как есть.
+const hasMd = typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined';
+if (hasMd) marked.setOptions({ gfm: true, breaks: true });
+function md(text) {
+  if (!hasMd) return `<div style="white-space:pre-wrap">${esc(text)}</div>`;
+  const html = DOMPurify.sanitize(marked.parse(String(text || '')), { ADD_ATTR: ['target'] });
+  return html.replace(/<a /g, '<a target="_blank" rel="noopener" ');
+}
+const plain = text => String(text || '').replace(/```[\s\S]*?```/g, ' [код] ').replace(/[*_`#>|]/g, '').replace(/\s+/g, ' ').trim();
+
+// ---------- состояние ----------
+let sessions = [], projects = [], lastOk = 0;
+let seen = store.get('seen', {});           // sessionId → lastActivity, которую я уже видел
+let prevStatus = {};
+let groupBy = store.get('groupBy', 'project');
+let showCold = store.get('showCold', true);
+let collapsed = store.get('collapsed', {});
+let notifyOn = store.get('notify', false) && 'Notification' in window && Notification.permission === 'granted';
+
+const LANES = [
+  { key: 'waiting', label: 'Ждёт меня' },
+  { key: 'busy', label: 'Работает' },
+  { key: 'review', label: 'Готово, посмотреть' },
+  { key: 'idle', label: 'Простаивает', cold: true },
+];
+const LANE_LABEL = Object.fromEntries(LANES.map(l => [l.key, l.label]));
+function laneOf(s) {
+  if (s.status === 'waiting') return 'waiting';
+  if (s.status === 'busy') return 'busy';
+  if (s.lastActivity && s.lastActivity > (seen[s.sessionId] || 0) && Date.now() - s.lastActivity < 7 * 86400e3) return 'review';
+  return 'idle';
+}
+function markSeen(s) {
+  if (!s?.lastActivity) return;
+  if ((seen[s.sessionId] || 0) >= s.lastActivity) return;
+  seen[s.sessionId] = s.lastActivity; store.set('seen', seen);
+}
+
+// ---------- роутинг ----------
+function route() {
+  const h = location.hash.slice(1) || '/board';
+  const [, view, id] = h.split('/');
+  return { view: view || 'board', id };
+}
+window.addEventListener('hashchange', () => render(true));
+
+// ---------- загрузка ----------
+async function poll() {
+  try {
+    const data = await (await fetch('/api/sessions')).json();
+    sessions = data.sessions; projects = data.projects; lastOk = Date.now();
+    for (const s of sessions) {
+      if (s.status === 'waiting' && prevStatus[s.sessionId] && prevStatus[s.sessionId] !== 'waiting' && notifyOn) {
+        new Notification(`Ждёт ответа: ${s.title}`, { body: s.waitingFor || '', tag: s.sessionId });
+      }
+      prevStatus[s.sessionId] = s.status;
+    }
+    // Новые сессии считаем просмотренными, чтобы при первом запуске всё не оказалось «на проверку».
+    if (!store.get('seenInit', false)) { for (const s of sessions) seen[s.sessionId] = s.lastActivity || 0; store.set('seen', seen); store.set('seenInit', true); }
+  } catch (e) { console.error(e); }
+  render(false);
+}
+
+function render(force) {
+  const r = route();
+  document.querySelectorAll('nav a').forEach(a => a.classList.toggle('on', a.dataset.view === r.view));
+  const inboxN = sessions.filter(s => ['waiting', 'review'].includes(laneOf(s))).length;
+  const waitN = sessions.filter(s => s.status === 'waiting').length;
+  $('#inboxBadge').innerHTML = inboxN ? `<span class="badge">${inboxN}</span>` : '';
+  document.title = (waitN ? `(${waitN}) ` : '') + 'dev-cockpit';
+  $('#stale').innerHTML = lastOk && Date.now() - lastOk > 15000 ? '<span class="stale">нет связи с сервером</span>' : '';
+  const unnamed = sessions.filter(s => s.nameSource === 'derived').length;
+  const namingN = sessions.filter(s => s.naming).length;
+  $('#autoname').innerHTML = namingN ? `<span class="spin"></span> ${namingN}` : `✨ Имена${unnamed ? ` (${unnamed})` : ''}`;
+  $('#autoname').disabled = !!namingN || !unnamed;
+  $('#boardTools').innerHTML = r.view === 'board' ? `
+    <span class="seg"><button data-group="project" class="${groupBy === 'project' ? 'on' : ''}">По проектам</button><button data-group="none" class="${groupBy === 'none' ? 'on' : ''}">Все вместе</button></span>
+    <label class="muted" style="margin-left:8px"><input type="checkbox" id="showCold" ${showCold ? 'checked' : ''}> простаивающие</label>` : '';
+  $('#notifyBtn').textContent = notifyOn ? '🔔' : '🔕';
+  if (r.view === 'session') return renderSession(r.id, force);
+  sessView = null;
+  if (r.view === 'inbox') return renderInbox();
+  return renderBoard();
+}
+
+function filtered() {
+  const q = $('#q').value.trim().toLowerCase();
+  if (!q) return sessions;
+  return sessions.filter(s => [s.title, s.taskKey, s.project, s.gitBranch, s.lastPrompt, s.claudeName].join(' ').toLowerCase().includes(q));
+}
+const byActivity = (a, b) => (b.lastActivity || 0) - (a.lastActivity || 0);
+
+// ---------- доска ----------
+function cardHtml(s, lane) {
+  const repos = (s.repos || []).filter(r => !r.endsWith('/Документация')).slice(0, 3).map(r => `<span class="chip">${esc(r.split('/').pop())}</span>`).join('');
+  const why = s.status === 'waiting' ? `<div class="why waiting">⏳ ${esc(s.waitingFor || 'ждёт ответа')}</div>` : '';
+  return `<div class="card ${lane}" data-open="${s.sessionId}">
+    <div class="row"><span class="dot ${lane}"></span><span class="title ${s.nameSource === 'derived' ? 'derived' : ''}">${s.naming ? '<span class="spin"></span> ' : ''}${esc(s.title)}</span><span class="time">${ago(s.lastActivity)}</span></div>
+    ${why}
+    <div class="prompt">${esc(plain(s.lastPrompt).slice(0, 240))}</div>
+    <div class="foot">${s.taskKey && !s.title.includes(s.taskKey) ? `<span class="chip key">${esc(s.taskKey)}</span>` : ''}${groupBy === 'none' ? `<span class="chip">${esc(s.project)}</span>` : ''}${s.filesCount ? `<span class="chip">✎ ${s.filesCount}</span>` : ''}${repos}</div>
+  </div>`;
+}
+
+function colsHtml(list) {
+  const lanes = LANES.filter(l => showCold || !l.cold);
+  return `<div class="cols ${showCold ? '' : 'nocold'}">${lanes.map(l => {
+    const items = list.filter(s => laneOf(s) === l.key).sort(byActivity);
+    return `<div class="col ${l.cold ? 'cold' : ''}">
+      <div class="colhead"><span class="dot ${l.key}"></span>${l.label} <span class="n">${items.length}</span></div>
+      ${items.map(s => cardHtml(s, l.key)).join('') || '<div class="placeholder"></div>'}
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderBoard() {
+  const list = filtered();
+  const app = $('#app'); const scroll = app.scrollTop;
+  if (!sessions.length) { app.innerHTML = '<div class="empty">Загрузка…</div>'; return; }
+  if (groupBy === 'none') {
+    app.innerHTML = `<div class="board">${colsHtml(list)}</div>`;
+  } else {
+    const groups = {};
+    for (const s of list) (groups[s.project] ||= []).push(s);
+    // Сверху — проекты, где что-то ждёт меня или идёт работа, дальше по свежести.
+    const weight = g => (g.some(s => s.status === 'waiting') ? 2 : 0) + (g.some(s => s.status === 'busy') ? 1 : 0);
+    const names = Object.keys(groups).sort((a, b) => weight(groups[b]) - weight(groups[a]) || Math.max(...groups[b].map(s => s.lastActivity || 0)) - Math.max(...groups[a].map(s => s.lastActivity || 0)));
+    app.innerHTML = `<div class="board">${names.map(p => {
+      const g = groups[p];
+      const cnt = k => g.filter(s => laneOf(s) === k).length;
+      const stats = [['waiting', 'ждёт'], ['busy', 'работает'], ['review', 'посмотреть']].filter(([k]) => cnt(k)).map(([k, t]) => `<span class="pill ${k}">${cnt(k)} ${t}</span>`).join(' ');
+      // В проекте всё простаивает — без сетки колонок, одной строкой компактных карточек.
+      const quiet = !stats;
+      if (quiet && !showCold) return '';
+      return `<section class="lane ${collapsed[p] ? 'collapsed' : ''} ${quiet ? 'quiet' : ''}">
+        <div class="lanehead" data-lane="${esc(p)}"><span class="caret">${collapsed[p] ? '▸' : '▾'}</span><h2>${esc(p)}</h2><span class="muted">${g.length} сесс.${quiet ? ' · всё простаивает' : ''}</span>${stats}</div>
+        ${quiet ? `<div class="cols quietrow">${g.sort(byActivity).map(s => cardHtml(s, 'idle')).join('')}</div>` : colsHtml(g)}
+      </section>`;
+    }).join('') || '<div class="empty">Ничего не найдено</div>'}</div>`;
+  }
+  app.scrollTop = scroll;
+}
+
+// ---------- входящие ----------
+function renderInbox() {
+  const list = filtered();
+  const waiting = list.filter(s => laneOf(s) === 'waiting').sort(byActivity);
+  const review = list.filter(s => laneOf(s) === 'review').sort(byActivity);
+  const busy = list.filter(s => laneOf(s) === 'busy').sort(byActivity);
+  const row = (s, lane) => `<div class="irow" data-open="${s.sessionId}">
+    <span class="dot ${lane}"></span>
+    <div><div class="t">${esc(s.title)} <span class="chip">${esc(s.project)}</span></div>
+      <div class="ex">${lane === 'waiting' ? `<b style="color:var(--wait)">⏳ ${esc(s.waitingFor || 'ждёт ответа')}.</b> ` : ''}${esc(plain(s.lastAssistant || s.lastPrompt).slice(0, 400))}</div></div>
+    <div class="side"><span class="time">${ago(s.lastActivity)}</span>${lane === 'review' ? `<button class="ghost" data-seen="${s.sessionId}">✓ просмотрено</button>` : ''}</div>
+  </div>`;
+  const app = $('#app'); const scroll = app.scrollTop;
+  app.innerHTML = `<div class="inbox">
+    <h2>Ждут моего ответа · ${waiting.length}</h2>${waiting.map(s => row(s, 'waiting')).join('') || '<div class="muted">Никто не ждёт 🎉</div>'}
+    <h2>Закончили, не смотрел · ${review.length} ${review.length ? '<button class="ghost" id="seenAll">отметить все</button>' : ''}</h2>${review.map(s => row(s, 'review')).join('') || '<div class="muted">Всё просмотрено</div>'}
+    <h2>Работают сейчас · ${busy.length}</h2>${busy.map(s => row(s, 'busy')).join('') || '<div class="muted">—</div>'}
+  </div>`;
+  app.scrollTop = scroll;
+}
+
+// ---------- страница сессии ----------
+let sessView = null; // { id, data, chat: Map(seq→item), seq, tab, renderedSig }
+async function renderSession(id, force) {
+  if (!sessView || sessView.id !== id) {
+    sessView = { id, data: null, chat: new Map(), seq: 0, tab: store.get('tab', 'props'), sig: '' };
+    $('#app').innerHTML = '<div class="empty">Загрузка сессии…</div>';
+  }
+  const v = sessView;
+  let data;
+  try {
+    const r = await fetch(`/api/session?id=${encodeURIComponent(id)}${v.seq ? '&since=' + v.seq : ''}`);
+    if (r.status === 404) { $('#app').innerHTML = '<div class="empty">Сессия завершилась или не найдена. <a href="#/board">К доске</a></div>'; return; }
+    data = await r.json();
+  } catch { return; }
+  if (sessView !== v) return;
+  if (data.chatSeq < v.seq) { v.chat.clear(); } // транскрипт перечитан с нуля
+  for (const c of data.chat) v.chat.set(c.seq, c);
+  v.seq = data.chatSeq; v.data = data; v.truncated = data.chatTruncated;
+  markSeen(data);
+  if (!$('#sessRoot') || force) layoutSession();
+  updateSessionHead();
+  updateChat();
+  if (force || Date.now() - (v.sideAt || 0) > 5000) updateSide();
+}
+
+function layoutSession() {
+  $('#app').innerHTML = `<div class="sess" id="sessRoot">
+    <div class="sess-main"><div class="sess-head" id="sessHead"></div><div class="chat" id="chat"><div class="chat-inner" id="chatInner"></div></div></div>
+    <aside class="side"><div class="tabs" id="tabs">
+      <button data-tab="props">Свойства</button><button data-tab="changes">Изменения</button><button data-tab="events">Действия</button>
+    </div><div class="tabbody" id="tabbody"></div></aside>
+  </div>`;
+  sessView.sig = ''; sessView.stick = true;
+  $('#chat').addEventListener('scroll', e => { const c = e.target; sessView.stick = c.scrollHeight - c.scrollTop - c.clientHeight < 80; });
+}
+
+function updateSessionHead() {
+  const s = sessView.data; const lane = laneOf(s);
+  if (sessView.editing) return;
+  $('#sessHead').innerHTML = `
+    <div class="crumbs"><a href="#/board">Доска</a> / <span>${esc(s.project)}</span></div>
+    <div class="titlerow">
+      <h2 id="titleEdit" title="Нажми, чтобы переименовать">${esc(s.title)}</h2>
+      <span class="pill ${lane}"><span class="dot ${lane}"></span>${LANE_LABEL[lane]}</span>
+      ${s.taskKey ? `<span class="chip key">${esc(s.taskKey)}</span>` : ''}
+      <span class="time">активность ${ago(s.lastActivity)} назад</span>
+      <span class="spacer"></span>
+    </div>
+    ${s.status === 'waiting' ? `<div class="waitbar">⏳ Сессия ждёт: ${esc(s.waitingFor || 'ответа')}. Ответить можно в окне сессии (VS Code / терминал).</div>` : ''}`;
+}
+
+function startRename() {
+  const s = sessView.data; sessView.editing = true;
+  const h = $('#titleEdit');
+  h.outerHTML = `<input class="rename" id="renameInput" type="text" value="${esc(s.title)}" placeholder="Пустое — сбросить имя">`;
+  const inp = $('#renameInput'); inp.focus(); inp.select();
+  const finish = async save => {
+    if (!sessView.editing) return; sessView.editing = false;
+    if (save && inp.value.trim() !== s.title) {
+      try { await post('/api/meta', { sessionId: s.sessionId, name: inp.value }); toast('Имя сохранено в dev-cockpit'); } catch (e) { toast('Ошибка: ' + e.message); }
+      await poll();
+    }
+    renderSession(sessView.id, false);
+  };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); });
+  inp.addEventListener('blur', () => finish(true));
+}
+
+function toolGroupHtml(tools) {
+  const counts = {};
+  for (const t of tools) counts[t.name] = (counts[t.name] || 0) + 1;
+  const names = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([n, c]) => c > 1 ? `${n} ×${c}` : n).join(', ');
+  const pending = tools.some(t => t.result === undefined);
+  const errs = tools.filter(t => t.isError).length;
+  const span = tools.length > 1 ? `${hhmm(tools[0].ts)}–${hhmm(tools.at(-1).ts)}` : hhmm(tools[0].ts);
+  const key = `g${tools[0].seq}`;
+  const open = sessView.open?.has(key);
+  return `<details class="tools" data-key="${key}" ${open ? 'open' : ''}><summary>
+      <span>⚙ ${tools.length} ${tools.length === 1 ? 'действие' : 'действий'}</span><span class="names">${esc(names)}</span>
+      ${errs ? `<span class="err">✗ ${errs}</span>` : ''}${pending ? '<span class="pend"><span class="spin"></span></span>' : ''}<span class="time">${span}</span>
+    </summary>
+    ${tools.map(t => {
+      const k = `t${t.seq}`;
+      const mark = t.result === undefined ? '<span class="pend">…</span>' : t.isError ? '<span class="err">✗</span>' : '<span class="ok">✓</span>';
+      return `<details class="tool" data-key="${k}" ${sessView.open?.has(k) ? 'open' : ''}><summary>${mark}<span class="tn">${esc(t.name)}</span><span class="ta" title="${esc(t.summary)}">${esc(short(t.summary))}</span><span class="time">${hhmm(t.ts)}</span></summary>
+        ${sessView.open?.has(k) ? toolIo(t) : ''}</details>`;
+    }).join('')}
+  </details>`;
+}
+const toolIo = t => `<div class="io"><div class="lbl">Вход</div><pre>${esc(t.input)}</pre>${t.result !== undefined ? `<div class="lbl">Результат</div><pre>${esc(t.result)}</pre>` : ''}</div>`;
+
+function askHtml(t) {
+  return `<div class="ask"><div class="muted" style="font-size:12px">❓ Claude спрашивает · ${hhmm(t.ts)}</div>
+    ${(t.questions || []).map(q => `<div class="q">${esc(q.question)}</div>${q.options?.length ? `<ul>${q.options.map(o => `<li><b>${esc(o.label)}</b>${o.description ? ' — ' + esc(o.description) : ''}</li>`).join('')}</ul>` : ''}`).join('')}
+    ${t.result !== undefined ? `<div class="io" style="margin:4px 0 0"><pre>${esc(t.result)}</pre></div>` : '<div class="pend">ждёт ответа…</div>'}
+  </div>`;
+}
+
+function updateChat() {
+  const v = sessView; const items = [...v.chat.values()].sort((a, b) => a.seq - b.seq);
+  const sig = `${v.seq}:${items.length}:${items.filter(i => i.kind === 'tool' && i.result !== undefined).length}`;
+  if (sig === v.sig) return;
+  v.sig = sig;
+  v.open = new Set([...document.querySelectorAll('#chatInner details[open]')].map(d => d.dataset.key));
+  let html = v.truncated ? '<div class="loadmore">показаны последние сообщения сессии</div>' : '';
+  let group = [];
+  const flush = () => { if (group.length) { html += toolGroupHtml(group); group = []; } };
+  for (const it of items) {
+    if (it.kind === 'tool' && it.name === 'AskUserQuestion') { flush(); html += askHtml(it); continue; }
+    if (it.kind === 'tool') { group.push(it); continue; }
+    flush();
+    html += it.kind === 'user'
+      ? `<div class="msg user"><div class="who"><b>Вы</b><span class="time">${dayTime(it.ts)}</span></div><div class="body md">${md(it.text)}</div></div>`
+      : `<div class="msg assistant"><div class="who"><b>Claude</b><span class="time">${hhmm(it.ts)}</span></div><div class="body md">${md(it.text)}</div></div>`;
+  }
+  flush();
+  if (!items.length) html += '<div class="empty">В транскрипте пока нет сообщений</div>';
+  const chat = $('#chat'); const prev = chat.scrollTop;
+  $('#chatInner').innerHTML = html;
+  chat.scrollTop = v.stick ? chat.scrollHeight : prev;
+}
+
+function updateSide() {
+  const v = sessView; v.sideAt = Date.now();
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === v.tab));
+  const s = v.data; const body = $('#tabbody');
+  if (v.tab === 'props') {
+    const tools = Object.entries(s.toolCounts || {}).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, n]) => `${esc(k)} ${n}`).join(' · ');
+    const src = { cockpit: 'задано в dev-cockpit', rename: 'из /rename', claude: 'имя Claude Code', auto: 'придумано автоматически', derived: 'автоимя Claude Code' }[s.nameSource] || '';
+    const psrc = { user: 'задан вручную', task: 'по очереди задачи', repo: 'по основному репозиторию', none: '' }[s.projectSource] || '';
+    body.innerHTML = `
+      <div class="props">
+        <span class="k">Имя</span><span class="v">${esc(s.title)} <span class="muted">· ${src}</span></span>
+        <span class="k">Проект</span><span class="v"><input type="text" id="projInput" list="projList" value="${esc(s.project)}" style="width:100%"><datalist id="projList">${projects.map(p => `<option value="${esc(p)}">`).join('')}</datalist><span class="muted" style="font-size:12px">${psrc}</span></span>
+        <span class="k">Статус</span><span class="v">${esc(LANE_LABEL[laneOf(s)])}${s.waitingFor ? ' — ' + esc(s.waitingFor) : ''}</span>
+        ${s.taskKey ? `<span class="k">Задача</span><span class="v"><a href="https://tracker.yandex.ru/${esc(s.taskKey)}" target="_blank" rel="noopener">${esc(s.taskKey)}</a></span>` : ''}
+        <span class="k">Ветка в cwd</span><span class="v">${esc(s.gitBranch || '—')}</span>
+        <span class="k">Модель</span><span class="v">${esc(s.model || '—')}</span>
+        <span class="k">Промптов</span><span class="v">${s.prompts ?? 0}</span>
+        <span class="k">Начата</span><span class="v">${dayTime(s.startedAt)}</span>
+        <span class="k">Активность</span><span class="v">${dayTime(s.lastActivity)}</span>
+        <span class="k">Каталог</span><span class="v"><code>${esc(short(s.cwd))}</code></span>
+        <span class="k">Имя в Claude</span><span class="v"><code>${esc(s.claudeName)}</code></span>
+        <span class="k">Session ID</span><span class="v"><code>${esc(s.sessionId)}</code></span>
+        ${tools ? `<span class="k">Инструменты</span><span class="v muted" style="font-size:12px">${tools}</span>` : ''}
+      </div>
+      <div class="btnrow">
+        <button data-act="rename">✎ Переименовать</button>
+        <button data-act="autoname">✨ Придумать имя</button>
+        <button data-act="copyRename">Копировать /rename</button>
+        <button data-act="copyResume">Копировать resume</button>
+      </div>
+      <div class="hint">Имя хранится в dev-cockpit. Чтобы оно появилось и в самом Claude Code, вставь скопированную команду <code>/rename …</code> в окно сессии: переименовать запущенную сессию снаружи Claude Code не даёт.</div>`;
+    const pi = $('#projInput');
+    pi.addEventListener('change', async () => {
+      try { await post('/api/meta', { sessionId: s.sessionId, project: pi.value }); toast(pi.value ? `Проект: ${pi.value}` : 'Проект определяется автоматически'); await poll(); } catch (e) { toast('Ошибка: ' + e.message); }
+    });
+  } else if (v.tab === 'changes') {
+    renderChanges(s, body);
+  } else {
+    const evs = (s.events || []).slice().reverse();
+    body.innerHTML = evs.map(ev => `<div class="ev ${ev.kind === 'prompt' ? 'p' : ''}"><span class="time">${hhmm(ev.ts)}</span><span class="x" title="${esc(ev.text)}">${ev.kind === 'prompt' ? '💬 ' : `<b>${esc(ev.tool)}</b> `}${esc(short(ev.text))}</span></div>`).join('') || '<div class="muted">Пусто</div>';
+    if ((s.files || []).length) body.innerHTML += `<h3 style="margin-top:16px">Правленые файлы</h3><ul class="files">${s.files.map(f => `<li title="${esc(f.file)}"><span class="code">✎${f.edits}</span><span class="f">${esc(short(f.file))}</span></li>`).join('')}</ul>`;
+  }
+}
+
+async function renderChanges(s, body) {
+  const repos = s.repos || [];
+  if (!repos.length) { body.innerHTML = '<div class="muted">Сессия не трогала git-репозитории</div>'; return; }
+  const infos = await Promise.all(repos.map(r => fetch('/api/repo?repo=' + encodeURIComponent(r)).then(x => x.json()).catch(() => null)));
+  if (sessView?.tab !== 'changes') return;
+  body.innerHTML = infos.filter(Boolean).map(r => {
+    if (r.error && !r.branch) return `<div class="repo"><b>${esc(r.name)}</b> <span class="del">${esc(r.error)}</span></div>`;
+    const num = Object.fromEntries((r.workStat || []).map(x => [x.file, x]));
+    const work = (r.status || []).map(st => { const n = num[st.file]; return `<li data-repo="${esc(r.repo)}" data-mode="work" data-file="${esc(st.file)}" title="${esc(st.file)}"><span class="code">${esc(st.code.trim() || '·')}</span><span class="f">${esc(st.file)}</span>${n ? `<span class="add">+${n.add ?? '?'}</span><span class="del">−${n.del ?? '?'}</span>` : ''}</li>`; }).join('');
+    const branch = (r.branchStat || []).map(x => `<li data-repo="${esc(r.repo)}" data-mode="branch" data-file="${esc(x.file)}" title="${esc(x.file)}"><span class="code">Δ</span><span class="f">${esc(x.file)}</span><span class="add">+${x.add ?? '?'}</span><span class="del">−${x.del ?? '?'}</span></li>`).join('');
+    const commits = (r.commits || []).map(c => `<li title="${esc(c.subject)}"><code>${esc(c.hash)}</code> ${esc(c.subject)} <span class="time">${ago(c.ts)}</span></li>`).join('');
+    const isVault = r.repo.endsWith('/Документация');
+    return `<div class="repo"${isVault ? ' style="opacity:.75"' : ''}>
+      <div class="head"><b>${esc(r.name)}</b><span class="chip">${esc(r.branch)}</span>${r.base ? `<span class="time">+${r.ahead} от ${esc(r.base)}</span>` : ''}</div>
+      ${work ? `<div class="sub">Незакоммичено · ${r.status.length} <button class="ghost" data-repo="${esc(r.repo)}" data-mode="work">весь diff</button></div><ul class="files">${work}</ul>` : '<div class="sub">Рабочее дерево чистое</div>'}
+      ${commits ? `<div class="sub">Коммиты ветки</div><ul class="commits">${commits}</ul>` : ''}
+      ${branch ? `<div class="sub">Изменения ветки · ${r.branchStat.length} <button class="ghost" data-repo="${esc(r.repo)}" data-mode="branch">весь diff</button></div><ul class="files">${branch}</ul>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function openDiff(repo, mode, file) {
+  const qs = new URLSearchParams({ repo, mode, ...(file ? { file } : {}) });
+  const text = await (await fetch('/api/diff?' + qs)).text();
+  const lines = text.split('\n').map(l => {
+    const c = /^(\+\+\+|---|diff )/.test(l) ? 'm' : l.startsWith('+') ? 'a' : l.startsWith('-') ? 'd' : l.startsWith('@@') ? 'h' : '';
+    return `<span class="${c}">${esc(l) || ' '}</span>`;
+  }).join('');
+  const o = document.createElement('div'); o.className = 'overlay';
+  o.innerHTML = `<div class="win"><div class="wh"><b>${esc(repo.split('/').pop())} · ${mode === 'work' ? 'незакоммичено' : 'ветка'}${file ? ' · ' + esc(file) : ''}</b><button id="closeDiff">Закрыть (Esc)</button></div>
+    <pre class="diff">${text.trim() ? lines : '<span>нет изменений</span>'}</pre></div>`;
+  document.body.append(o);
+  const close = () => { o.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  o.addEventListener('click', e => { if (e.target === o || e.target.id === 'closeDiff') close(); });
+  document.addEventListener('keydown', onKey);
+}
+
+// ---------- события ----------
+document.addEventListener('click', async e => {
+  const open = e.target.closest('[data-open]');
+  const seenBtn = e.target.closest('[data-seen]');
+  if (seenBtn) { e.stopPropagation(); const s = sessions.find(x => x.sessionId === seenBtn.dataset.seen); markSeen(s); render(false); return; }
+  if (e.target.id === 'seenAll') { sessions.filter(s => laneOf(s) === 'review').forEach(markSeen); render(false); return; }
+  if (open) { location.hash = `#/session/${open.dataset.open}`; return; }
+  const lane = e.target.closest('[data-lane]');
+  if (lane) { const p = lane.dataset.lane; collapsed[p] = !collapsed[p]; store.set('collapsed', collapsed); render(false); return; }
+  const grp = e.target.closest('[data-group]');
+  if (grp) { groupBy = grp.dataset.group; store.set('groupBy', groupBy); render(false); return; }
+  const tab = e.target.closest('[data-tab]');
+  if (tab && sessView) { sessView.tab = tab.dataset.tab; store.set('tab', sessView.tab); updateSide(); return; }
+  if (e.target.id === 'titleEdit') { startRename(); return; }
+  const diff = e.target.closest('[data-repo]');
+  if (diff) { openDiff(diff.dataset.repo, diff.dataset.mode, diff.dataset.file); return; }
+  const act = e.target.closest('[data-act]')?.dataset.act;
+  const s = sessView?.data;
+  if (act === 'rename') startRename();
+  if (act === 'copyRename' && s) copy(`/rename ${s.title}`);
+  if (act === 'copyResume' && s) copy(`claude --resume ${s.sessionId}`);
+  if (act === 'autoname' && s) { await post('/api/autoname', { sessionId: s.sessionId, force: true }); toast('Придумываю имя…'); poll(); }
+});
+// Ленивая подгрузка входа/результата инструмента при раскрытии.
+document.addEventListener('toggle', e => {
+  const d = e.target;
+  if (!d.matches?.('details.tool') || !d.open || d.querySelector('.io')) return;
+  const it = sessView?.chat.get(Number(d.dataset.key.slice(1)));
+  if (it) d.insertAdjacentHTML('beforeend', toolIo(it));
+}, true);
+$('#q').addEventListener('input', () => render(false));
+document.addEventListener('change', e => { if (e.target.id === 'showCold') { showCold = e.target.checked; store.set('showCold', showCold); render(false); } });
+$('#autoname').onclick = async () => {
+  try { const r = await post('/api/autoname', {}); toast(r.queued ? `Придумываю имена: ${r.queued}` : 'Все сессии уже с именами'); poll(); } catch (e) { toast('Ошибка: ' + e.message); }
+};
+$('#notifyBtn').onclick = async () => {
+  if (!notifyOn && 'Notification' in window && Notification.permission !== 'granted') await Notification.requestPermission();
+  notifyOn = !notifyOn && Notification.permission === 'granted'; store.set('notify', notifyOn); render(false);
+};
+
+poll();
+setInterval(poll, 3000);
+</script>
+</body>
+</html>

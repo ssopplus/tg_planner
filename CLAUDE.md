@@ -64,6 +64,8 @@ src/
   lib/worklog/                # Списания времени: синк с Трекером и зеркало в БД
   lib/db/                     # Drizzle ORM (schema + client)
 drizzle/                      # SQL миграции
+cockpit/                      # dev-cockpit: локальная доска сессий Claude Code (`pnpm cockpit`),
+                              #   чистый Node без зависимостей, .mjs вне tsconfig — в next build не входит
 docs/plans/                   # Планы разработки (ADR workflow)
 ```
 

@@ -1,0 +1,25 @@
+{
+  "queues": {
+    "POLAERP": "Pola ERP",
+    "REVENUERADAR": "Revenue Radar",
+    "WEBSH": "Сайт Swan Hellenic",
+    "SHWEB": "Сайт Swan Hellenic",
+    "VDHWEBNEW": "Сайт Водоход",
+    "INTCOORD": "Координация"
+  },
+  "repos": {
+    "erp": "Pola ERP",
+    "pola-tech-front": "Pola ERP",
+    "pola-mobile": "Pola ERP",
+    "master-reporting-tool-electron": "Pola ERP",
+    "competitor-parser": "Revenue Radar",
+    "dwh": "Revenue Radar",
+    "turbo-site": "Сайт Swan Hellenic",
+    "landing-back": "Сайт Swan Hellenic",
+    "cruise-landing": "Сайт Swan Hellenic",
+    "vodohod-new-site": "Сайт Водоход",
+    "intur": "Интур",
+    "tg-planer": "tg-planer",
+    "Документация": "Vault и прочее"
+  }
+}

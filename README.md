@@ -156,6 +156,7 @@ vercel.json                         # Cron Jobs конфигурация
 | `pnpm db:generate` | Генерация миграций |
 | `pnpm db:migrate` | Применение миграций |
 | `pnpm db:studio` | Drizzle Studio |
+| `pnpm cockpit` | dev-cockpit — локальная доска сессий Claude Code на http://127.0.0.1:4317 (см. [cockpit/README.md](cockpit/README.md)) |
 
 ## Деплой на Vercel
 

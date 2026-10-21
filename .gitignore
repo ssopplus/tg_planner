@@ -48,3 +48,6 @@ next-env.d.ts
 /commit.txt
 /docs/scrins/
 /.mcp.json
+
+# dev-cockpit: локальные имена и проекты сессий
+/cockpit/data/

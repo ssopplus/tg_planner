@@ -145,6 +145,23 @@ function promptText(o) {
   return text;
 }
 
+// Межсессионное сообщение (в том числе из поля ввода cockpit) Claude Code пишет в транскрипт как
+// служебное (isMeta, origin.kind = 'peer') и оборачивает своей инструкцией — VS Code его не показывает.
+// Достаём сам текст и помечаем, откуда он: из cockpit (наша пометка) или из соседней сессии.
+const PEER_HEAD = 'Another Claude session sent a message:';
+const PEER_TAIL = '\n\nThis came from another Claude session';
+const COCKPIT_MARK = '[из dev-cockpit] ';
+function peerMessage(o) {
+  if (o.isSidechain || (o.origin?.kind !== 'peer' && o.turnOrigin !== 'peer')) return null;
+  let text = textOf(o.message?.content).trim();
+  if (text.startsWith(PEER_HEAD)) text = text.slice(PEER_HEAD.length);
+  const tail = text.indexOf(PEER_TAIL);
+  if (tail !== -1) text = text.slice(0, tail);
+  text = text.trim();
+  if (!text) return null;
+  return text.startsWith(COCKPIT_MARK) ? { via: 'cockpit', text: text.slice(COCKPIT_MARK.length) } : { via: 'peer', text };
+}
+
 function toolResultText(content) {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) return content.map(b => (b?.type === 'text' ? b.text : b?.type === 'image' ? '[изображение]' : '')).join('\n');
@@ -173,6 +190,13 @@ function applyEntry(st, o) {
           const t = st.toolsById.get(b.tool_use_id);
           if (t) { t.result = clip(toolResultText(b.content), MAX_TOOL_IO); t.isError = !!b.is_error; t.done = ts; }
         }
+      }
+      const peer = peerMessage(o);
+      if (peer) {
+        st.events.push({ ts, kind: 'prompt', text: `${peer.via === 'cockpit' ? '[cockpit] ' : '[сессия] '}${peer.text.slice(0, 280)}` });
+        pushChat(st, { kind: 'user', via: peer.via, ts, text: clip(peer.text, MAX_TEXT) });
+        if (peer.via === 'cockpit') st.lastPrompt = peer.text;
+        break;
       }
       const text = promptText(o);
       if (text) {

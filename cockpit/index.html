@@ -668,7 +668,7 @@ function updateChat() {
     if (it.kind === 'tool') { group.push(it); continue; }
     flush();
     html += it.kind === 'user'
-      ? `<div class="msg user"><div class="who"><b>Вы</b><span class="time">${dayTime(it.ts)}</span></div><div class="body md">${md(it.text)}</div></div>`
+      ? `<div class="msg user"><div class="who"><b>${it.via === 'cockpit' ? 'Вы · из cockpit' : it.via === 'peer' ? 'Соседняя сессия' : 'Вы'}</b><span class="time">${dayTime(it.ts)}</span></div><div class="body md">${md(it.text)}</div></div>`
       : `<div class="msg assistant"><div class="who"><b>Claude</b><span class="time">${hhmm(it.ts)}</span></div><div class="body md">${md(it.text)}</div></div>`;
   }
   flush();

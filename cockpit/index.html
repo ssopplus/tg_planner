@@ -186,6 +186,21 @@ details.tool > summary .ta { font-family: ui-monospace, Menlo, monospace; overfl
 .props a, .crumbs a { color: var(--accent); }
 .btnrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+.task { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
+.task .th { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.task a { color: var(--accent); }
+.task .th a { font-weight: 600; }
+.task .bar { height: 4px; border-radius: 2px; background: var(--line); margin: 6px 0; overflow: hidden; }
+.task .bar i { display: block; height: 100%; background: var(--ok, #2da44e); }
+.todo { list-style: none; margin: 4px 0 8px; padding: 0; font-size: 12.5px; }
+.todo li { display: flex; gap: 6px; padding: 1px 0; }
+.todo li.done { color: var(--muted); }
+.todo li .m { flex: none; width: 14px; }
+.wl { border-left: 3px solid var(--line); padding: 2px 0 2px 8px; margin: 6px 0; font-size: 12.5px; }
+.wl.mine { border-color: var(--accent); }
+.wl summary { cursor: pointer; color: var(--muted); }
+.wl .lbl { font-weight: 600; margin-top: 4px; }
+.chip.prog { font-variant-numeric: tabular-nums; }
 h3 { font-size: 11.5px; margin: 16px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 h3:first-child { margin-top: 0; }
 .repo { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
@@ -454,6 +469,12 @@ async function decideRequest(id, kind) {
 const typingInRequest = () => !!document.activeElement?.closest?.('.req') && document.activeElement.type === 'text';
 
 // ---------- доска ----------
+// План задачи из заметки start-task: «☑ 8/9», в подсказке — что осталось.
+function taskChips(s) {
+  return (s.tasks || []).filter(t => t.total).map(t =>
+    `<span class="chip prog" title="${esc(`${t.issue || t.title}: сделано ${t.done} из ${t.total}${t.left ? `\nОсталось: ${t.left}` : ''}`)}">${t.done === t.total ? '✅' : '☑'} ${t.done}/${t.total}</span>`).join('');
+}
+
 function cardHtml(s, lane) {
   const repos = (s.repos || []).filter(r => !r.endsWith('/Документация')).slice(0, 3).map(r => `<span class="chip">${esc(r.split('/').pop())}</span>`).join('');
   const rq = s.requests?.[0];
@@ -463,7 +484,7 @@ function cardHtml(s, lane) {
     <div class="row"><span class="dot ${lane}"></span><span class="title ${s.nameSource === 'derived' ? 'derived' : ''}">${s.naming ? '<span class="spin"></span> ' : ''}${esc(s.title)}</span><span class="time">${ago(s.lastActivity)}</span></div>
     ${why}
     <div class="prompt">${esc(plain(s.lastPrompt).slice(0, 240))}</div>
-    <div class="foot">${s.taskKey && !s.title.includes(s.taskKey) ? `<span class="chip key">${esc(s.taskKey)}</span>` : ''}${groupBy === 'none' ? `<span class="chip">${esc(s.project)}</span>` : ''}${s.filesCount ? `<span class="chip">✎ ${s.filesCount}</span>` : ''}${repos}</div>
+    <div class="foot">${s.taskKey && !s.title.includes(s.taskKey) ? `<span class="chip key">${esc(s.taskKey)}</span>` : ''}${taskChips(s)}${groupBy === 'none' ? `<span class="chip">${esc(s.project)}</span>` : ''}${s.filesCount ? `<span class="chip">✎ ${s.filesCount}</span>` : ''}${repos}</div>
   </div>`;
 }
 
@@ -567,7 +588,7 @@ function layoutSession() {
         <div class="hint muted">Сообщение уйдёт через межсессионный сокет с пометкой «[из dev-cockpit]»: Claude увидит его как реплику соседней сессии, а не как твою команду. Если сессия занята — прочитает между шагами, если простаивает — начнёт новый ход.</div>
       </div></div></div>
     <aside class="side"><div class="tabs" id="tabs">
-      <button data-tab="props">Свойства</button><button data-tab="changes">Изменения</button><button data-tab="events">Действия</button>
+      <button data-tab="props">Свойства</button><button data-tab="task">Задача</button><button data-tab="changes">Изменения</button><button data-tab="events">Действия</button>
     </div><div class="tabbody" id="tabbody"></div></aside>
   </div>`;
   sessView.sig = ''; sessView.stick = true;
@@ -713,6 +734,8 @@ function updateSide() {
     pi.addEventListener('change', async () => {
       try { await post('/api/meta', { sessionId: s.sessionId, project: pi.value }); toast(pi.value ? `Проект: ${pi.value}` : 'Проект определяется автоматически'); await poll(); } catch (e) { toast('Ошибка: ' + e.message); }
     });
+  } else if (v.tab === 'task') {
+    body.innerHTML = taskTabHtml(s);
   } else if (v.tab === 'changes') {
     renderChanges(s, body);
   } else {
@@ -720,6 +743,33 @@ function updateSide() {
     body.innerHTML = evs.map(ev => `<div class="ev ${ev.kind === 'prompt' ? 'p' : ''}"><span class="time">${hhmm(ev.ts)}</span><span class="x" title="${esc(ev.text)}">${ev.kind === 'prompt' ? '💬 ' : `<b>${esc(ev.tool)}</b> `}${esc(short(ev.text))}</span></div>`).join('') || '<div class="muted">Пусто</div>';
     if ((s.files || []).length) body.innerHTML += `<h3 style="margin-top:16px">Правленые файлы</h3><ul class="files">${s.files.map(f => `<li title="${esc(f.file)}"><span class="code">✎${f.edits}</span><span class="f">${esc(short(f.file))}</span></li>`).join('')}</ul>`;
   }
+}
+
+// Вкладка «Задача»: заметка start-task в vault — план и ворклог; запись этой сессии раскрыта.
+function taskTabHtml(s) {
+  const notes = s.taskNotes || [];
+  if (!notes.length) return `<div class="muted">Заметки задачи нет.</div><div class="hint">План и ворклог по сессиям ведёт скилл <code>/start-task</code>: заметка в vault с шапкой <code>issue: КЛЮЧ</code>, разделами «Что нужно сделать» и «Ворклог» (<code>### дата · сессия ${esc(s.sessionId.slice(0, 8))}</code>). Сессии без него здесь пусто.</div>`;
+  const sid = s.sessionId.slice(0, 8);
+  const field = (lbl, t) => (t ? `<div class="lbl">${lbl}</div><div class="md">${md(t)}</div>` : '');
+  return notes.map(n => {
+    const done = n.todo.filter(t => t.done).length;
+    const pct = n.todo.length ? Math.round((done / n.todo.length) * 100) : 0;
+    const mrs = (n.mr || '').split(/[\s,]+/).filter(u => /^https?:/.test(u));
+    const log = n.log.slice().reverse().map(e => {
+      const mine = e.session === sid;
+      const body = field('Сделано', e.done) + field('Осталось', e.left) + (e.blockers && !/^нет\.?$/i.test(e.blockers) ? field('Блокеры', e.blockers) : '');
+      return mine
+        ? `<div class="wl mine"><b>${esc(e.date)} · эта сессия</b>${body}</div>`
+        : `<details class="wl"><summary>${esc(e.date)} · сессия ${esc(e.session)}</summary>${body}</details>`;
+    }).join('');
+    return `<div class="task">
+      <div class="th">${n.issue ? `<a href="https://tracker.yandex.ru/${esc(n.issue)}" target="_blank" rel="noopener">${esc(n.issue)}</a>` : ''}<span>${esc(n.title.replace(`${n.issue} — `, ''))}</span></div>
+      <div class="muted" style="font-size:11.5px"><code>${esc(n.file)}</code>${n.branch ? ` · ${esc(n.branch)}` : ''}${mrs.map((u, i) => ` · <a href="${esc(u)}" target="_blank" rel="noopener">MR${mrs.length > 1 ? ' ' + (i + 1) : ''}</a>`).join('')}</div>
+      ${n.todo.length ? `<div class="bar"><i style="width:${pct}%"></i></div><div class="sub">Что нужно сделать · ${done}/${n.todo.length}</div>
+      <ul class="todo">${n.todo.map(t => `<li class="${t.done ? 'done' : ''}"><span class="m">${t.done ? "✓" : "○"}</span><div class="md">${md(t.text)}</div></li>`).join('')}</ul>` : ''}
+      ${log ? `<div class="sub">Ворклог</div>${log}` : ''}
+    </div>`;
+  }).join('');
 }
 
 async function renderChanges(s, body) {

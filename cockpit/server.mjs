@@ -548,6 +548,78 @@ async function sendToSession(a, text) {
   hookLog({ event: 'message-sent', session: a.sessionId, text: text.slice(0, 200) });
 }
 
+// ---------- заметки задач в vault (ворклог start-task) ----------
+// Скилл start-task ведёт на задачу заметку в Документация/Проекты/…: шапка `issue: КЛЮЧ`, чек-лист
+// «## Что нужно сделать» и «## Ворклог» с записью на каждую сессию: `### 2026-10-21 · сессия 8a228037`,
+// внутри «Сделано: … Осталось: … Блокеры: …». Сессия связывается с заметкой по первым 8 символам
+// своего id в заголовке записи или по ключу задачи.
+const NOTES_ROOT = path.join(VAULT, 'Проекты');
+const NOTES_SCAN_MS = 30_000;
+const noteCache = new Map(); // path -> { mtime, note | null }
+let notesScannedAt = 0;
+
+function parseTaskNote(file, text) {
+  if (!/^## Ворклог/m.test(text)) return null;
+  const head = text.match(/^---\n([\s\S]*?)\n---/)?.[1] || '';
+  const field = k => head.match(new RegExp(`^${k}:\\s*(.+)$`, 'm'))?.[1].trim() || null;
+  const section = name => {
+    const m = text.match(new RegExp(`^## ${name}\\s*\\n([\\s\\S]*?)(?=^## |(?![\\s\\S]))`, 'm'));
+    return m ? m[1] : '';
+  };
+  const todo = [...section('Что нужно сделать').matchAll(/^\s*- \[([ xX])\] (.+)$/gm)].map(m => ({ done: m[1] !== ' ', text: m[2].trim() }));
+  const log = [];
+  for (const m of section('Ворклог').matchAll(/^### (\d{4}-\d{2}-\d{2}) · сессия ([0-9a-f]{8})[^\n]*\n([\s\S]*?)(?=^### |(?![\s\S]))/gm)) {
+    const parts = {};
+    for (const p of m[3].split(/^(?=(?:Сделано|Осталось|Блокеры):)/m)) {
+      const k = p.match(/^(Сделано|Осталось|Блокеры):\s*/);
+      if (k) parts[{ Сделано: 'done', Осталось: 'left', Блокеры: 'blockers' }[k[1]]] = p.slice(k[0].length).trim();
+    }
+    log.push({ date: m[1], session: m[2], ...parts });
+  }
+  return {
+    file, issue: field('issue'), branch: field('branch'), mr: field('mr'),
+    title: text.match(/^# (.+)$/m)?.[1].trim() || path.basename(file, '.md'), todo, log,
+  };
+}
+
+async function taskNotes() {
+  if (Date.now() - notesScannedAt > NOTES_SCAN_MS) {
+    notesScannedAt = Date.now();
+    const files = [];
+    const walk = async dir => {
+      for (const e of await fsp.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+        if (e.name.startsWith('.')) continue;
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) await walk(p); else if (e.name.endsWith('.md')) files.push(p);
+      }
+    };
+    await walk(NOTES_ROOT);
+    const alive = new Set(files);
+    for (const p of noteCache.keys()) if (!alive.has(p)) noteCache.delete(p);
+    for (const p of files) {
+      const st = await fsp.stat(p).catch(() => null);
+      if (!st || noteCache.get(p)?.mtime === st.mtimeMs) continue;
+      noteCache.set(p, { mtime: st.mtimeMs, note: parseTaskNote(p, await fsp.readFile(p, 'utf8')) });
+    }
+  }
+  return [...noteCache.values()].map(x => x.note).filter(Boolean);
+}
+
+// Заметки, к которым относится сессия: её запись в ворклоге или ключ задачи в имени/ветке.
+async function notesForSession(sessionId, taskKey) {
+  const sid = sessionId.slice(0, 8);
+  return (await taskNotes()).filter(n => n.log.some(e => e.session === sid) || (taskKey && n.issue === taskKey));
+}
+
+// Краткая сводка для карточки на доске: пункты плана и «Осталось» этой сессии (или последнее).
+function taskBrief(n, sessionId) {
+  const mine = n.log.filter(e => e.session === sessionId.slice(0, 8)).at(-1);
+  return {
+    issue: n.issue, title: n.title, done: n.todo.filter(t => t.done).length, total: n.todo.length,
+    left: (mine || n.log.at(-1))?.left || null, own: !!mine,
+  };
+}
+
 // ---------- сборка ответа ----------
 
 async function sessionSummary(a, cfg) {
@@ -577,6 +649,7 @@ async function sessionSummary(a, cfg) {
   const key = `${s.title || ''} ${a.name || ''} ${s.gitBranch || ''}`.match(TASK_KEY_RE);
   s.taskKey = key ? key[0] : null;
   Object.assign(s, await resolveProject(s, st, m, cfg));
+  s.tasks = (await notesForSession(a.sessionId, s.taskKey)).map(n => taskBrief(n, a.sessionId));
   // Порядок репо: worktree задачи первым, vault (его трогает почти каждая сессия) — последним.
   const num = s.taskKey?.split('-')[1];
   const rank = r => (num && path.basename(r).endsWith(`-${num}`) ? 0 : r === VAULT ? 2 : 1);
@@ -611,6 +684,7 @@ async function sessionDetail(id, since) {
   s.chat = since ? chat.filter(c => c.seq > since - 60) : chat;
   s.chatSeq = st?.seq || 0;
   s.chatTruncated = (st?.chat[0]?.seq || 1) > 1;
+  s.taskNotes = (await notesForSession(id, s.taskKey)).map(n => ({ ...n, file: path.relative(VAULT, n.file) }));
   return s;
 }
 

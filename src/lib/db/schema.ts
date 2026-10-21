@@ -670,7 +670,11 @@ export const cockpitCommands = pgTable(
     kind: text('kind').notNull(),
     /** Сессия-адресат для message. */
     sessionId: text('session_id'),
-    /** message: `{ text }`; start-task: `{ issueKey, title }`. */
+    /**
+     * message: `{ text, images?, imageCount? }`; start-task: `{ issueKey, title }`.
+     * `images` — скрины `{ mime, data }` (base64) до доставки: cockpit сохраняет их
+     * файлами, после итога синк их вычищает, остаётся только `imageCount`.
+     */
     payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
     /** pending | sent | done | failed */
     status: text('status').default('pending').notNull(),

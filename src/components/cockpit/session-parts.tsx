@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { ImagePlus, X } from 'lucide-react'
 import { apiFetch } from '@/lib/telegram/webapp'
 import { requestBody } from '@/lib/cockpit/format'
 
@@ -33,7 +34,7 @@ export interface Command {
   id: string
   kind: 'message' | 'start-task'
   sessionId: string | null
-  payload: { text?: string; issueKey?: string }
+  payload: { text?: string; issueKey?: string; imageCount?: number }
   status: 'pending' | 'sent' | 'done' | 'failed'
   result: { error?: string; output?: string } | null
   createdAt: string
@@ -178,24 +179,68 @@ const ASK_CONFIRM =
   '(например «Да, выполняй» / «Нет») и в вопросе коротко назови, что именно сделаешь. Я отвечу в карточке. ' +
   'Если ничего не ждёшь — просто продолжай.'
 
-/** Текст в сессию: уходит через cockpit в её межсессионный сокет. */
+const MAX_IMAGES = 4
+/** Длинная сторона скрина после сжатия: текст на нём ещё читается, а весит он сотни КБ, а не мегабайты. */
+const IMAGE_SIDE = 2000
+
+/** Сжимает картинку в JPEG data-URL. Тяжёлую пережимаем мельче, чтобы пачка влезла в запрос. */
+async function compressImage(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file)
+  const encode = (side: number, quality: number) => {
+    const scale = Math.min(1, side / Math.max(bitmap.width, bitmap.height))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(bitmap.width * scale)
+    canvas.height = Math.round(bitmap.height * scale)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Не удалось обработать картинку')
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/jpeg', quality)
+  }
+  let url = encode(IMAGE_SIDE, 0.85)
+  if (url.length > 700_000) url = encode(1600, 0.75)
+  bitmap.close()
+  return url
+}
+
+/** Текст и скрины в сессию: уходят через cockpit в её межсессионный сокет. */
 export function Composer({ sessionId, commands, onSent }: { sessionId: string; commands: Command[]; onSent: () => void }) {
   const [value, setValue] = useState('')
+  const [images, setImages] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const addImages = async (files: FileList | null) => {
+    if (!files?.length) return
+    setError(null)
+    const room = MAX_IMAGES - images.length
+    if (files.length > room) setError(`Не больше ${MAX_IMAGES} скринов за раз`)
+    try {
+      const urls = await Promise.all([...files].slice(0, room).map(compressImage))
+      setImages((cur) => [...cur, ...urls].slice(0, MAX_IMAGES))
+    } catch {
+      setError('Не удалось прочитать картинку')
+    }
+  }
 
   const send = async (preset?: string) => {
     const message = preset ?? value
-    if (!message.trim()) return
+    const shots = preset ? [] : images
+    if (!message.trim() && !shots.length) return
     setBusy(true)
     setError(null)
     try {
       const res = await apiFetch('/api/cockpit/commands', {
         method: 'POST',
-        body: JSON.stringify({ kind: 'message', sessionId, text: message }),
+        body: JSON.stringify({ kind: 'message', sessionId, text: message, ...(shots.length ? { images: shots } : {}) }),
       })
-      if (!res.ok) setError(((await res.json()) as { error?: string }).error ?? 'Ошибка')
-      else if (!preset) setValue('')
+      if (!res.ok) setError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? 'Ошибка')
+      else if (!preset) {
+        setValue('')
+        setImages([])
+      }
       onSent()
     } finally {
       setBusy(false)
@@ -211,14 +256,52 @@ export function Composer({ sessionId, commands, onSent }: { sessionId: string; c
         placeholder="Написать в сессию…"
         className={`rounded-lg border border-border bg-transparent px-2 py-1.5 text-[14px] ${text}`}
       />
-      <div className="flex items-center gap-2">
+      {images.length ? (
+        <div className="flex flex-wrap gap-2">
+          {images.map((src, i) => (
+            <div key={i} className="relative">
+              {/* eslint-disable-next-line @next/next/no-img-element -- data-URL превью, next/image тут ни к чему */}
+              <img src={src} alt={`Скрин ${i + 1}`} className="h-16 w-16 rounded-lg border border-border object-cover" />
+              <button
+                type="button"
+                aria-label="Убрать скрин"
+                onClick={() => setImages((cur) => cur.filter((_, j) => j !== i))}
+                className="absolute -right-1.5 -top-1.5 rounded-full bg-black/70 p-0.5 text-white"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        onChange={(e) => {
+          addImages(e.target.files)
+          e.target.value = ''
+        }}
+      />
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          disabled={busy || !value.trim()}
+          disabled={busy || (!value.trim() && !images.length)}
           onClick={() => send()}
           className="rounded-lg bg-[var(--tg-theme-button-color,#007aff)] px-3 py-2 text-[13px] text-[var(--tg-theme-button-text-color,#fff)] disabled:opacity-50"
         >
           Отправить
+        </button>
+        <button
+          type="button"
+          disabled={busy || images.length >= MAX_IMAGES}
+          onClick={() => fileRef.current?.click()}
+          className={`${chip} ${text} flex items-center gap-1 disabled:opacity-50`}
+        >
+          <ImagePlus className="h-3.5 w-3.5" />
+          Скрин
         </button>
         <button type="button" disabled={busy} onClick={() => send(ASK_CONFIRM)} className={`${chip} ${text} disabled:opacity-50`}>
           Спросить кнопками
@@ -232,7 +315,8 @@ export function Composer({ sessionId, commands, onSent }: { sessionId: string; c
       {commands.slice(0, 3).map((c) => (
         <p key={c.id} className={`truncate text-[11px] ${c.status === 'failed' ? 'text-red-500' : hint}`}>
           {COMMAND_STATUS[c.status]}
-          {c.result?.error ? ` (${c.result.error})` : ''}: {c.payload.text}
+          {c.result?.error ? ` (${c.result.error})` : ''}: {c.payload.imageCount ? `📎${c.payload.imageCount} ` : ''}
+          {c.payload.text}
         </p>
       ))}
     </div>

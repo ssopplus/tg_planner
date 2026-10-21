@@ -1,6 +1,6 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { cockpitRequests, users } from '@/lib/db/schema'
+import { cockpitCommands, cockpitRequests, users } from '@/lib/db/schema'
 
 /**
  * Запросы сессий Claude Code, присланные локальным dev-cockpit.
@@ -111,3 +111,9 @@ export async function applyDecision(
   if (!updated) return { ok: false, error: 'Запрос уже закрыт', req }
   return { ok: true, req: updated, complete }
 }
+
+/**
+ * Payload команды без скринов: в Mini App они не нужны, а весят сотни килобайт
+ * и опрашиваются каждые 5 секунд.
+ */
+export const commandPayloadPublic = sql<Record<string, unknown>>`${cockpitCommands.payload} - 'images'`

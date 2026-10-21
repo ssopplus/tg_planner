@@ -46,11 +46,15 @@ const isActive = (s: Session, now: number) =>
 
 /** Фильтры — удобство одного телефона: в localStorage, без него просто не запоминаются. */
 const FILTERS_KEY = 'sessions-filters'
-type Filters = { tab: 'active' | 'inactive'; project: string; q: string }
-const DEFAULT_FILTERS: Filters = { tab: 'active', project: '', q: '' }
+/** `projects` пустой — все проекты. */
+type Filters = { tab: 'active' | 'inactive'; projects: string[]; q: string }
+const DEFAULT_FILTERS: Filters = { tab: 'active', projects: [], q: '' }
 function readFilters(): Filters {
   try {
-    return { ...DEFAULT_FILTERS, ...(JSON.parse(localStorage.getItem(FILTERS_KEY) ?? '{}') as Partial<Filters>) }
+    const saved = JSON.parse(localStorage.getItem(FILTERS_KEY) ?? '{}') as Partial<Filters> & { project?: string }
+    // До множественного выбора хранился один `project`.
+    const projects = Array.isArray(saved.projects) ? saved.projects : saved.project ? [saved.project] : []
+    return { tab: saved.tab === 'inactive' ? 'inactive' : 'active', projects, q: saved.q ?? '' }
   } catch {
     return DEFAULT_FILTERS
   }
@@ -112,13 +116,17 @@ export default function SessionsPage() {
   }, [load])
 
   const sessions = useMemo(() => data?.sessions ?? [], [data])
-  const projects = useMemo(() => [...new Set(sessions.map((s) => s.project || 'Без проекта'))].sort(), [sessions])
+  // Выбранные остаются в списке, даже если их сессии закрылись, — иначе чип не снять.
+  const projects = useMemo(
+    () => [...new Set([...sessions.map((s) => s.project || 'Без проекта'), ...filters.projects])].sort(),
+    [sessions, filters.projects],
+  )
   const activeCount = sessions.filter((s) => isActive(s, now)).length
   const shown = useMemo(() => {
     const q = filters.q.trim().toLowerCase()
     return sessions
       .filter((s) => isActive(s, now) === (filters.tab === 'active'))
-      .filter((s) => !filters.project || (s.project || 'Без проекта') === filters.project)
+      .filter((s) => !filters.projects.length || filters.projects.includes(s.project || 'Без проекта'))
       .filter(
         (s) =>
           !q ||
@@ -195,9 +203,17 @@ export default function SessionsPage() {
                 <button
                   key={p || 'all'}
                   type="button"
-                  onClick={() => setFilters({ project: p })}
+                  onClick={() =>
+                    setFilters({
+                      projects: !p
+                        ? []
+                        : filters.projects.includes(p)
+                          ? filters.projects.filter((x) => x !== p)
+                          : [...filters.projects, p],
+                    })
+                  }
                   className={`shrink-0 rounded-full px-3 py-1.5 text-[12px] ${
-                    filters.project === p
+                    (p ? filters.projects.includes(p) : !filters.projects.length)
                       ? 'bg-[var(--tg-theme-button-color,#007aff)] text-[var(--tg-theme-button-text-color,#fff)]'
                       : `bg-[var(--tg-theme-secondary-bg-color,#efeff4)] ${text}`
                   }`}
@@ -212,7 +228,7 @@ export default function SessionsPage() {
             <p className={`py-6 text-center text-sm ${hint}`}>
               {sessions.length === 0
                 ? 'Открытых сессий нет'
-                : filters.q || filters.project
+                : filters.q || filters.projects.length
                   ? 'Под фильтр ничего не подходит'
                   : filters.tab === 'active'
                     ? 'Активных сессий нет — все простаивают дольше 3 часов'

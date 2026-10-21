@@ -3,6 +3,7 @@ import { and, desc, eq, gt } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { cockpitCommands, cockpitRequests, cockpitState, cockpitTranscripts } from '@/lib/db/schema'
 import { authorizeMiniApp } from '@/lib/telegram/auth'
+import { commandPayloadPublic } from '@/lib/cockpit/requests'
 
 /**
  * GET /api/cockpit/sessions/:id — страница сессии в Mini App.
@@ -33,7 +34,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     )
     .orderBy(desc(cockpitRequests.createdAt))
   const commands = await db
-    .select()
+    .select({
+      id: cockpitCommands.id,
+      kind: cockpitCommands.kind,
+      sessionId: cockpitCommands.sessionId,
+      payload: commandPayloadPublic,
+      status: cockpitCommands.status,
+      result: cockpitCommands.result,
+      createdAt: cockpitCommands.createdAt,
+    })
     .from(cockpitCommands)
     .where(and(eq(cockpitCommands.userId, user.id), eq(cockpitCommands.sessionId, id), gt(cockpitCommands.createdAt, since)))
     .orderBy(desc(cockpitCommands.createdAt))

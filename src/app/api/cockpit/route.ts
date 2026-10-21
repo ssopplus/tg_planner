@@ -3,6 +3,7 @@ import { and, desc, eq, gt } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { cockpitCommands, cockpitRequests, cockpitState } from '@/lib/db/schema'
 import { authorizeMiniApp } from '@/lib/telegram/auth'
+import { commandPayloadPublic } from '@/lib/cockpit/requests'
 
 /**
  * GET /api/cockpit — экран «Сессии»: последний снимок dev-cockpit, ожидающие
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
       id: cockpitCommands.id,
       kind: cockpitCommands.kind,
       sessionId: cockpitCommands.sessionId,
-      payload: cockpitCommands.payload,
+      payload: commandPayloadPublic,
       status: cockpitCommands.status,
       result: cockpitCommands.result,
       createdAt: cockpitCommands.createdAt,

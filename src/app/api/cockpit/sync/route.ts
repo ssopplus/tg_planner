@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { and, eq, gt, inArray, isNull, lt, or } from 'drizzle-orm'
+import { and, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import {
   cockpitCommands,
@@ -161,13 +161,20 @@ export async function POST(request: NextRequest) {
       .set({
         status: res.ok ? 'done' : 'failed',
         result: { error: res.error?.slice(0, 1000), output: res.output?.slice(0, 2000) },
+        // Скрины уже лежат файлами на машине (или не доехали) — в БД они больше не нужны.
+        payload: sql`${cockpitCommands.payload} - 'images'`,
         doneAt: new Date(),
       })
       .where(and(eq(cockpitCommands.id, res.id), eq(cockpitCommands.userId, user.id)))
   }
   await db
     .update(cockpitCommands)
-    .set({ status: 'failed', result: { error: 'cockpit не отчитался о выполнении' }, doneAt: new Date() })
+    .set({
+      status: 'failed',
+      result: { error: 'cockpit не отчитался о выполнении' },
+      payload: sql`${cockpitCommands.payload} - 'images'`,
+      doneAt: new Date(),
+    })
     .where(
       and(
         eq(cockpitCommands.userId, user.id),

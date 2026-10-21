@@ -815,12 +815,41 @@ function taskSnapshot(s, notes) {
 }
 
 // Команда из Mini App: текст в сессию или новая фоновая сессия по задаче.
+// Скрины из Mini App: сохраняем файлами, в сессию уходят пути — Claude откроет их через Read.
+const UPLOADS_DIR = path.join(HERE, 'data', 'uploads');
+const UPLOADS_TTL_MS = 7 * 86400e3;
+const IMAGE_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+
+async function saveImages(c) {
+  const images = Array.isArray(c.payload?.images) ? c.payload.images : [];
+  if (!images.length) return [];
+  await fsp.mkdir(UPLOADS_DIR, { recursive: true });
+  for (const f of await fsp.readdir(UPLOADS_DIR)) {
+    const file = path.join(UPLOADS_DIR, f);
+    const st = await fsp.stat(file).catch(() => null);
+    if (st && Date.now() - st.mtimeMs > UPLOADS_TTL_MS) await fsp.rm(file, { force: true });
+  }
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
+  return Promise.all(images.map(async (img, i) => {
+    const ext = IMAGE_EXT[img.mime];
+    if (!ext || typeof img.data !== 'string') throw new Error('скрин не похож на картинку');
+    const file = path.join(UPLOADS_DIR, `${stamp}-${String(c.id).slice(0, 8)}-${i + 1}.${ext}`);
+    await fsp.writeFile(file, Buffer.from(img.data, 'base64'));
+    return file;
+  }));
+}
+
 async function runCommand(c) {
   try {
     if (c.kind === 'message') {
       const a = (await liveAgents()).find(x => x.sessionId === c.sessionId);
       if (!a) throw new Error('сессия закрыта или не найдена');
-      await sendToSession(a, String(c.payload?.text || ''));
+      const files = await saveImages(c);
+      const text = String(c.payload?.text || '');
+      const shots = files.length
+        ? `${text ? '\n\n' : ''}${files.length > 1 ? 'Скрины' : 'Скрин'} с телефона — открой через Read:\n${files.map(f => `- ${f}`).join('\n')}`
+        : '';
+      await sendToSession(a, text + shots);
       return { id: c.id, ok: true };
     }
     if (c.kind === 'start-task') {

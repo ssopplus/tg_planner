@@ -168,23 +168,34 @@ export function TaskDetail({ t }: { t: SessionTask }) {
   )
 }
 
+/**
+ * Реплика из cockpit для сессии — чужая, «да» в ней подтверждением не считается.
+ * Ответ на AskUserQuestion — считается: приходит через хук как ответ пользователя.
+ * Этим текстом просим сессию переспросить карточкой.
+ */
+const ASK_CONFIRM =
+  'Если ты ждёшь моего подтверждения или ответа — задай его через AskUserQuestion с вариантами ' +
+  '(например «Да, выполняй» / «Нет») и в вопросе коротко назови, что именно сделаешь. Я отвечу в карточке. ' +
+  'Если ничего не ждёшь — просто продолжай.'
+
 /** Текст в сессию: уходит через cockpit в её межсессионный сокет. */
 export function Composer({ sessionId, commands, onSent }: { sessionId: string; commands: Command[]; onSent: () => void }) {
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const send = async () => {
-    if (!value.trim()) return
+  const send = async (preset?: string) => {
+    const message = preset ?? value
+    if (!message.trim()) return
     setBusy(true)
     setError(null)
     try {
       const res = await apiFetch('/api/cockpit/commands', {
         method: 'POST',
-        body: JSON.stringify({ kind: 'message', sessionId, text: value }),
+        body: JSON.stringify({ kind: 'message', sessionId, text: message }),
       })
       if (!res.ok) setError(((await res.json()) as { error?: string }).error ?? 'Ошибка')
-      else setValue('')
+      else if (!preset) setValue('')
       onSent()
     } finally {
       setBusy(false)
@@ -204,15 +215,19 @@ export function Composer({ sessionId, commands, onSent }: { sessionId: string; c
         <button
           type="button"
           disabled={busy || !value.trim()}
-          onClick={send}
+          onClick={() => send()}
           className="rounded-lg bg-[var(--tg-theme-button-color,#007aff)] px-3 py-2 text-[13px] text-[var(--tg-theme-button-text-color,#fff)] disabled:opacity-50"
         >
           Отправить
         </button>
-        <span className={`text-[11px] leading-snug ${hint}`}>
-          Claude получит это как реплику соседней сессии с пометкой «из dev-cockpit».
-        </span>
+        <button type="button" disabled={busy} onClick={() => send(ASK_CONFIRM)} className={`${chip} ${text} disabled:opacity-50`}>
+          Спросить кнопками
+        </button>
       </div>
+      <span className={`text-[11px] leading-snug ${hint}`}>
+        Claude получит текст как реплику соседней сессии, и «да» отсюда за подтверждение не примет. Ждёт твоего
+        «да» — жми «Спросить кнопками»: сессия задаст вопрос карточкой, ответ в ней засчитается как твой.
+      </span>
       {error ? <p className="text-[12px] text-red-500">{error}</p> : null}
       {commands.slice(0, 3).map((c) => (
         <p key={c.id} className={`truncate text-[11px] ${c.status === 'failed' ? 'text-red-500' : hint}`}>

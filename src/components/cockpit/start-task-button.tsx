@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { Play } from 'lucide-react'
 import { apiFetch } from '@/lib/telegram/webapp'
 
@@ -85,7 +86,15 @@ export function StartTaskButton({ issueKey, title }: { issueKey: string; title: 
       </button>
       {running?.length ? (
         <p className="text-[12px] text-[var(--tg-theme-hint-color,#8e8e93)]">
-          Уже идёт: {running.map((s) => s.name).join(', ')}
+          Уже идёт:{' '}
+          {running.map((s, i) => (
+            <span key={s.id}>
+              {i ? ', ' : ''}
+              <Link href={`/sessions/${s.id}`} className="text-[var(--tg-theme-link-color,#007aff)]">
+                {s.name}
+              </Link>
+            </span>
+          ))}
         </p>
       ) : null}
       {stale ? (

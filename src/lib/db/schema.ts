@@ -678,3 +678,31 @@ export const cockpitCommands = pgTable(
   },
   (table) => [index('cockpit_commands_user_status_idx').on(table.userId, table.status)],
 )
+
+/** Элемент переписки сессии для Mini App: реплики целиком, действия Claude — одной строкой. */
+export type CockpitChatItem =
+  | { kind: 'user'; ts: number | null; text: string; via?: 'cockpit' | 'peer' }
+  | { kind: 'assistant'; ts: number | null; text: string }
+  | { kind: 'tool'; ts: number | null; name: string; summary: string; isError?: boolean }
+
+/**
+ * Хвост переписки сессии, которую сейчас смотрят в Mini App.
+ *
+ * Переписка с машины уходит только по запросу: Mini App, открывая сессию,
+ * ставит `watched_at`, cockpit видит это в ответе синка и, пока сессию
+ * смотрят (30 с с последнего опроса), присылает последние ~100 сообщений —
+ * без входов и вывода инструментов, с замаскированными секретами. Копия одна
+ * и перезаписывается; строка удаляется через час после того, как смотреть
+ * перестали.
+ */
+export const cockpitTranscripts = pgTable('cockpit_transcripts', {
+  sessionId: text('session_id').primaryKey(),
+  userId: text('user_id')
+    .references(() => users.id, { onDelete: 'cascade' })
+    .notNull(),
+  items: jsonb('items').$type<CockpitChatItem[]>().default([]).notNull(),
+  /** Последний опрос из Mini App — пока свежий, cockpit присылает переписку. */
+  watchedAt: timestamp('watched_at').defaultNow().notNull(),
+  /** Когда cockpit прислал переписку; null — ещё ни разу. */
+  updatedAt: timestamp('updated_at'),
+})

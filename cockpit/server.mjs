@@ -760,6 +760,24 @@ const SYNC_RETRY_MS = 30_000;
 const syncStatus = { enabled: false, lastOk: null, lastError: null };
 let syncTimer = null, syncRunning = false, syncLastSent = 0, syncLastFull = 0, syncLastHash = '';
 const commandResults = []; // итоги команд, уйдут следующим синком
+// Сессии, которые сейчас открыты в Mini App: только их переписка уходит с машины.
+let watched = new Set();
+const transcriptHash = new Map(); // sessionId -> хеш отправленной переписки
+const TRANSCRIPT_ITEMS = 100;
+const TRANSCRIPT_TEXT = 3_000;
+
+// Хвост переписки для Mini App: реплики целиком (обрезаны и замаскированы), действия Claude —
+// только название и строка-описание, без входа и вывода.
+async function transcriptFor(sessionId) {
+  const p = await findTranscript(sessionId);
+  const st = p ? await readTranscript(p) : null;
+  if (!st) return null;
+  return st.chat.slice(-TRANSCRIPT_ITEMS).map(it => {
+    const cut = t => mask(t.length > TRANSCRIPT_TEXT ? t.slice(0, TRANSCRIPT_TEXT) + '\n…' : t);
+    if (it.kind === 'tool') return { kind: 'tool', ts: it.ts, name: it.name, summary: mask(it.summary || '').slice(0, 200), ...(it.isError ? { isError: true } : {}) };
+    return { kind: it.kind, ts: it.ts, text: cut(it.text || ''), ...(it.via ? { via: it.via } : {}) };
+  });
+}
 
 // Каталог, где запускаются новые сессии по задаче: там CLAUDE.md, .mcp.json и vault.
 const TASK_CWD = process.env.COCKPIT_TASK_CWD || path.dirname(VAULT);
@@ -846,11 +864,19 @@ async function syncTick() {
   const hash = createHash('sha1').update(JSON.stringify(snapshot.map(s => ({ ...s, updatedAt: 0 })))).digest('hex');
   const now = Date.now();
   const full = hash !== syncLastHash || now - syncLastFull > SYNC_FULL_MS;
-  if (!full && !pending.length && !commandResults.length && now - syncLastSent < SYNC_POLL_MS) return SYNC_CHECK_MS;
+  const transcripts = [];
+  for (const id of watched) {
+    const items = await transcriptFor(id);
+    if (!items) continue;
+    const h = createHash('sha1').update(JSON.stringify(items)).digest('hex');
+    if (transcriptHash.get(id) !== h) transcripts.push({ sessionId: id, items, h });
+  }
+  if (!full && !pending.length && !commandResults.length && !transcripts.length && now - syncLastSent < (watched.size ? SYNC_FAST_MS : SYNC_POLL_MS)) return SYNC_CHECK_MS;
   const results = commandResults.splice(0);
   const body = {
     ...(full ? { sessions: snapshot } : {}),
     commandResults: results,
+    transcripts: transcripts.map(({ sessionId, items }) => ({ sessionId, items })),
     pending: pending.map(r => {
       const s = byId.get(r.sessionId);
       return {
@@ -879,13 +905,17 @@ async function syncTick() {
   syncLastSent = now;
   if (full) { syncLastHash = hash; syncLastFull = now; }
   syncStatus.lastOk = Date.now(); syncStatus.lastError = null;
-  const { decisions = [], commands = [] } = reply;
+  for (const t of transcripts) transcriptHash.set(t.sessionId, t.h);
+  const { decisions = [], commands = [], watch = [] } = reply;
+  // Новая просматриваемая сессия — отправить переписку заново, даже если она не менялась.
+  for (const id of watch) if (!watched.has(id)) transcriptHash.delete(id);
+  watched = new Set(watch);
   for (const { id, decision } of decisions) {
     const r = requests.get(id);
     if (r?.status === 'pending' && decision) decide(r, { ...decision, via: 'mini-app' });
   }
   for (const c of commands) commandResults.push(await runCommand(c));
-  return decisions.length || pending.length || commands.length ? SYNC_FAST_MS : SYNC_CHECK_MS;
+  return decisions.length || pending.length || commands.length || watched.size ? SYNC_FAST_MS : SYNC_CHECK_MS;
 }
 
 // Один цикл на процесс; kickSync() — внеочередной прогон, когда пришёл новый запрос.

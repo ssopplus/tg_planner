@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm'
+import { and, eq, gt, inArray, isNull, lt, or } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { cockpitCommands, cockpitRequests, cockpitState, type CockpitSessionSnapshot } from '@/lib/db/schema'
+import {
+  cockpitCommands,
+  cockpitRequests,
+  cockpitState,
+  cockpitTranscripts,
+  type CockpitChatItem,
+  type CockpitSessionSnapshot,
+} from '@/lib/db/schema'
 import { resolveCockpitUser, type CockpitRequest } from '@/lib/cockpit/requests'
 
 /**
@@ -41,7 +48,14 @@ interface SyncBody {
   closed?: { id: string; status: string }[]
   /** Итоги выполненных команд из Mini App. */
   commandResults?: { id: string; ok: boolean; error?: string; output?: string }[]
+  /** Переписка сессий, которые сейчас смотрят в Mini App (только изменившиеся). */
+  transcripts?: { sessionId: string; items: CockpitChatItem[] }[]
 }
+
+/** Сессию «смотрят», пока Mini App опрашивал её переписку не позже чем столько назад. */
+const WATCH_FRESH_MS = 30e3
+/** Переписку удаляем через час после того, как её перестали смотреть. */
+const TRANSCRIPT_TTL_MS = 3600e3
 
 /** Команда, которую cockpit забрал, но так и не отчитался, — считаем потерянной. */
 const COMMAND_LOST_MS = 5 * 60e3
@@ -172,9 +186,33 @@ export async function POST(request: NextRequest) {
       payload: cockpitCommands.payload,
     })
 
+  // --- переписка по запросу Mini App ---
+  for (const t of Array.isArray(body.transcripts) ? body.transcripts : []) {
+    await db
+      .update(cockpitTranscripts)
+      .set({ items: Array.isArray(t.items) ? t.items.slice(-150) : [], updatedAt: new Date() })
+      .where(and(eq(cockpitTranscripts.sessionId, t.sessionId), eq(cockpitTranscripts.userId, user.id)))
+  }
+  const watch = await db
+    .select({ sessionId: cockpitTranscripts.sessionId })
+    .from(cockpitTranscripts)
+    .where(
+      and(
+        eq(cockpitTranscripts.userId, user.id),
+        gt(cockpitTranscripts.watchedAt, new Date(Date.now() - WATCH_FRESH_MS)),
+      ),
+    )
+
   const retention = new Date(Date.now() - RETENTION_MS)
   await db.delete(cockpitRequests).where(lt(cockpitRequests.createdAt, retention))
   await db.delete(cockpitCommands).where(lt(cockpitCommands.createdAt, retention))
+  await db
+    .delete(cockpitTranscripts)
+    .where(lt(cockpitTranscripts.watchedAt, new Date(Date.now() - TRANSCRIPT_TTL_MS)))
 
-  return NextResponse.json({ decisions: ready.map((r) => ({ id: r.id, decision: r.decision })), commands })
+  return NextResponse.json({
+    decisions: ready.map((r) => ({ id: r.id, decision: r.decision })),
+    commands,
+    watch: watch.map((w) => w.sessionId),
+  })
 }

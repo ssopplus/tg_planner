@@ -7,6 +7,7 @@ import { apiFetch } from '@/lib/telegram/webapp'
 import { TabStrip } from '@/components/ui/tab-strip'
 import { EmptyState } from '@/components/ui/empty-state'
 import { PullToRefresh } from '@/components/ui/pull-to-refresh'
+import { STATUS, type Session } from '@/components/cockpit/session-parts'
 
 type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'ARCHIVED'
 
@@ -18,6 +19,13 @@ interface TrackerTask {
   externalId: string | null
   projectName: string | null
   deadlineAt: string | null
+}
+
+/** Сессия Claude Code по задаче (из снимка dev-cockpit) и план задачи из её заметки. */
+interface ClaudeOnTask {
+  session: Session
+  done: number
+  total: number
 }
 
 /**
@@ -37,6 +45,7 @@ export default function TrackerPage() {
   const [todayTotal, setTodayTotal] = useState<string>('')
   const [tab, setTab] = useState<string>('IN_PROGRESS')
   const [loading, setLoading] = useState(true)
+  const [claude, setClaude] = useState<Record<string, ClaudeOnTask[]>>({})
 
   const load = useCallback(async () => {
     try {
@@ -69,10 +78,31 @@ export default function TrackerPage() {
     await apiFetch('/api/worklog').then(apply).catch(() => undefined)
   }, [])
 
+  // Какие задачи сейчас ведут сессии Claude Code — по снимку dev-cockpit с рабочей машины.
+  const loadClaude = useCallback(async () => {
+    const res = await apiFetch('/api/cockpit').catch(() => null)
+    if (!res?.ok) return
+    const data = (await res.json()) as { sessions: Session[] }
+    const byKey: Record<string, ClaudeOnTask[]> = {}
+    for (const session of data.sessions) {
+      const keys = new Set([session.taskKey, ...(session.tasks ?? []).map((t) => t.issue)].filter(Boolean) as string[])
+      for (const key of keys) {
+        const t = session.tasks?.find((x) => x.issue === key)
+        ;(byKey[key] ??= []).push({
+          session,
+          done: t?.todo.filter((x) => x.done).length ?? 0,
+          total: t?.todo.length ?? 0,
+        })
+      }
+    }
+    setClaude(byKey)
+  }, [])
+
   useEffect(() => {
     load()
     loadSpent()
-  }, [load, loadSpent])
+    loadClaude()
+  }, [load, loadSpent, loadClaude])
 
   const visible = useMemo(() => tasks.filter((t) => t.status === tab), [tasks, tab])
   const counts = useMemo(() => {
@@ -84,7 +114,7 @@ export default function TrackerPage() {
   return (
     <PullToRefresh
       onRefresh={async () => {
-        await Promise.all([load(), loadSpent()])
+        await Promise.all([load(), loadSpent(), loadClaude()])
       }}
     >
       <div className="flex items-center justify-between gap-3 px-4 pt-4 pb-3">
@@ -121,7 +151,12 @@ export default function TrackerPage() {
           />
         ) : (
           visible.map((task) => (
-            <TrackerCard key={task.id} task={task} spentMinutes={spent[task.externalId ?? '']} />
+            <TrackerCard
+              key={task.id}
+              task={task}
+              spentMinutes={spent[task.externalId ?? '']}
+              claude={claude[task.externalId ?? '']}
+            />
           ))
         )}
       </div>
@@ -129,7 +164,15 @@ export default function TrackerPage() {
   )
 }
 
-function TrackerCard({ task, spentMinutes }: { task: TrackerTask; spentMinutes?: number }) {
+function TrackerCard({
+  task,
+  spentMinutes,
+  claude,
+}: {
+  task: TrackerTask
+  spentMinutes?: number
+  claude?: ClaudeOnTask[]
+}) {
   const overdue = task.deadlineAt ? new Date(task.deadlineAt) < new Date() : false
 
   return (
@@ -181,6 +224,21 @@ function TrackerCard({ task, spentMinutes }: { task: TrackerTask; spentMinutes?:
           </>
         ) : null}
       </div>
+
+      {claude?.length ? (
+        <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+          {claude.map(({ session, done, total }) => {
+            const st = STATUS[session.status] ?? STATUS.idle
+            return (
+              <span key={session.id} className="flex items-center gap-1.5 text-[var(--tg-theme-hint-color,#8e8e93)]">
+                <span className={`h-2 w-2 rounded-full ${st.dot}`} />
+                Claude {st.label}
+                {total ? <span className="tabular-nums">· {done === total ? '✅' : '☑'} {done}/{total}</span> : null}
+              </span>
+            )
+          })}
+        </div>
+      ) : null}
     </Link>
   )
 }

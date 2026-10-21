@@ -7,6 +7,7 @@
 // Слушает только 127.0.0.1. Зависимостей нет.
 
 import http from 'node:http';
+import net from 'node:net';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
@@ -476,6 +477,27 @@ function requestsPayload() {
   return { pending: list.filter(r => r.status === 'pending'), recent: list.filter(r => r.status !== 'pending').slice(0, 30) };
 }
 
+// ---------- свободный текст в сессию ----------
+// Межсессионный сокет Claude Code: JSON-строка {"type":"user",...} в messagingSocketPath из
+// ~/.claude/sessions/<pid>.json. Формат не задокументирован (взят из подсказки в коде CLI),
+// строка авторизации на macOS необязательна. Claude получает текст как межсессионное
+// сообщение, а не как команду пользователя.
+const SESSIONS_DIR = path.join(path.dirname(PROJECTS_DIR), 'sessions');
+
+async function sendToSession(a, text) {
+  const reg = JSON.parse(await fsp.readFile(path.join(SESSIONS_DIR, `${a.pid}.json`), 'utf8'));
+  if (reg.sessionId !== a.sessionId || !reg.messagingSocketPath) throw new Error('у сессии нет входящего сокета');
+  const line = JSON.stringify({ type: 'user', message: { role: 'user', content: `[из dev-cockpit] ${text}` } }) + '\n';
+  await new Promise((resolve, reject) => {
+    const sock = net.createConnection(reg.messagingSocketPath);
+    const timer = setTimeout(() => { sock.destroy(); resolve(); }, 1500);
+    sock.on('connect', () => sock.end(line));
+    sock.on('close', () => { clearTimeout(timer); resolve(); });
+    sock.on('error', e => { clearTimeout(timer); reject(e); });
+  });
+  hookLog({ event: 'message-sent', session: a.sessionId, text: text.slice(0, 200) });
+}
+
 // ---------- сборка ответа ----------
 
 async function sessionSummary(a, cfg) {
@@ -586,6 +608,16 @@ const server = http.createServer(async (req, res) => {
       const r = requests.get(b.id);
       if (!r || r.status !== 'pending') return send(res, 409, { error: 'запрос уже закрыт' });
       return send(res, 200, { ok: true, request: publicRequest(decide(r, b)) });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/message') {
+      if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
+      const b = await readJson(req);
+      const text = String(b.text || '').trim();
+      if (!text || text.length > 10000) return send(res, 400, { error: 'пустой или слишком длинный текст' });
+      const a = (await liveAgents()).find(x => x.sessionId === b.sessionId);
+      if (!a) return send(res, 404, { error: 'session not found' });
+      await sendToSession(a, text);
+      return send(res, 200, { ok: true });
     }
     if (req.method === 'POST' && url.pathname === '/api/meta') {
       // Защита от запросов с чужих страниц: принимаем только JSON (простая форма его не отправит).

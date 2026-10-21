@@ -27,6 +27,7 @@ export interface Session {
   taskKey?: string | null
   tasks?: SessionTask[]
   permissionMode?: string | null
+  waitingFor?: string | null
   updatedAt: string
 }
 

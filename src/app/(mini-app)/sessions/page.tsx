@@ -306,6 +306,7 @@ function SessionRow({
             ))}
           </span>
         ) : null}
+        {s.waitingFor ? <span className="text-[12px] leading-snug text-amber-600">⏳ Ждёт {s.waitingFor}</span> : null}
         {s.lastAssistant && (open || !compact) ? (
           <span className={`whitespace-pre-wrap text-[12px] leading-snug ${hint} ${open ? '' : 'line-clamp-2'}`}>
             {s.lastAssistant}

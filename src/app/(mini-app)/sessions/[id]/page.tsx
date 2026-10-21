@@ -142,6 +142,10 @@ export default function SessionPage() {
         </div>
       </div>
 
+      {s?.waitingFor ? (
+        <p className="rounded-xl border border-amber-400 p-2.5 text-[13px] leading-snug text-amber-600">⏳ Ждёт {s.waitingFor}</p>
+      ) : null}
+
       {(s?.tasks ?? []).length ? (
         <details className="rounded-xl border border-border bg-[var(--tg-theme-section-bg-color,#fff)] p-2.5">
           <summary className={`text-[13px] font-semibold ${text}`}>План и ворклог задачи</summary>

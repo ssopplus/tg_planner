@@ -562,6 +562,8 @@ export type CockpitSessionSnapshot = {
   tasks?: CockpitTaskSnapshot[]
   /** Режим разрешений сессии (default, acceptEdits, plan, auto…) — из транскрипта или запроса. */
   permissionMode?: string | null
+  /** Чего ждёт сессия, если это не запрос (например, фоновая стоит на вопросе в терминале). */
+  waitingFor?: string | null
   updatedAt: string
 }
 

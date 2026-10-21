@@ -542,8 +542,22 @@ function requestsPayload() {
 // сообщение, а не как команду пользователя.
 const SESSIONS_DIR = path.join(path.dirname(PROJECTS_DIR), 'sessions');
 
+// Регистрация сессии с путём сокета: у интерактивной — по pid, у фоновой (`claude --bg`) pid в
+// `claude agents` нет, ищем по id сессии среди всех регистраций.
+async function sessionRegistration(a) {
+  if (a.pid) return JSON.parse(await fsp.readFile(path.join(SESSIONS_DIR, `${a.pid}.json`), 'utf8'));
+  for (const f of await fsp.readdir(SESSIONS_DIR)) {
+    if (!f.endsWith('.json')) continue;
+    const reg = JSON.parse(await fsp.readFile(path.join(SESSIONS_DIR, f), 'utf8').catch(() => '{}'));
+    if (reg.sessionId === a.sessionId) return reg;
+  }
+  throw new Error(a.kind === 'background'
+    ? `фоновая сессия ещё не запустилась (${a.state || 'нет состояния'}) — открой её в терминале: claude attach ${a.id}`
+    : 'регистрация сессии не найдена');
+}
+
 async function sendToSession(a, text) {
-  const reg = JSON.parse(await fsp.readFile(path.join(SESSIONS_DIR, `${a.pid}.json`), 'utf8'));
+  const reg = await sessionRegistration(a);
   if (reg.sessionId !== a.sessionId || !reg.messagingSocketPath) throw new Error('у сессии нет входящего сокета');
   const line = JSON.stringify({ type: 'user', message: { role: 'user', content: `[из dev-cockpit] ${text}` } }) + '\n';
   await new Promise((resolve, reject) => {
@@ -682,8 +696,19 @@ function trackerStatuses(keys) {
 
 // ---------- сборка ответа ----------
 
+// Фоновые сессии (`claude --bg`, запуск задачи из Mini App) отдают не status, а state.
+// blocked — стоит на интерактивном вопросе (доверие к папке, MCP-серверы проекта): ответить
+// можно только в терминале через `claude attach`, хуки и сокет до этого не работают.
+function backgroundStatus(a) {
+  if (a.kind !== 'background') return {};
+  if (a.state === 'blocked') {
+    return { status: 'waiting', waitingFor: `ответа в терминале — фоновая сессия стоит на вопросе Claude Code: claude attach ${a.id}` };
+  }
+  return { status: /run|busy|work/i.test(a.state || '') ? 'busy' : 'idle' };
+}
+
 async function sessionSummary(a, cfg) {
-  const s = { ...a };
+  const s = { ...a, ...backgroundStatus(a) };
   const m = meta.sessions[a.sessionId] || {};
   let st = null;
   try {
@@ -899,6 +924,7 @@ async function syncTick() {
     lastAssistant: s.lastAssistant ? mask(s.lastAssistant.slice(0, 700)) : undefined,
     taskKey: s.taskKey || null,
     permissionMode: s.permissionMode || null,
+    waitingFor: s.waitingFor || null,
     tasks: taskSnapshot(s, await notesForSession(s.sessionId, s.taskKey)),
     updatedAt: new Date(s.lastActivity || Date.now()).toISOString(),
   })));

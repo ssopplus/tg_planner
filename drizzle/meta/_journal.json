@@ -127,6 +127,13 @@
       "when": 1792586694346,
       "tag": "0017_cockpit",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792611963328,
+      "tag": "0018_cockpit_commands",
+      "breakpoints": true
     }
   ]
 }

@@ -5,13 +5,33 @@ import { apiFetch } from '@/lib/telegram/webapp'
 import { requestBody } from '@/lib/cockpit/format'
 import { EmptyState } from '@/components/ui/empty-state'
 
+interface SessionTask {
+  issue: string | null
+  title: string
+  status?: { display: string; type: string | null } | null
+  todo: { done: boolean; text: string }[]
+  log?: { date: string; own: boolean; done?: string; left?: string; blockers?: string } | null
+}
+
 interface Session {
   id: string
   name: string
   project: string
   status: 'waiting' | 'busy' | 'idle'
   lastAssistant?: string
+  taskKey?: string | null
+  tasks?: SessionTask[]
   updatedAt: string
+}
+
+interface Command {
+  id: string
+  kind: 'message' | 'start-task'
+  sessionId: string | null
+  payload: { text?: string; issueKey?: string }
+  status: 'pending' | 'sent' | 'done' | 'failed'
+  result: { error?: string; output?: string } | null
+  createdAt: string
 }
 
 interface Question {
@@ -40,6 +60,7 @@ interface CockpitData {
   syncedAt: string | null
   sessions: Session[]
   requests: Request[]
+  commands: Command[]
 }
 
 const STATUS = {
@@ -47,6 +68,21 @@ const STATUS = {
   busy: { label: 'работает', dot: 'bg-blue-500' },
   idle: { label: 'простаивает', dot: 'bg-gray-400' },
 } as const
+
+/** Цвет статуса задачи в Трекере по его типу (review — тестирование и ревью). */
+const TASK_STATUS: Record<string, string> = {
+  inProgress: 'bg-blue-500/15 text-blue-500',
+  review: 'bg-purple-500/15 text-purple-500',
+  done: 'bg-green-500/15 text-green-600',
+  paused: 'bg-amber-500/15 text-amber-600',
+}
+
+const COMMAND_STATUS: Record<Command['status'], string> = {
+  pending: 'ждёт cockpit',
+  sent: 'cockpit выполняет',
+  done: 'доставлено',
+  failed: 'не вышло',
+}
 
 const CLOSED: Record<string, string> = {
   answered: 'отвечено',
@@ -135,7 +171,12 @@ export default function SessionsPage() {
                 <h2 className={`px-3 pt-3 text-[13px] font-semibold ${text}`}>{project}</h2>
                 <ul className="flex flex-col divide-y divide-border">
                   {list.map((s) => (
-                    <SessionRow key={s.id} s={s} />
+                    <SessionRow
+                      key={s.id}
+                      s={s}
+                      commands={data.commands.filter((c) => c.sessionId === s.id)}
+                      onSent={load}
+                    />
                   ))}
                 </ul>
               </section>
@@ -159,9 +200,10 @@ export default function SessionsPage() {
   )
 }
 
-function SessionRow({ s }: { s: Session }) {
+function SessionRow({ s, commands, onSent }: { s: Session; commands: Command[]; onSent: () => void }) {
   const [open, setOpen] = useState(false)
   const st = STATUS[s.status] ?? STATUS.idle
+  const tasks = s.tasks ?? []
   return (
     <li>
       <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full flex-col gap-1 p-3 text-left">
@@ -170,13 +212,142 @@ function SessionRow({ s }: { s: Session }) {
           <span className={`min-w-0 flex-1 truncate text-[14px] ${text}`}>{s.name}</span>
           <span className={`text-[11px] ${hint}`}>{st.label}</span>
         </span>
+        {tasks.length ? (
+          <span className="flex flex-wrap gap-x-3 gap-y-1">
+            {tasks.map((t) => (
+              <TaskBadge key={t.issue ?? t.title} t={t} showKey={tasks.length > 1 || !s.name.includes(t.issue ?? '')} />
+            ))}
+          </span>
+        ) : null}
         {s.lastAssistant ? (
           <span className={`whitespace-pre-wrap text-[12px] leading-snug ${hint} ${open ? '' : 'line-clamp-2'}`}>
             {s.lastAssistant}
           </span>
         ) : null}
       </button>
+      {open ? (
+        <div className="flex flex-col gap-3 px-3 pb-3">
+          {tasks.map((t) => (
+            <TaskDetail key={t.issue ?? t.title} t={t} />
+          ))}
+          <Composer sessionId={s.id} commands={commands} onSent={onSent} />
+        </div>
+      ) : null}
     </li>
+  )
+}
+
+function TaskBadge({ t, showKey }: { t: SessionTask; showKey: boolean }) {
+  const done = t.todo.filter((x) => x.done).length
+  return (
+    <span className="flex items-center gap-1.5 text-[11px]">
+      {t.status ? (
+        <span className={`rounded px-1.5 font-semibold ${TASK_STATUS[t.status.type ?? ''] ?? `bg-[var(--tg-theme-secondary-bg-color,#efeff4)] ${hint}`}`}>
+          {t.status.display}
+        </span>
+      ) : null}
+      {showKey && t.issue ? <span className="font-semibold text-[var(--tg-theme-link-color,#007aff)]">{t.issue}</span> : null}
+      {t.todo.length ? (
+        <span className={`tabular-nums ${hint}`}>
+          {done === t.todo.length ? '✅' : '☑'} {done}/{t.todo.length}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
+/** План и запись ворклога из заметки start-task. */
+function TaskDetail({ t }: { t: SessionTask }) {
+  const field = (label: string, value?: string) =>
+    value ? (
+      <div>
+        <p className={`text-[11px] font-semibold uppercase ${hint}`}>{label}</p>
+        <p className={`whitespace-pre-wrap text-[12.5px] leading-snug ${text}`}>{value}</p>
+      </div>
+    ) : null
+  return (
+    <section className="flex flex-col gap-2 rounded-lg bg-[var(--tg-theme-secondary-bg-color,#efeff4)] p-2.5">
+      <p className={`text-[13px] font-semibold ${text}`}>
+        {t.issue ? `${t.issue} · ` : ''}
+        {t.title}
+      </p>
+      {t.todo.length ? (
+        <ul className="flex flex-col gap-0.5">
+          {t.todo.map((x, i) => (
+            <li key={i} className={`flex gap-1.5 text-[12.5px] leading-snug ${x.done ? `${hint} line-through` : text}`}>
+              <span className="shrink-0">{x.done ? '✓' : '○'}</span>
+              <span>{x.text}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {t.log ? (
+        <>
+          <p className={`text-[11px] ${hint}`}>Ворклог · {t.log.date}{t.log.own ? ' · эта сессия' : ' · последняя запись'}</p>
+          {field('Сделано', t.log.done)}
+          {field('Осталось', t.log.left)}
+          {t.log.blockers && !/^нет\.?$/i.test(t.log.blockers) ? field('Блокеры', t.log.blockers) : null}
+        </>
+      ) : (
+        <p className={`text-[12px] ${hint}`}>Ворклога нет — его ведёт /start-task.</p>
+      )}
+    </section>
+  )
+}
+
+/** Текст в сессию: уходит через cockpit в её межсессионный сокет. */
+function Composer({ sessionId, commands, onSent }: { sessionId: string; commands: Command[]; onSent: () => void }) {
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const send = async () => {
+    if (!value.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await apiFetch('/api/cockpit/commands', {
+        method: 'POST',
+        body: JSON.stringify({ kind: 'message', sessionId, text: value }),
+      })
+      if (!res.ok) setError(((await res.json()) as { error?: string }).error ?? 'Ошибка')
+      else setValue('')
+      onSent()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <textarea
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        rows={3}
+        placeholder="Написать в сессию…"
+        className={`rounded-lg border border-border bg-transparent px-2 py-1.5 text-[14px] ${text}`}
+      />
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={busy || !value.trim()}
+          onClick={send}
+          className="rounded-lg bg-[var(--tg-theme-button-color,#007aff)] px-3 py-2 text-[13px] text-[var(--tg-theme-button-text-color,#fff)] disabled:opacity-50"
+        >
+          Отправить
+        </button>
+        <span className={`text-[11px] leading-snug ${hint}`}>
+          Claude получит это как реплику соседней сессии с пометкой «из dev-cockpit».
+        </span>
+      </div>
+      {error ? <p className="text-[12px] text-red-500">{error}</p> : null}
+      {commands.slice(0, 3).map((c) => (
+        <p key={c.id} className={`truncate text-[11px] ${c.status === 'failed' ? 'text-red-500' : hint}`}>
+          {COMMAND_STATUS[c.status]}
+          {c.result?.error ? ` (${c.result.error})` : ''}: {c.payload.text}
+        </p>
+      ))}
+    </div>
   )
 }
 

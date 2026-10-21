@@ -8,6 +8,7 @@ import { TrackerDescription } from '@/lib/tracker/render-description'
 import { WorklogPanel } from '@/components/tracker/worklog-panel'
 import { StatusSwitcher } from '@/components/tracker/status-switcher'
 import { CommentsSection } from '@/components/tracker/comments-section'
+import { StartTaskButton } from '@/components/cockpit/start-task-button'
 
 interface TaskDetail {
   id: string
@@ -127,6 +128,10 @@ export default function TrackerTaskPage() {
           <ExternalLink className="h-3.5 w-3.5" />
         </a>
       </div>
+
+      {issueKey && task.status !== 'DONE' && task.status !== 'ARCHIVED' ? (
+        <StartTaskButton issueKey={issueKey} title={task.title} />
+      ) : null}
 
       <WorklogPanel
         issueKey={issueKey}

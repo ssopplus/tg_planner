@@ -556,7 +556,20 @@ export type CockpitSessionSnapshot = {
   status: 'waiting' | 'busy' | 'idle'
   /** Последняя реплика Claude, обрезанная и с замаскированными секретами. */
   lastAssistant?: string
+  /** Ключ задачи Трекера из имени или ветки сессии. */
+  taskKey?: string | null
+  /** Задачи сессии: статус в Трекере и заметка start-task (план и запись ворклога этой сессии). */
+  tasks?: CockpitTaskSnapshot[]
   updatedAt: string
+}
+
+export type CockpitTaskSnapshot = {
+  issue: string | null
+  title: string
+  status?: { display: string; type: string | null } | null
+  todo: { done: boolean; text: string }[]
+  /** Запись ворклога этой сессии, а если её нет — последняя. */
+  log?: { date: string; own: boolean; done?: string; left?: string; blockers?: string } | null
 }
 
 /**
@@ -630,4 +643,38 @@ export const cockpitRequests = pgTable(
     index('cockpit_requests_user_status_idx').on(table.userId, table.status),
     index('cockpit_requests_created_idx').on(table.createdAt),
   ],
+)
+
+/**
+ * Команды из Mini App для локального dev-cockpit: написать в сессию или
+ * запустить задачу в новой фоновой сессии Claude Code.
+ *
+ * Cockpit забирает pending-команды синком (status → sent), выполняет их на
+ * машине и следующим синком присылает итог (done / failed). Хранятся 7 дней,
+ * вместе с запросами.
+ */
+export const cockpitCommands = pgTable(
+  'cockpit_commands',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    /** message — текст в сессию; start-task — `claude --bg "/start-task КЛЮЧ"`. */
+    kind: text('kind').notNull(),
+    /** Сессия-адресат для message. */
+    sessionId: text('session_id'),
+    /** message: `{ text }`; start-task: `{ issueKey, title }`. */
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+    /** pending | sent | done | failed */
+    status: text('status').default('pending').notNull(),
+    /** Итог от cockpit: ошибка или вывод `claude --bg` (id фоновой сессии). */
+    result: jsonb('result').$type<{ error?: string; output?: string } | null>(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    sentAt: timestamp('sent_at'),
+    doneAt: timestamp('done_at'),
+  },
+  (table) => [index('cockpit_commands_user_status_idx').on(table.userId, table.status)],
 )

@@ -744,19 +744,69 @@ async function sessionDetail(id, since) {
   return s;
 }
 
-// ---------- синк с tg-planer (Telegram и Mini App) ----------
+// ---------- синк с tg-planer (Mini App) ----------
 // Cockpit сам ходит в POST /api/cockpit/sync: шлёт снимок сессий, ожидающие запросы и итоги
-// закрытых, получает решения из Telegram. Входящих соединений на машину нет. Включается файлом
-// data/sync.json {"url":"https://…/api/cockpit/sync","secret":"…"}; без него синка нет.
-// Переписка и diff не уходят: только имя, статус, последняя реплика Claude и входы запросов,
-// с замаскированными секретами.
+// закрытых, получает решения и команды из Mini App. Входящих соединений на машину нет. Включается
+// файлом data/sync.json {"url":"https://…/api/cockpit/sync","secret":"…"}; без него синка нет.
+// Переписка и diff не уходят: только имя, статус, последняя реплика Claude, план и ворклог задачи
+// и входы запросов, с замаскированными секретами.
 const SYNC_FILE = path.join(path.dirname(META_FILE), 'sync.json');
-const SYNC_FAST_MS = 3_000;   // есть ожидающие запросы — ждём решения из Telegram
-const SYNC_CHECK_MS = 5_000;  // покой: смотрим, изменился ли снимок
-const SYNC_IDLE_MS = 60_000;  // покой: шлём не реже раза в минуту, чтобы Mini App видел, что cockpit жив
+const SYNC_FAST_MS = 3_000;    // есть ожидающие запросы или команды — ждём следующего шага
+const SYNC_CHECK_MS = 5_000;   // как часто смотреть, не пора ли синкаться
+const SYNC_POLL_MS = 10_000;   // покой: лёгкий опрос без снимка — за решениями и командами с телефона
+const SYNC_FULL_MS = 300_000;  // снимок целиком — при изменении и не реже раза в 5 мин
+const SYNC_IDLE_MS = 60_000;   // синк выключен — проверяем, не появился ли sync.json
 const SYNC_RETRY_MS = 30_000;
 const syncStatus = { enabled: false, lastOk: null, lastError: null };
-let syncTimer = null, syncRunning = false, syncLastSent = 0, syncLastHash = '';
+let syncTimer = null, syncRunning = false, syncLastSent = 0, syncLastFull = 0, syncLastHash = '';
+const commandResults = []; // итоги команд, уйдут следующим синком
+
+// Каталог, где запускаются новые сессии по задаче: там CLAUDE.md, .mcp.json и vault.
+const TASK_CWD = process.env.COCKPIT_TASK_CWD || path.dirname(VAULT);
+
+// Задачи сессии для Mini App: статус в Трекере, план и запись ворклога этой сессии (или последняя).
+function taskSnapshot(s, notes) {
+  const sid = s.sessionId.slice(0, 8);
+  const status = k => (s.trackerStatus?.[k] ? { display: s.trackerStatus[k].display, type: s.trackerStatus[k].type } : null);
+  const out = notes.map(n => {
+    const e = n.log.filter(x => x.session === sid).at(-1) || n.log.at(-1);
+    const cut = (t, len) => (t ? mask(t.length > len ? t.slice(0, len) + '…' : t) : undefined);
+    return {
+      issue: n.issue, title: n.issue ? n.title.replace(`${n.issue} — `, '') : n.title, status: status(n.issue),
+      todo: n.todo.slice(0, 40).map(t => ({ done: t.done, text: cut(t.text, 300) })),
+      log: e ? { date: e.date, own: e.session === sid, done: cut(e.done, 1500), left: cut(e.left, 1000), blockers: cut(e.blockers, 500) } : null,
+    };
+  });
+  if (s.taskKey && !out.some(t => t.issue === s.taskKey) && status(s.taskKey)) {
+    out.unshift({ issue: s.taskKey, title: s.taskKey, status: status(s.taskKey), todo: [], log: null });
+  }
+  return out;
+}
+
+// Команда из Mini App: текст в сессию или новая фоновая сессия по задаче.
+async function runCommand(c) {
+  try {
+    if (c.kind === 'message') {
+      const a = (await liveAgents()).find(x => x.sessionId === c.sessionId);
+      if (!a) throw new Error('сессия закрыта или не найдена');
+      await sendToSession(a, String(c.payload?.text || ''));
+      return { id: c.id, ok: true };
+    }
+    if (c.kind === 'start-task') {
+      const key = String(c.payload?.issueKey || '');
+      if (!/^[A-Z][A-Z0-9]{1,15}-\d{1,6}$/.test(key)) throw new Error('неверный ключ задачи');
+      const env = { ...process.env };
+      delete env.ANTHROPIC_API_KEY; // иначе фоновая сессия уйдёт в оплату по API, а не по подписке
+      const { stdout, stderr } = await pexec(CLAUDE_BIN, ['--bg', '--name', key, `/start-task ${key}`], { cwd: TASK_CWD, env, timeout: 60_000 });
+      hookLog({ event: 'task-started', issue: key, output: (stdout || stderr).trim().slice(0, 300) });
+      return { id: c.id, ok: true, output: (stdout || stderr).trim().slice(0, 500) };
+    }
+    throw new Error(`неизвестная команда ${c.kind}`);
+  } catch (e) {
+    hookLog({ event: 'command-failed', id: c.id, kind: c.kind, error: e.message });
+    return { id: c.id, ok: false, error: e.message };
+  }
+}
 
 const SECRET_RES = [
   [/((?:password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)[A-Za-z_]*["']?\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s"'&,;}]+)/gi, '$1***'],
@@ -783,13 +833,24 @@ async function syncTick() {
   const { sessions } = await sessionsPayload();
   const { pending, recent } = requestsPayload();
   const byId = new Map(sessions.map(s => [s.sessionId, s]));
+  const snapshot = await Promise.all(sessions.map(async s => ({
+    id: s.sessionId, name: s.title || s.claudeName || s.sessionId.slice(0, 8), project: s.project || '',
+    status: s.requests?.length ? 'waiting' : ['busy', 'waiting'].includes(s.status) ? s.status : 'idle',
+    lastAssistant: s.lastAssistant ? mask(s.lastAssistant.slice(0, 700)) : undefined,
+    taskKey: s.taskKey || null,
+    tasks: taskSnapshot(s, await notesForSession(s.sessionId, s.taskKey)),
+    updatedAt: new Date(s.lastActivity || Date.now()).toISOString(),
+  })));
+  // Снимок — только когда изменился (и раз в 5 мин); между ними лёгкий опрос раз в 10 с, чтобы
+  // решения и команды с телефона доходили быстро. При ожидающих запросах — каждые 3 с.
+  const hash = createHash('sha1').update(JSON.stringify(snapshot.map(s => ({ ...s, updatedAt: 0 })))).digest('hex');
+  const now = Date.now();
+  const full = hash !== syncLastHash || now - syncLastFull > SYNC_FULL_MS;
+  if (!full && !pending.length && !commandResults.length && now - syncLastSent < SYNC_POLL_MS) return SYNC_CHECK_MS;
+  const results = commandResults.splice(0);
   const body = {
-    sessions: sessions.map(s => ({
-      id: s.sessionId, name: s.title || s.claudeName || s.sessionId.slice(0, 8), project: s.project || '',
-      status: s.requests?.length ? 'waiting' : ['busy', 'waiting'].includes(s.status) ? s.status : 'idle',
-      lastAssistant: s.lastAssistant ? mask(s.lastAssistant.slice(0, 700)) : undefined,
-      updatedAt: new Date(s.lastActivity || Date.now()).toISOString(),
-    })),
+    ...(full ? { sessions: snapshot } : {}),
+    commandResults: results,
     pending: pending.map(r => {
       const s = byId.get(r.sessionId);
       return {
@@ -801,24 +862,30 @@ async function syncTick() {
     }),
     closed: recent.map(r => ({ id: r.id, status: r.status })),
   };
-  // В покое шлём только изменения (и раз в минуту — как пульс); при ожидающих запросах — всегда.
-  const hash = createHash('sha1').update(JSON.stringify({ ...body, sessions: body.sessions.map(s => ({ ...s, updatedAt: 0 })) })).digest('hex');
-  if (!pending.length && hash === syncLastHash && Date.now() - syncLastSent < SYNC_IDLE_MS) return SYNC_CHECK_MS;
-  const res = await fetch(cfg.url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.secret}` },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!res.ok) throw new Error(`sync ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  syncLastHash = hash; syncLastSent = Date.now();
+  let reply;
+  try {
+    const res = await fetch(cfg.url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.secret}` },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) throw new Error(`sync ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    reply = await res.json();
+  } catch (e) {
+    commandResults.unshift(...results); // итоги не дошли — отправим со следующим синком
+    throw e;
+  }
+  syncLastSent = now;
+  if (full) { syncLastHash = hash; syncLastFull = now; }
   syncStatus.lastOk = Date.now(); syncStatus.lastError = null;
-  const { decisions = [] } = await res.json();
+  const { decisions = [], commands = [] } = reply;
   for (const { id, decision } of decisions) {
     const r = requests.get(id);
-    if (r?.status === 'pending' && decision) decide(r, { ...decision, via: 'telegram' });
+    if (r?.status === 'pending' && decision) decide(r, { ...decision, via: 'mini-app' });
   }
-  return decisions.length || pending.length ? SYNC_FAST_MS : SYNC_CHECK_MS;
+  for (const c of commands) commandResults.push(await runCommand(c));
+  return decisions.length || pending.length || commands.length ? SYNC_FAST_MS : SYNC_CHECK_MS;
 }
 
 // Один цикл на процесс; kickSync() — внеочередной прогон, когда пришёл новый запрос.

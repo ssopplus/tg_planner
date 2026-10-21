@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { and, desc, eq, gt } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { cockpitRequests, cockpitState } from '@/lib/db/schema'
+import { cockpitCommands, cockpitRequests, cockpitState } from '@/lib/db/schema'
 import { authorizeMiniApp } from '@/lib/telegram/auth'
 
 /**
  * GET /api/cockpit — экран «Сессии»: последний снимок dev-cockpit, ожидающие
- * запросы целиком и закрытые за последний час. `?count` — только число ожидающих.
+ * запросы целиком и закрытые за последний час, команды за час. `?count` — только
+ * число ожидающих запросов.
  */
 export async function GET(request: NextRequest) {
   const user = await authorizeMiniApp(request.headers.get('X-Telegram-Init-Data') ?? '')
@@ -42,9 +43,25 @@ export async function GET(request: NextRequest) {
     .orderBy(desc(cockpitRequests.createdAt))
     .limit(50)
 
+  const commands = await db
+    .select({
+      id: cockpitCommands.id,
+      kind: cockpitCommands.kind,
+      sessionId: cockpitCommands.sessionId,
+      payload: cockpitCommands.payload,
+      status: cockpitCommands.status,
+      result: cockpitCommands.result,
+      createdAt: cockpitCommands.createdAt,
+    })
+    .from(cockpitCommands)
+    .where(and(eq(cockpitCommands.userId, user.id), gt(cockpitCommands.createdAt, new Date(Date.now() - 3600e3))))
+    .orderBy(desc(cockpitCommands.createdAt))
+    .limit(50)
+
   return NextResponse.json({
     syncedAt: state?.syncedAt ?? null,
     sessions: state?.sessions ?? [],
     requests,
+    commands,
   })
 }

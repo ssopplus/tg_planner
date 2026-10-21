@@ -5,9 +5,8 @@ import { cockpitRequests, users } from '@/lib/db/schema'
 /**
  * Запросы сессий Claude Code, присланные локальным dev-cockpit.
  *
- * Здесь только данные: решение пользователя ложится в строку, cockpit
- * забирает его следующим синком и отдаёт хуку сессии. Сообщения бота — в
- * src/bot/services/cockpit-notify.ts.
+ * Решение пользователя из Mini App ложится в строку, cockpit забирает его
+ * следующим синком и отдаёт хуку сессии. В чат бота запросы не пишутся.
  */
 
 export type CockpitRequest = typeof cockpitRequests.$inferSelect
@@ -50,7 +49,7 @@ export async function getRequest(userId: string, id: string): Promise<CockpitReq
   return req ?? null
 }
 
-/** Решение из Telegram или Mini App. Для вопроса — ответы целиком или по одному. */
+/** Решение из Mini App. Для вопроса — ответы целиком. */
 export type DecisionInput =
   | { behavior: 'allow'; always?: boolean }
   | { behavior: 'deny'; message?: string }
@@ -63,9 +62,8 @@ export type DecisionResult =
 /**
  * Записывает решение, если запрос ещё ждёт ответа.
  *
- * Вопросов в одном `AskUserQuestion` бывает несколько, а бот спрашивает их
- * по одному: ответы копятся в `decision.answers`, запрос остаётся pending,
- * пока не отвечены все. Защита от гонки — условие `status = 'pending'` в
+ * Вопросов в одном `AskUserQuestion` бывает несколько: ответы копятся в
+ * `decision.answers`, запрос остаётся pending, пока не отвечены все. Защита от гонки — условие `status = 'pending'` в
  * самом UPDATE: второй ответ (из другого клиента) просто не найдёт строку.
  */
 export async function applyDecision(
@@ -85,7 +83,7 @@ export async function applyDecision(
     decision = { behavior: 'allow', answers }
     complete = questionsOf(req).every((q) => answers[q.question] !== undefined)
   } else if (input.behavior === 'deny') {
-    decision = { behavior: 'deny', message: input.message?.slice(0, 2000) || 'Отклонено в Telegram' }
+    decision = { behavior: 'deny', message: input.message?.slice(0, 2000) || 'Отклонено в планировщике' }
   } else {
     if (req.kind === 'question') return { ok: false, error: 'Выбери вариант ответа', req }
     decision = { behavior: 'allow', ...(input.always && req.canAlways ? { always: true } : {}) }

@@ -13,7 +13,6 @@ import { resolveBoardForText, resolveDueFromText } from './quick-actions'
 import { handleTaskEditCallback, resolveEditedBoard } from './task-edit'
 import { handlePersonalCallback } from './personal'
 import { handleMeetingsCallback } from './meetings'
-import { handleCockpitCallback } from './cockpit'
 import { escapeMarkdown } from '../services/markdown'
 
 /**
@@ -39,9 +38,6 @@ export async function handleCallback(ctx: Context) {
   // Переключатели горизонта в списках дел и встреч.
   if (await handlePersonalCallback(ctx)) return
   if (await handleMeetingsCallback(ctx)) return
-
-  // Запросы сессий Claude Code из dev-cockpit.
-  if (await handleCockpitCallback(ctx)) return
 
   const { dbUser } = ctx as BotContext
   const parts = data.split(':')

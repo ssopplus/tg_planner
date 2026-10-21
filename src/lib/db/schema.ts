@@ -564,7 +564,7 @@ export type CockpitSessionSnapshot = {
  *
  * Cockpit живёт на рабочей машине и сам ходит в `/api/cockpit/sync`; входящих
  * соединений на машину нет. Снимок перезаписывается целиком, по нему экран
- * «Сессии» в Mini App и уведомление «сессия закончила» (busy → idle).
+ * «Сессии» в Mini App.
  * Переписка и diff сюда не попадают — они остаются только в локальном cockpit.
  */
 export const cockpitState = pgTable('cockpit_state', {
@@ -579,10 +579,10 @@ export const cockpitState = pgTable('cockpit_state', {
  * Запрос сессии Claude Code, который ждёт ответа: разрешение на инструмент
  * или вопрос `AskUserQuestion`.
  *
- * id выдаёт cockpit. Решение из Telegram ложится в `decision`, cockpit забирает
+ * id выдаёт cockpit. Решение из Mini App ложится в `decision`, cockpit забирает
  * его следующим синком и отдаёт хуку. Побеждает первый ответ: если запрос уже
- * закрыт в cockpit или в VS Code, cockpit присылает финальный статус, и бот
- * снимает кнопки. Хранится не дольше 7 дней.
+ * закрыт в cockpit или в VS Code, cockpit присылает финальный статус.
+ * Хранится не дольше 7 дней.
  */
 export const cockpitRequests = pgTable(
   'cockpit_requests',
@@ -597,7 +597,7 @@ export const cockpitRequests = pgTable(
     /** permission | question */
     kind: text('kind').notNull(),
     toolName: text('tool_name').notNull(),
-    /** Однострочное описание для уведомления; секреты замаскированы. */
+    /** Однострочное описание для списка; секреты замаскированы. */
     summary: text('summary').notNull(),
     /**
      * Полный вход инструмента (секреты замаскированы) — SQL и команды должны
@@ -608,7 +608,7 @@ export const cockpitRequests = pgTable(
     canAlways: boolean('can_always').default(false).notNull(),
     /** pending | answered | answered-elsewhere | expired */
     status: text('status').default('pending').notNull(),
-    /** Решение из Telegram: `{ behavior, message?, always?, answers? }`. */
+    /** Решение из Mini App: `{ behavior, message?, always?, answers? }`. */
     decision: jsonb('decision').$type<{
       behavior: 'allow' | 'deny'
       message?: string
@@ -617,7 +617,10 @@ export const cockpitRequests = pgTable(
     } | null>(),
     /** Когда cockpit забрал решение — до этого оно ещё не дошло до сессии. */
     deliveredAt: timestamp('delivered_at'),
-    /** Сообщение бота с кнопками — редактируется, когда запрос закрыт. */
+    /**
+     * Сообщение бота с кнопками. С 21.10.2026 запросы в чат не пишутся — вся
+     * работа в Mini App; колонки остались от первой версии и не заполняются.
+     */
     chatId: text('chat_id'),
     messageId: integer('message_id'),
     createdAt: timestamp('created_at').notNull(),

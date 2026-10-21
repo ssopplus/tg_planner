@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { authorizeMiniApp } from '@/lib/telegram/auth'
 import { applyDecision, type DecisionInput } from '@/lib/cockpit/requests'
-import { outcomeLabel, refreshRequestMessage } from '@/bot/services/cockpit-notify'
 
 /**
  * POST /api/cockpit/requests/:id — решение из Mini App.
@@ -27,7 +26,5 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const res = await applyDecision(user.id, id, input)
   if (!res.ok) return NextResponse.json({ error: res.error }, { status: 409 })
-  // Сообщение в чате бота тоже закрываем, чтобы там не висели живые кнопки.
-  await refreshRequestMessage(res.req, res.complete ? outcomeLabel(res.req) : undefined)
   return NextResponse.json({ ok: true, complete: res.complete })
 }

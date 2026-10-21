@@ -1,7 +1,9 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { apiFetch } from '@/lib/telegram/webapp'
 import { Briefcase, CheckSquare, NotebookText, Settings, TerminalSquare } from 'lucide-react'
 
 /**
@@ -9,7 +11,8 @@ import { Briefcase, CheckSquare, NotebookText, Settings, TerminalSquare } from '
  * равноправны и не пересекаются. «Архив» показывает задачи из Obsidian только
  * на чтение, поэтому стоит после них, а не между.
  *
- * «Сессии» — сессии Claude Code с рабочей машины (dev-cockpit).
+ * «Сессии» — сессии Claude Code с рабочей машины (dev-cockpit). Запросы сессий
+ * в чат бота не пишутся, поэтому о них сообщает счётчик на этой вкладке.
  *
  * Доски в эту панель не выносятся: их может стать сколько угодно, а сюда
  * влезает пять пунктов. Переключение досок живёт лентой внутри раздела.
@@ -22,8 +25,36 @@ const tabs = [
   { href: '/settings', label: 'Ещё', icon: Settings },
 ]
 
+/** Как часто обновлять счётчик ожидающих запросов сессий. */
+const COCKPIT_POLL_MS = 15_000
+
+/** Число запросов сессий Claude Code, которые ждут ответа. */
+function useCockpitPending(): number {
+  const [pending, setPending] = useState(0)
+  useEffect(() => {
+    const load = async () => {
+      if (document.visibilityState !== 'visible') return
+      try {
+        const res = await apiFetch('/api/cockpit?count')
+        if (res.ok) setPending(((await res.json()) as { pending: number }).pending)
+      } catch {
+        // Сеть мигнула — покажем прежнее число, следующий опрос поправит.
+      }
+    }
+    load()
+    const timer = setInterval(load, COCKPIT_POLL_MS)
+    document.addEventListener('visibilitychange', load)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', load)
+    }
+  }, [])
+  return pending
+}
+
 export function NavBar() {
   const pathname = usePathname()
+  const cockpitPending = useCockpitPending()
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--tg-theme-section-bg-color,#fff)] border-t border-border pb-[max(env(safe-area-inset-bottom,0px),0.5rem)]">
@@ -40,7 +71,14 @@ export function NavBar() {
                   : 'text-[var(--tg-theme-hint-color,#8e8e93)]'
               }`}
             >
-              <Icon className="h-5 w-5" strokeWidth={isActive ? 2.2 : 1.8} />
+              <span className="relative">
+                <Icon className="h-5 w-5" strokeWidth={isActive ? 2.2 : 1.8} />
+                {href === '/sessions' && cockpitPending > 0 ? (
+                  <span className="absolute -right-2.5 -top-1.5 min-w-4 rounded-full bg-red-500 px-1 text-center text-[10px] font-semibold leading-4 text-white">
+                    {cockpitPending}
+                  </span>
+                ) : null}
+              </span>
               <span className="text-[10px] font-medium leading-none">{label}</span>
             </Link>
           )

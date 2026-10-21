@@ -6,11 +6,20 @@ import { authorizeMiniApp } from '@/lib/telegram/auth'
 
 /**
  * GET /api/cockpit — экран «Сессии»: последний снимок dev-cockpit, ожидающие
- * запросы целиком и закрытые за последний час.
+ * запросы целиком и закрытые за последний час. `?count` — только число ожидающих.
  */
 export async function GET(request: NextRequest) {
   const user = await authorizeMiniApp(request.headers.get('X-Telegram-Init-Data') ?? '')
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // Счётчик для вкладки «Сессии» в нижней панели — без снимка и входов запросов.
+  if (request.nextUrl.searchParams.has('count')) {
+    const rows = await db
+      .select({ id: cockpitRequests.id })
+      .from(cockpitRequests)
+      .where(and(eq(cockpitRequests.userId, user.id), eq(cockpitRequests.status, 'pending')))
+    return NextResponse.json({ pending: rows.length })
+  }
 
   const [state] = await db.select().from(cockpitState).where(eq(cockpitState.userId, user.id)).limit(1)
   const requests = await db

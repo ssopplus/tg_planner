@@ -3,23 +3,20 @@ import { and, eq, inArray, isNull, lt, or } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { cockpitRequests, cockpitState, type CockpitSessionSnapshot } from '@/lib/db/schema'
 import { resolveCockpitUser, type CockpitRequest } from '@/lib/cockpit/requests'
-import {
-  notifySessionDone,
-  outcomeLabel,
-  refreshRequestMessage,
-  sendRequest,
-} from '@/bot/services/cockpit-notify'
 
 /**
  * POST /api/cockpit/sync — обмен с локальным dev-cockpit.
  *
  * Cockpit живёт на рабочей машине и ходит сюда сам: присылает снимок сессий,
  * ожидающие запросы и итоги закрытых, а в ответ получает решения, принятые в
- * Telegram или Mini App. Входящих соединений на машину нет.
+ * Mini App. Входящих соединений на машину нет.
+ *
+ * В чат бота ничего не пишется: запросов от десятка сессий слишком много,
+ * вся работа с ними — в разделе «Сессии» Mini App.
  *
  * Побеждает первый ответ. Решение отсюда доходит до сессии только через
  * cockpit; если он успел закрыть запрос сам (ответили в VS Code или в его UI),
- * решение из Telegram отбрасывается, а сообщение бота говорит, что не успело.
+ * решение из Mini App отбрасывается.
  */
 
 interface IncomingRequest {
@@ -59,22 +56,11 @@ export async function POST(request: NextRequest) {
   const pending = Array.isArray(body.pending) ? body.pending : []
   const closed = Array.isArray(body.closed) ? body.closed : []
 
-  // --- снимок сессий и «сессия закончила» ---
-  const [prev] = await db.select().from(cockpitState).where(eq(cockpitState.userId, user.id)).limit(1)
+  // --- снимок сессий ---
   await db
     .insert(cockpitState)
     .values({ userId: user.id, sessions, syncedAt: new Date() })
     .onConflictDoUpdate({ target: cockpitState.userId, set: { sessions, syncedAt: new Date() } })
-  if (prev) {
-    const was = new Map(prev.sessions.map((s) => [s.id, s.status]))
-    for (const s of sessions) {
-      if (was.get(s.id) === 'busy' && s.status === 'idle') {
-        await notifySessionDone(user.telegramId, s).catch((e) =>
-          console.warn('[cockpit] уведомление не ушло', s.id, (e as Error).message),
-        )
-      }
-    }
-  }
 
   // --- запросы ---
   const incomingIds = [...pending.map((r) => r.id), ...closed.map((c) => c.id)]
@@ -93,7 +79,7 @@ export async function POST(request: NextRequest) {
 
   for (const inc of pending) {
     if (byId.has(inc.id)) continue
-    const [row] = await db
+    await db
       .insert(cockpitRequests)
       .values({
         id: inc.id,
@@ -109,24 +95,13 @@ export async function POST(request: NextRequest) {
         createdAt: new Date(inc.createdAt),
       })
       .onConflictDoNothing()
-      .returning()
-    if (!row) continue
-    try {
-      const msg = await sendRequest(user.telegramId, row)
-      await db.update(cockpitRequests).set(msg).where(eq(cockpitRequests.id, row.id))
-    } catch (e) {
-      console.warn('[cockpit] запрос не ушёл в Telegram', row.id, (e as Error).message)
-    }
   }
 
-  const finish = async (r: CockpitRequest, status: string, outcome: string) => {
-    const [upd] = await db
+  const finish = (r: CockpitRequest, status: string) =>
+    db
       .update(cockpitRequests)
       .set({ status, answeredAt: r.answeredAt ?? new Date() })
       .where(eq(cockpitRequests.id, r.id))
-      .returning()
-    if (upd) await refreshRequestMessage(upd, outcome)
-  }
 
   const closedIds = new Set<string>()
   for (const c of closed) {
@@ -134,18 +109,15 @@ export async function POST(request: NextRequest) {
     const r = byId.get(c.id)
     if (!r) continue
     const status = c.status === 'closed' ? 'expired' : c.status
-    if (r.status === 'pending') await finish(r, status, outcomeLabel(r, c.status))
-    // Решение из Telegram ещё не забрали, а cockpit уже закрыл запрос сам.
-    else if (isUndelivered(r) && c.status !== 'answered') {
-      await finish(r, status, `⚠️ Не успело: ${outcomeLabel(r, c.status)}`)
-    }
+    // Pending — или решение из Mini App ещё не забрали, а cockpit уже закрыл запрос сам.
+    if (r.status === 'pending' || (isUndelivered(r) && c.status !== 'answered')) await finish(r, status)
   }
 
   // Cockpit перезапускался и забыл запрос — ждать ответа на него больше некому.
   const pendingIds = new Set(pending.map((r) => r.id))
   for (const r of rows) {
     if (pendingIds.has(r.id) || closedIds.has(r.id)) continue
-    if (r.status === 'pending' || isUndelivered(r)) await finish(r, 'expired', '⌛ Истекло — ответить можно в VS Code')
+    if (r.status === 'pending' || isUndelivered(r)) await finish(r, 'expired')
   }
 
   // --- решения для cockpit ---

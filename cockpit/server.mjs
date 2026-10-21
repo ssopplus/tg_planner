@@ -88,7 +88,11 @@ function newState() {
 }
 
 // Отпечаток вызова инструмента: по нему запрос разрешения сопоставляется с вызовом в транскрипте.
-const toolKey = (name, input) => createHash('sha1').update(`${name}\n${JSON.stringify(input || {})}`).digest('hex').slice(0, 16);
+// Ключи сортируются: хук получает вход после нормализации схемой, и порядок полей там другой
+// (у AskUserQuestion `options` идёт раньше `multiSelect`, а в транскрипте — наоборот).
+const canon = v => (Array.isArray(v) ? v.map(canon)
+  : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, canon(v[k])])) : v);
+const toolKey = (name, input) => createHash('sha1').update(`${name}\n${JSON.stringify(canon(input || {}))}`).digest('hex').slice(0, 16);
 
 const clip = (s, n) => (s && s.length > n ? s.slice(0, n) + `\n… (+${s.length - n} симв.)` : s);
 

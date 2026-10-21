@@ -78,6 +78,7 @@ export async function GET(request: NextRequest) {
       projectName: projects.name,
       externalSource: tasks.externalSource,
       externalId: tasks.externalId,
+      trackerStatus: tasks.trackerStatus,
       vaultPath: tasks.vaultPath,
       sortOrder: tasks.sortOrder,
     })

@@ -17,6 +17,8 @@ interface TrackerTask {
   status: TaskStatus
   priority: 'LOW' | 'MEDIUM' | 'HIGH'
   externalId: string | null
+  /** Статус словами Трекера — вкладки сводят их к трём, а на карточке видно исходный. */
+  trackerStatus: string | null
   projectName: string | null
   deadlineAt: string | null
 }
@@ -38,6 +40,14 @@ const TABS = [
   { id: 'TODO', label: 'Открытые' },
   { id: 'DONE', label: 'Закрытые' },
 ] as const
+
+/** Цвет статуса Трекера — по нашему статусу, в который он сведён синком. */
+const TRACKER_STATUS: Record<TaskStatus, string> = {
+  TODO: 'bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-[var(--tg-theme-hint-color,#8e8e93)]',
+  IN_PROGRESS: 'bg-blue-500/15 text-blue-500',
+  DONE: 'bg-green-500/15 text-green-600',
+  ARCHIVED: 'bg-[var(--tg-theme-secondary-bg-color,#efeff4)] text-[var(--tg-theme-hint-color,#8e8e93)]',
+}
 
 export default function TrackerPage() {
   const [tasks, setTasks] = useState<TrackerTask[]>([])
@@ -188,8 +198,15 @@ function TrackerCard({
       }}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-[11px] font-medium text-[var(--tg-theme-link-color,#007aff)]">
-          {task.externalId}
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="font-mono text-[11px] font-medium text-[var(--tg-theme-link-color,#007aff)]">
+            {task.externalId}
+          </span>
+          {task.trackerStatus ? (
+            <span className={`truncate rounded px-1.5 text-[10.5px] font-semibold ${TRACKER_STATUS[task.status]}`}>
+              {task.trackerStatus}
+            </span>
+          ) : null}
         </span>
         {task.deadlineAt ? (
           <span

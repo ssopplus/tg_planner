@@ -18,6 +18,8 @@ interface TaskDetail {
   priority: 'LOW' | 'MEDIUM' | 'HIGH'
   externalId: string | null
   externalSource: string | null
+  /** Статус словами Трекера («Тестируется»); пусто, пока синк его не записал. */
+  trackerStatus?: string | null
   projectName?: string | null
 }
 
@@ -114,7 +116,7 @@ export default function TrackerTaskPage() {
         <div className="min-w-0 flex-1">
           <StatusSwitcher
             issueKey={issueKey}
-            statusLabel={STATUS_LABELS[task.status]}
+            statusLabel={task.trackerStatus || STATUS_LABELS[task.status]}
             onChanged={loadTask}
           />
         </div>

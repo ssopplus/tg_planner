@@ -253,6 +253,7 @@ button.deny { color: var(--del); }
   <span id="boardTools"></span>
   <input type="search" id="q" placeholder="Поиск: задача, имя, текст…">
   <button id="autoname" title="Придумать имена сессиям без имени (Haiku через claude -p)">✨ Имена</button>
+  <span id="syncPill" class="ghost" hidden></span>
   <button id="notifyBtn" class="ghost" title="Уведомления, когда сессия ждёт ответа">🔕</button>
 </header>
 <div id="app"></div>
@@ -342,6 +343,11 @@ async function poll() {
   try {
     const data = await (await fetch('/api/sessions')).json();
     sessions = data.sessions; projects = data.projects; pending = data.pending || []; lastOk = Date.now();
+    // Связь с Telegram (tg-planer): пилюля видна, только когда синк включён в data/sync.json.
+    const sp = $('#syncPill'), sy = data.sync || {};
+    sp.hidden = !sy.enabled;
+    sp.textContent = sy.lastError ? '📱 ✕' : '📱';
+    sp.title = sy.lastError ? `Синк с Telegram: ${sy.lastError}` : `Синк с Telegram: ${sy.lastOk ? new Date(sy.lastOk).toLocaleTimeString() : 'ещё не было'}`;
     for (const s of sessions) {
       if (s.status === 'waiting' && prevStatus[s.sessionId] && prevStatus[s.sessionId] !== 'waiting' && notifyOn) {
         new Notification(`Ждёт ответа: ${s.title}`, { body: s.waitingFor || '', tag: s.sessionId });

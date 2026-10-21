@@ -446,6 +446,7 @@ function holdPermission(b, res) {
   res.on('close', () => { if (r.status === 'pending') close(r, 'closed'); });
   requests.set(id, r);
   hookLog({ event: 'request-open', id, session: r.sessionId, tool: r.tool });
+  kickSync();
 }
 
 function close(r, status) {
@@ -563,7 +564,7 @@ async function sessionsPayload() {
   const projects = [...new Set([...Object.values(cfg.queues || {}), ...Object.values(cfg.repos || {}), ...sessions.map(s => s.project)])].sort();
   const { pending } = requestsPayload();
   for (const s of sessions) s.requests = pending.filter(r => r.sessionId === s.sessionId);
-  return { at: Date.now(), sessions, projects, pending };
+  return { at: Date.now(), sessions, projects, pending, sync: syncStatus };
 }
 
 async function sessionDetail(id, since) {
@@ -584,6 +585,96 @@ async function sessionDetail(id, since) {
   s.chatTruncated = (st?.chat[0]?.seq || 1) > 1;
   return s;
 }
+
+// ---------- синк с tg-planer (Telegram и Mini App) ----------
+// Cockpit сам ходит в POST /api/cockpit/sync: шлёт снимок сессий, ожидающие запросы и итоги
+// закрытых, получает решения из Telegram. Входящих соединений на машину нет. Включается файлом
+// data/sync.json {"url":"https://…/api/cockpit/sync","secret":"…"}; без него синка нет.
+// Переписка и diff не уходят: только имя, статус, последняя реплика Claude и входы запросов,
+// с замаскированными секретами.
+const SYNC_FILE = path.join(path.dirname(META_FILE), 'sync.json');
+const SYNC_FAST_MS = 3_000;   // есть ожидающие запросы — ждём решения из Telegram
+const SYNC_CHECK_MS = 5_000;  // покой: смотрим, изменился ли снимок
+const SYNC_IDLE_MS = 60_000;  // покой: шлём не реже раза в минуту, чтобы Mini App видел, что cockpit жив
+const SYNC_RETRY_MS = 30_000;
+const syncStatus = { enabled: false, lastOk: null, lastError: null };
+let syncTimer = null, syncRunning = false, syncLastSent = 0, syncLastHash = '';
+
+const SECRET_RES = [
+  [/((?:password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)[A-Za-z_]*["']?\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s"'&,;}]+)/gi, '$1***'],
+  [/(Bearer\s+)[\w.~+/=-]{8,}/g, '$1***'],
+  [/(\/\/[^\s:/@]+:)[^\s@/]+@/g, '$1***@'],
+  [/(\s-p)(?=\S)[^\s-]\S*/g, '$1***'], // mysql -pPASSWORD
+  [/\b(?:sk-[\w-]{16,}|gh[pousr]_\w{20,}|glpat-[\w-]{16,}|xox[abp]-[\w-]{10,}|AKIA[0-9A-Z]{16}|y0_[\w-]{20,})/g, '***'],
+];
+const mask = s => SECRET_RES.reduce((acc, [re, to]) => acc.replace(re, to), String(s));
+const maskDeep = v => (typeof v === 'string' ? mask(v) : Array.isArray(v) ? v.map(maskDeep)
+  : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, maskDeep(x)])) : v);
+
+function loadSyncConfig() {
+  try {
+    const c = JSON.parse(fs.readFileSync(SYNC_FILE, 'utf8'));
+    return c.url && c.secret ? c : null;
+  } catch { return null; }
+}
+
+async function syncTick() {
+  const cfg = loadSyncConfig();
+  syncStatus.enabled = !!cfg;
+  if (!cfg) return SYNC_IDLE_MS;
+  const { sessions } = await sessionsPayload();
+  const { pending, recent } = requestsPayload();
+  const byId = new Map(sessions.map(s => [s.sessionId, s]));
+  const body = {
+    sessions: sessions.map(s => ({
+      id: s.sessionId, name: s.title || s.claudeName || s.sessionId.slice(0, 8), project: s.project || '',
+      status: s.requests?.length ? 'waiting' : ['busy', 'waiting'].includes(s.status) ? s.status : 'idle',
+      lastAssistant: s.lastAssistant ? mask(s.lastAssistant.slice(0, 700)) : undefined,
+      updatedAt: new Date(s.lastActivity || Date.now()).toISOString(),
+    })),
+    pending: pending.map(r => {
+      const s = byId.get(r.sessionId);
+      return {
+        id: r.id, sessionId: r.sessionId, sessionName: s?.title || s?.claudeName || r.sessionId.slice(0, 8),
+        project: s?.project || null, kind: r.kind, toolName: r.tool, summary: mask(shortArg(r.tool, r.input)),
+        payload: r.kind === 'question' ? { questions: r.input.questions || [] } : maskDeep(r.input),
+        canAlways: Array.isArray(r.suggestions) && r.suggestions.length > 0, createdAt: r.createdAt,
+      };
+    }),
+    closed: recent.map(r => ({ id: r.id, status: r.status })),
+  };
+  // В покое шлём только изменения (и раз в минуту — как пульс); при ожидающих запросах — всегда.
+  const hash = createHash('sha1').update(JSON.stringify({ ...body, sessions: body.sessions.map(s => ({ ...s, updatedAt: 0 })) })).digest('hex');
+  if (!pending.length && hash === syncLastHash && Date.now() - syncLastSent < SYNC_IDLE_MS) return SYNC_CHECK_MS;
+  const res = await fetch(cfg.url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.secret}` },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) throw new Error(`sync ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  syncLastHash = hash; syncLastSent = Date.now();
+  syncStatus.lastOk = Date.now(); syncStatus.lastError = null;
+  const { decisions = [] } = await res.json();
+  for (const { id, decision } of decisions) {
+    const r = requests.get(id);
+    if (r?.status === 'pending' && decision) decide(r, { ...decision, via: 'telegram' });
+  }
+  return decisions.length || pending.length ? SYNC_FAST_MS : SYNC_CHECK_MS;
+}
+
+// Один цикл на процесс; kickSync() — внеочередной прогон, когда пришёл новый запрос.
+function scheduleSync(ms) { clearTimeout(syncTimer); syncTimer = setTimeout(runSync, ms); }
+async function runSync() {
+  if (syncRunning) return;
+  syncRunning = true;
+  let next = SYNC_RETRY_MS;
+  try { next = await syncTick(); } catch (e) {
+    if (syncStatus.lastError !== e.message) console.error('[sync]', e.message);
+    syncStatus.lastError = e.message;
+  } finally { syncRunning = false; scheduleSync(next); }
+}
+const kickSync = () => { if (!syncRunning) scheduleSync(300); };
 
 // ---------- HTTP ----------
 
@@ -690,4 +781,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '127.0.0.1', () => console.log(`dev-cockpit: http://127.0.0.1:${PORT}`));
+server.listen(PORT, '127.0.0.1', () => {
+  console.log(`dev-cockpit: http://127.0.0.1:${PORT}`);
+  scheduleSync(2_000);
+});

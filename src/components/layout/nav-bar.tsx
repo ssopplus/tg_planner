@@ -2,19 +2,22 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Briefcase, CheckSquare, NotebookText, Settings } from 'lucide-react'
+import { Briefcase, CheckSquare, NotebookText, Settings, TerminalSquare } from 'lucide-react'
 
 /**
  * Разделы приложения. Две половины — рабочая (Трекер) и жизненная (доски) —
  * равноправны и не пересекаются. «Архив» показывает задачи из Obsidian только
  * на чтение, поэтому стоит после них, а не между.
  *
+ * «Сессии» — сессии Claude Code с рабочей машины (dev-cockpit).
+ *
  * Доски в эту панель не выносятся: их может стать сколько угодно, а сюда
- * влезает четыре пункта. Переключение досок живёт лентой внутри раздела.
+ * влезает пять пунктов. Переключение досок живёт лентой внутри раздела.
  */
 const tabs = [
   { href: '/tracker', label: 'Трекер', icon: Briefcase },
   { href: '/boards', label: 'Личное', icon: CheckSquare },
+  { href: '/sessions', label: 'Сессии', icon: TerminalSquare },
   { href: '/archive', label: 'Архив', icon: NotebookText },
   { href: '/settings', label: 'Ещё', icon: Settings },
 ]

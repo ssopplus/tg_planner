@@ -31,6 +31,7 @@ src/
     boards/                   # Жизненная половина: доски дел по срокам,
                               #   task/[id] — карточка-заметка
     archive/                  # Задачи из Obsidian-vault, только чтение
+    sessions/                 # Сессии Claude Code из dev-cockpit: статусы и ответы на запросы
     settings/                 # Настройки (timezone, дайджест, очереди Трекера)
     today/, tasks/            # Редиректы со старых адресов (ссылки в боте)
   app/api/telegram/webhook/   # Telegram webhook endpoint
@@ -41,6 +42,7 @@ src/
   app/api/tracker/issues/     # REST API: переходы статусов и комментарии Трекера
   app/api/vault/              # REST API: задачи из Obsidian, только чтение
   app/api/settings/           # REST API: настройки пользователя
+  app/api/cockpit/            # dev-cockpit: синк с локальной машины (Bearer COCKPIT_SECRET) и решения из Mini App
   app/api/cron/reminders/     # Cron Job: отправка напоминаний (каждую минуту)
   app/api/cron/digest/        # Cron Job: утренний/вечерний дайджест (каждые 15 мин)
   app/api/cron/archive/       # Cron Job: автоархивация DONE>7д (раз в день 03:00)
@@ -90,7 +92,7 @@ docs/plans/                   # Планы разработки (ADR workflow)
 
 ## БД (Drizzle схема)
 
-Таблицы: `users`, `projects`, `boards`, `tasks`, `reminders`, `subtasks`, `worklog_entries`, `tracker_queue_links`, `coordination_polls`, `pending_tasks`, `calendar_events`
+Таблицы: `users`, `projects`, `boards`, `tasks`, `reminders`, `subtasks`, `worklog_entries`, `tracker_queue_links`, `coordination_polls`, `pending_tasks`, `calendar_events`, `cockpit_state`, `cockpit_requests`
 - Enums: `project_type`, `task_status`, `priority`, `deadline_type`, `reminder_type`, `reminder_status`
 - Relations: user → projects → tasks → reminders
 - Каскадное удаление через foreign keys
@@ -167,3 +169,5 @@ docs/plans/                   # Планы разработки (ADR workflow)
 | `YANDEX_CALDAV_EMAIL` | Адрес, по которому искать себя среди участников встречи (по умолчанию — логин) |
 | `YANDEX_CALDAV_URL` | Базовый URL CalDAV (default: `https://caldav.yandex.ru`) |
 | `CALENDAR_SYNC_USER_ID` | UUID пользователя для встреч (опционально; fallback — `TRACKER_SYNC_USER_ID`, затем единственный user) |
+| `COCKPIT_SECRET` | Секрет синка dev-cockpit: cockpit шлёт его в `Authorization: Bearer` (см. `cockpit/README.md`) |
+| `COCKPIT_USER_ID` | UUID пользователя cockpit (опционально; fallback — `TRACKER_SYNC_USER_ID`, затем единственный user) |

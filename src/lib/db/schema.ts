@@ -545,3 +545,86 @@ export const calendarEvents = pgTable(
     index('calendar_events_user_start_idx').on(table.userId, table.startsAt),
   ],
 )
+
+// === DEV-COCKPIT ===
+
+/** Сессия Claude Code в снимке, который присылает локальный dev-cockpit. */
+export type CockpitSessionSnapshot = {
+  id: string
+  name: string
+  project: string
+  status: 'waiting' | 'busy' | 'idle'
+  /** Последняя реплика Claude, обрезанная и с замаскированными секретами. */
+  lastAssistant?: string
+  updatedAt: string
+}
+
+/**
+ * Последний снимок сессий dev-cockpit — одна строка на пользователя.
+ *
+ * Cockpit живёт на рабочей машине и сам ходит в `/api/cockpit/sync`; входящих
+ * соединений на машину нет. Снимок перезаписывается целиком, по нему экран
+ * «Сессии» в Mini App и уведомление «сессия закончила» (busy → idle).
+ * Переписка и diff сюда не попадают — они остаются только в локальном cockpit.
+ */
+export const cockpitState = pgTable('cockpit_state', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  sessions: jsonb('sessions').$type<CockpitSessionSnapshot[]>().default([]).notNull(),
+  syncedAt: timestamp('synced_at').defaultNow().notNull(),
+})
+
+/**
+ * Запрос сессии Claude Code, который ждёт ответа: разрешение на инструмент
+ * или вопрос `AskUserQuestion`.
+ *
+ * id выдаёт cockpit. Решение из Telegram ложится в `decision`, cockpit забирает
+ * его следующим синком и отдаёт хуку. Побеждает первый ответ: если запрос уже
+ * закрыт в cockpit или в VS Code, cockpit присылает финальный статус, и бот
+ * снимает кнопки. Хранится не дольше 7 дней.
+ */
+export const cockpitRequests = pgTable(
+  'cockpit_requests',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    sessionId: text('session_id').notNull(),
+    sessionName: text('session_name').notNull(),
+    project: text('project'),
+    /** permission | question */
+    kind: text('kind').notNull(),
+    toolName: text('tool_name').notNull(),
+    /** Однострочное описание для уведомления; секреты замаскированы. */
+    summary: text('summary').notNull(),
+    /**
+     * Полный вход инструмента (секреты замаскированы) — SQL и команды должны
+     * быть видны целиком до «Разрешить». Для вопроса — `{ questions }`.
+     */
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+    /** Можно ли ответить «Разрешить всегда» — у запроса есть suggestions. */
+    canAlways: boolean('can_always').default(false).notNull(),
+    /** pending | answered | answered-elsewhere | expired */
+    status: text('status').default('pending').notNull(),
+    /** Решение из Telegram: `{ behavior, message?, always?, answers? }`. */
+    decision: jsonb('decision').$type<{
+      behavior: 'allow' | 'deny'
+      message?: string
+      always?: boolean
+      answers?: Record<string, string>
+    } | null>(),
+    /** Когда cockpit забрал решение — до этого оно ещё не дошло до сессии. */
+    deliveredAt: timestamp('delivered_at'),
+    /** Сообщение бота с кнопками — редактируется, когда запрос закрыт. */
+    chatId: text('chat_id'),
+    messageId: integer('message_id'),
+    createdAt: timestamp('created_at').notNull(),
+    answeredAt: timestamp('answered_at'),
+  },
+  (table) => [
+    index('cockpit_requests_user_status_idx').on(table.userId, table.status),
+    index('cockpit_requests_created_idx').on(table.createdAt),
+  ],
+)

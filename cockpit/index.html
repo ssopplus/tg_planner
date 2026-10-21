@@ -215,6 +215,21 @@ pre.diff .a { background: var(--add-bg); color: var(--add); }
 pre.diff .d { background: var(--del-bg); color: var(--del); }
 pre.diff .h { background: var(--hunk); color: var(--accent); }
 pre.diff .m { color: var(--muted); font-weight: 600; }
+/* запросы сессий */
+.req { background: var(--panel); border: 1px solid color-mix(in srgb, var(--wait) 55%, var(--line)); border-left: 3px solid var(--wait); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.req .rh { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.req .rh b { font-size: 13.5px; }
+.req pre { margin: 0 0 8px; background: var(--code-bg); border-radius: 6px; padding: 8px 10px; font: 12px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto; }
+.req .q { font-weight: 600; margin: 6px 0 4px; }
+.req .opt { display: flex; gap: 8px; align-items: flex-start; padding: 3px 6px; border-radius: 6px; cursor: pointer; }
+.req .opt:hover { background: var(--accent-soft); }
+.req .opt .d { color: var(--muted); font-size: 12px; }
+.req .acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.req .acts input[type=text] { flex: 1; min-width: 160px; }
+button.allow { background: var(--busy); border-color: var(--busy); color: #fff; }
+button.deny { color: var(--del); }
+.reqs-top { padding: 10px 20px 0; max-height: 50vh; overflow: auto; }
+.card .why.req-line { color: var(--wait); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 6px 14px; border-radius: 8px; font-size: 12.5px; z-index: 20; }
 
 @media (max-width: 1100px) { .cols { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sess { grid-template-columns: 1fr; height: auto; } .side { border-left: 0; border-top: 1px solid var(--line); } .chat { overflow: visible; } }
@@ -281,9 +296,10 @@ function md(text) {
 const plain = text => String(text || '').replace(/```[\s\S]*?```/g, ' [код] ').replace(/[*_`#>|]/g, '').replace(/\s+/g, ' ').trim();
 
 // ---------- состояние ----------
-let sessions = [], projects = [], lastOk = 0;
+let sessions = [], projects = [], pending = [], lastOk = 0;
 let seen = store.get('seen', {});           // sessionId → lastActivity, которую я уже видел
 let prevStatus = {};
+const notified = new Set();
 let groupBy = store.get('groupBy', 'project');
 let showCold = store.get('showCold', true);
 let collapsed = store.get('collapsed', {});
@@ -297,7 +313,7 @@ const LANES = [
 ];
 const LANE_LABEL = Object.fromEntries(LANES.map(l => [l.key, l.label]));
 function laneOf(s) {
-  if (s.status === 'waiting') return 'waiting';
+  if (s.status === 'waiting' || s.requests?.length) return 'waiting';
   if (s.status === 'busy') return 'busy';
   if (s.lastActivity && s.lastActivity > (seen[s.sessionId] || 0) && Date.now() - s.lastActivity < 7 * 86400e3) return 'review';
   return 'idle';
@@ -320,7 +336,7 @@ window.addEventListener('hashchange', () => render(true));
 async function poll() {
   try {
     const data = await (await fetch('/api/sessions')).json();
-    sessions = data.sessions; projects = data.projects; lastOk = Date.now();
+    sessions = data.sessions; projects = data.projects; pending = data.pending || []; lastOk = Date.now();
     for (const s of sessions) {
       if (s.status === 'waiting' && prevStatus[s.sessionId] && prevStatus[s.sessionId] !== 'waiting' && notifyOn) {
         new Notification(`Ждёт ответа: ${s.title}`, { body: s.waitingFor || '', tag: s.sessionId });
@@ -334,9 +350,11 @@ async function poll() {
 }
 
 function render(force) {
+  if (!force && typingInRequest()) return;
   const r = route();
   document.querySelectorAll('nav a').forEach(a => a.classList.toggle('on', a.dataset.view === r.view));
   const inboxN = sessions.filter(s => ['waiting', 'review'].includes(laneOf(s))).length;
+  if (pending.length && notifyOn) for (const r of pending) if (!notified.has(r.id)) { notified.add(r.id); new Notification(`${r.kind === 'question' ? 'Вопрос' : 'Разрешение'}: ${sessions.find(x => x.sessionId === r.sessionId)?.title || ''}`, { body: reqSummary(r).slice(0, 200), tag: r.id }); }
   const waitN = sessions.filter(s => s.status === 'waiting').length;
   $('#inboxBadge').innerHTML = inboxN ? `<span class="badge">${inboxN}</span>` : '';
   document.title = (waitN ? `(${waitN}) ` : '') + 'dev-cockpit';
@@ -362,10 +380,74 @@ function filtered() {
 }
 const byActivity = (a, b) => (b.lastActivity || 0) - (a.lastActivity || 0);
 
+// ---------- запросы сессий ----------
+// Набранное в формах запросов живёт здесь, чтобы не терялось при перерисовке раз в 3 с.
+const drafts = {};
+const reqSummary = r => r.kind === 'question'
+  ? (r.input.questions || []).map(q => q.question).join(' / ')
+  : r.input.command || r.input.file_path || r.input.url || r.input.query || r.input.sql || JSON.stringify(r.input);
+
+function requestHtml(r, opts = {}) {
+  const s = sessions.find(x => x.sessionId === r.sessionId);
+  const head = `<div class="rh">${r.kind === 'question' ? '❓' : '🔐'} <b>${esc(r.kind === 'question' ? 'Claude спрашивает' : r.tool)}</b>
+    ${opts.withSession && s ? `<a href="#/session/${esc(r.sessionId)}">${esc(s.title)}</a> <span class="chip">${esc(s.project)}</span>` : ''}
+    <span class="time">${ago(r.createdAt)} назад</span>${r.mode ? `<span class="chip">${esc(r.mode)}</span>` : ''}</div>`;
+  if (r.kind === 'question') {
+    const qs = (r.input.questions || []).map((q, qi) => {
+      const picked = drafts[`${r.id}|${qi}`] || [];
+      const type = q.multiSelect ? 'checkbox' : 'radio';
+      return `<div class="q">${esc(q.question)}</div>
+        ${(q.options || []).map(o => `<label class="opt"><input type="${type}" name="${r.id}-${qi}" data-draft="${r.id}|${qi}" value="${esc(o.label)}" ${picked.includes(o.label) ? 'checked' : ''}>
+          <span><b>${esc(o.label)}</b>${o.description ? `<div class="d">${esc(o.description)}</div>` : ''}</span></label>`).join('')}
+        <input type="text" placeholder="Свой вариант" data-draft-text="${r.id}|other|${qi}" value="${esc(drafts[`${r.id}|other|${qi}`] || '')}" style="width:100%;margin-top:4px">`;
+    }).join('');
+    return `<div class="req" data-req="${r.id}">${head}${qs}
+      <div class="acts"><button class="allow" data-decide="answer" data-id="${r.id}">Ответить</button>
+      <span class="muted" style="font-size:12px">или ответь в окне сессии — сработает первый ответ</span></div></div>`;
+  }
+  const body = r.tool === 'Bash' && r.input.command
+    ? `${r.input.description ? `<div class="muted" style="margin-bottom:4px">${esc(r.input.description)}</div>` : ''}<pre>${esc(r.input.command)}</pre>`
+    : `<pre>${esc(JSON.stringify(r.input, null, 2))}</pre>`;
+  return `<div class="req" data-req="${r.id}">${head}${body}
+    <div class="acts">
+      <button class="allow" data-decide="allow" data-id="${r.id}">Разрешить</button>
+      ${Array.isArray(r.suggestions) && r.suggestions.length ? `<button data-decide="always" data-id="${r.id}" title="${esc(JSON.stringify(r.suggestions))}">Разрешить всегда</button>` : ''}
+      <input type="text" placeholder="Причина отказа (необязательно)" data-draft-text="${r.id}|reason" value="${esc(drafts[`${r.id}|reason`] || '')}">
+      <button class="deny" data-decide="deny" data-id="${r.id}">Отклонить</button>
+    </div></div>`;
+}
+
+async function decideRequest(id, kind) {
+  const all = sessions.flatMap(s => s.requests || []);
+  const r = all.find(x => x.id === id);
+  const body = { id };
+  if (kind === 'deny') { body.behavior = 'deny'; body.message = drafts[`${id}|reason`] || undefined; }
+  else if (kind === 'answer') {
+    body.behavior = 'allow'; body.answers = {};
+    (r?.input.questions || []).forEach((q, qi) => {
+      const other = (drafts[`${id}|other|${qi}`] || '').trim();
+      const picked = drafts[`${id}|${qi}`] || [];
+      const val = other ? [...picked, other] : picked;
+      if (val.length) body.answers[q.question] = q.multiSelect ? val : val[0];
+    });
+    if (Object.keys(body.answers).length < (r?.input.questions || []).length) { toast('Ответь на все вопросы'); return; }
+  } else { body.behavior = 'allow'; body.always = kind === 'always'; }
+  try {
+    await post('/api/requests/decision', body);
+    toast(body.behavior === 'deny' ? 'Отклонено' : kind === 'answer' ? 'Ответ отправлен' : 'Разрешено');
+  } catch (e) { toast('Не успел: ' + e.message); }
+  for (const k of Object.keys(drafts)) if (k.startsWith(id + '|')) delete drafts[k];
+  poll();
+}
+// Пока пользователь печатает в форме запроса, экран не перерисовываем — иначе пропадёт фокус.
+const typingInRequest = () => !!document.activeElement?.closest?.('.req') && document.activeElement.type === 'text';
+
 // ---------- доска ----------
 function cardHtml(s, lane) {
   const repos = (s.repos || []).filter(r => !r.endsWith('/Документация')).slice(0, 3).map(r => `<span class="chip">${esc(r.split('/').pop())}</span>`).join('');
-  const why = s.status === 'waiting' ? `<div class="why waiting">⏳ ${esc(s.waitingFor || 'ждёт ответа')}</div>` : '';
+  const rq = s.requests?.[0];
+  const why = rq ? `<div class="why req-line">${rq.kind === 'question' ? '❓' : '🔐'} ${esc(rq.kind === 'question' ? 'вопрос' : rq.tool)}: ${esc(reqSummary(rq).slice(0, 120))}</div>`
+    : s.status === 'waiting' ? `<div class="why waiting">⏳ ${esc(s.waitingFor || 'ждёт ответа')}</div>` : '';
   return `<div class="card ${lane}" data-open="${s.sessionId}">
     <div class="row"><span class="dot ${lane}"></span><span class="title ${s.nameSource === 'derived' ? 'derived' : ''}">${s.naming ? '<span class="spin"></span> ' : ''}${esc(s.title)}</span><span class="time">${ago(s.lastActivity)}</span></div>
     ${why}
@@ -390,14 +472,14 @@ function renderBoard() {
   const app = $('#app'); const scroll = app.scrollTop;
   if (!sessions.length) { app.innerHTML = '<div class="empty">Загрузка…</div>'; return; }
   if (groupBy === 'none') {
-    app.innerHTML = `<div class="board">${colsHtml(list)}</div>`;
+    app.innerHTML = `<div class="board">${boardRequests()}${colsHtml(list)}</div>`;
   } else {
     const groups = {};
     for (const s of list) (groups[s.project] ||= []).push(s);
     // Сверху — проекты, где что-то ждёт меня или идёт работа, дальше по свежести.
     const weight = g => (g.some(s => s.status === 'waiting') ? 2 : 0) + (g.some(s => s.status === 'busy') ? 1 : 0);
     const names = Object.keys(groups).sort((a, b) => weight(groups[b]) - weight(groups[a]) || Math.max(...groups[b].map(s => s.lastActivity || 0)) - Math.max(...groups[a].map(s => s.lastActivity || 0)));
-    app.innerHTML = `<div class="board">${names.map(p => {
+    app.innerHTML = `<div class="board">${boardRequests()}${names.map(p => {
       const g = groups[p];
       const cnt = k => g.filter(s => laneOf(s) === k).length;
       const stats = [['waiting', 'ждёт'], ['busy', 'работает'], ['review', 'посмотреть']].filter(([k]) => cnt(k)).map(([k, t]) => `<span class="pill ${k}">${cnt(k)} ${t}</span>`).join(' ');
@@ -411,6 +493,11 @@ function renderBoard() {
     }).join('') || '<div class="empty">Ничего не найдено</div>'}</div>`;
   }
   app.scrollTop = scroll;
+}
+
+function boardRequests() {
+  if (!pending.length) return '';
+  return `<section class="lane" style="background:var(--wait-soft)"><div class="lanehead"><h2>Ждут решения · ${pending.length}</h2></div>${pending.map(r => requestHtml(r, { withSession: true })).join('')}</section>`;
 }
 
 // ---------- входящие ----------
@@ -427,6 +514,7 @@ function renderInbox() {
   </div>`;
   const app = $('#app'); const scroll = app.scrollTop;
   app.innerHTML = `<div class="inbox">
+    ${pending.length ? `<h2>Запросы разрешений и вопросы · ${pending.length}</h2>${pending.map(r => requestHtml(r, { withSession: true })).join('')}` : ''}
     <h2>Ждут моего ответа · ${waiting.length}</h2>${waiting.map(s => row(s, 'waiting')).join('') || '<div class="muted">Никто не ждёт 🎉</div>'}
     <h2>Закончили, не смотрел · ${review.length} ${review.length ? '<button class="ghost" id="seenAll">отметить все</button>' : ''}</h2>${review.map(s => row(s, 'review')).join('') || '<div class="muted">Всё просмотрено</div>'}
     <h2>Работают сейчас · ${busy.length}</h2>${busy.map(s => row(s, 'busy')).join('') || '<div class="muted">—</div>'}
@@ -472,7 +560,7 @@ function layoutSession() {
 
 function updateSessionHead() {
   const s = sessView.data; const lane = laneOf(s);
-  if (sessView.editing) return;
+  if (sessView.editing || typingInRequest()) return;
   $('#sessHead').innerHTML = `
     <div class="crumbs"><a href="#/board">Доска</a> / <span>${esc(s.project)}</span></div>
     <div class="titlerow">
@@ -482,7 +570,8 @@ function updateSessionHead() {
       <span class="time">активность ${ago(s.lastActivity)} назад</span>
       <span class="spacer"></span>
     </div>
-    ${s.status === 'waiting' ? `<div class="waitbar">⏳ Сессия ждёт: ${esc(s.waitingFor || 'ответа')}. Ответить можно в окне сессии (VS Code / терминал).</div>` : ''}`;
+    ${(s.requests || []).length ? `<div style="margin-top:8px">${s.requests.map(r => requestHtml(r)).join('')}</div>`
+      : s.status === 'waiting' ? `<div class="waitbar">⏳ Сессия ждёт: ${esc(s.waitingFor || 'ответа')}. Ответить можно в окне сессии (VS Code / терминал).</div>` : ''}`;
 }
 
 function startRename() {
@@ -640,6 +729,8 @@ async function openDiff(repo, mode, file) {
 
 // ---------- события ----------
 document.addEventListener('click', async e => {
+  const dec = e.target.closest('[data-decide]');
+  if (dec) { e.preventDefault(); dec.disabled = true; decideRequest(dec.dataset.id, dec.dataset.decide); return; }
   const open = e.target.closest('[data-open]');
   const seenBtn = e.target.closest('[data-seen]');
   if (seenBtn) { e.stopPropagation(); const s = sessions.find(x => x.sessionId === seenBtn.dataset.seen); markSeen(s); render(false); return; }
@@ -669,6 +760,13 @@ document.addEventListener('toggle', e => {
   if (it) d.insertAdjacentHTML('beforeend', toolIo(it));
 }, true);
 $('#q').addEventListener('input', () => render(false));
+document.addEventListener('input', e => { const k = e.target.dataset?.draftText; if (k) drafts[k] = e.target.value; });
+document.addEventListener('change', e => {
+  const k = e.target.dataset?.draft; if (!k) return;
+  const set = new Set(e.target.type === 'radio' ? [] : drafts[k] || []);
+  if (e.target.checked) set.add(e.target.value); else set.delete(e.target.value);
+  drafts[k] = [...set];
+});
 document.addEventListener('change', e => { if (e.target.id === 'showCold') { showCold = e.target.checked; store.set('showCold', showCold); render(false); } });
 $('#autoname').onclick = async () => {
   try { const r = await post('/api/autoname', {}); toast(r.queued ? `Придумываю имена: ${r.queued}` : 'Все сессии уже с именами'); poll(); } catch (e) { toast('Ошибка: ' + e.message); }

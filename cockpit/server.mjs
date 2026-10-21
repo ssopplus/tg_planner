@@ -404,6 +404,78 @@ async function queueAutoname(ids, force) {
   return queued;
 }
 
+// ---------- запросы сессий (разрешения и вопросы) ----------
+
+const HOOK_HOLD_MS = Number(process.env.HOOK_HOLD_MS || 590_000); // чуть меньше timeout хука 600 с
+const HOOK_LOG = path.join(path.dirname(META_FILE), 'hooks.jsonl');
+const requests = new Map(); // id -> запрос
+let requestSeq = 0;
+
+async function hookLog(rec) {
+  await fsp.mkdir(path.dirname(HOOK_LOG), { recursive: true });
+  try { if ((await fsp.stat(HOOK_LOG)).size > 5e6) await fsp.rename(HOOK_LOG, HOOK_LOG + '.1'); } catch {}
+  await fsp.appendFile(HOOK_LOG, JSON.stringify({ at: new Date().toISOString(), ...rec }) + '\n');
+}
+
+function publicRequest(r) {
+  const out = { ...r };
+  delete out.respond; delete out.timer;
+  return out;
+}
+
+function holdPermission(b, res) {
+  const id = `r${Date.now().toString(36)}${(++requestSeq).toString(36)}`;
+  const r = {
+    id, sessionId: b.session_id, tool: b.tool_name,
+    kind: b.tool_name === 'AskUserQuestion' ? 'question' : 'permission',
+    input: b.tool_input || {}, suggestions: b.permission_suggestions || null,
+    mode: b.permission_mode, createdAt: Date.now(), status: 'pending',
+  };
+  r.respond = body => {
+    clearTimeout(r.timer);
+    if (!res.writableEnded && !res.destroyed) send(res, 200, body);
+  };
+  r.timer = setTimeout(() => close(r, 'expired'), HOOK_HOLD_MS);
+  // Сессия закрыла соединение: ответили в VS Code, прервали ход или истёк timeout хука.
+  res.on('close', () => { if (r.status === 'pending') close(r, 'closed'); });
+  requests.set(id, r);
+  hookLog({ event: 'request-open', id, session: r.sessionId, tool: r.tool });
+}
+
+function close(r, status) {
+  if (r.status !== 'pending') return;
+  r.status = status; r.closedAt = Date.now();
+  r.respond({});
+  hookLog({ event: `request-${status}`, id: r.id, session: r.sessionId });
+}
+
+// Решение из UI: { behavior: 'allow'|'deny', always?, message?, answers? }.
+function decide(r, d) {
+  const decision = { behavior: d.behavior === 'deny' ? 'deny' : 'allow' };
+  if (decision.behavior === 'deny') {
+    decision.message = String(d.message || 'Отклонено в dev-cockpit').slice(0, 2000);
+  } else if (r.kind === 'question') {
+    // Ответ на AskUserQuestion: вопрос → выбранная метка (несколько — через запятую).
+    const answers = {};
+    for (const [q, a] of Object.entries(d.answers || {})) answers[String(q)] = Array.isArray(a) ? a.join(', ') : String(a);
+    decision.updatedInput = { ...r.input, answers };
+  } else if (d.always && Array.isArray(r.suggestions) && r.suggestions.length) {
+    decision.updatedPermissions = r.suggestions;
+  }
+  r.status = 'answered'; r.closedAt = Date.now();
+  r.decision = { ...d, behavior: decision.behavior };
+  r.respond({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } });
+  hookLog({ event: 'request-answered', id: r.id, session: r.sessionId, behavior: decision.behavior });
+  return r;
+}
+
+function requestsPayload() {
+  const now = Date.now();
+  for (const [id, r] of requests) if (r.status !== 'pending' && now - r.closedAt > 3600e3) requests.delete(id);
+  const list = [...requests.values()].map(publicRequest).sort((a, b) => b.createdAt - a.createdAt);
+  return { pending: list.filter(r => r.status === 'pending'), recent: list.filter(r => r.status !== 'pending').slice(0, 30) };
+}
+
 // ---------- сборка ответа ----------
 
 async function sessionSummary(a, cfg) {
@@ -445,7 +517,9 @@ async function sessionsPayload() {
   const agents = await liveAgents();
   const sessions = await Promise.all(agents.map(a => sessionSummary(a, cfg)));
   const projects = [...new Set([...Object.values(cfg.queues || {}), ...Object.values(cfg.repos || {}), ...sessions.map(s => s.project)])].sort();
-  return { at: Date.now(), sessions, projects };
+  const { pending } = requestsPayload();
+  for (const s of sessions) s.requests = pending.filter(r => r.sessionId === s.sessionId);
+  return { at: Date.now(), sessions, projects, pending };
 }
 
 async function sessionDetail(id, since) {
@@ -453,6 +527,7 @@ async function sessionDetail(id, since) {
   const a = (await liveAgents()).find(x => x.sessionId === id);
   if (!a) return null;
   const s = await sessionSummary(a, cfg);
+  s.requests = requestsPayload().pending.filter(r => r.sessionId === id);
   const p = await findTranscript(id);
   const st = p ? states.get(p) : null;
   s.cwd = st?.cwd || a.cwd;
@@ -475,7 +550,7 @@ function send(res, code, body, type = 'application/json; charset=utf-8') {
 
 async function readJson(req) {
   let body = '';
-  for await (const chunk of req) { body += chunk; if (body.length > 20000) throw new Error('body too large'); }
+  for await (const chunk of req) { body += chunk; if (body.length > 2_000_000) throw new Error('body too large'); }
   return body ? JSON.parse(body) : {};
 }
 
@@ -490,6 +565,27 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/session') {
       const s = await sessionDetail(url.searchParams.get('id'), Number(url.searchParams.get('since') || 0));
       return s ? send(res, 200, s) : send(res, 404, { error: 'session not found' });
+    }
+    // HTTP-хуки Claude Code. PermissionRequest держим до решения из cockpit (нативный диалог
+    // в VS Code при этом виден параллельно — кто ответил первым, тот и решил). Остальные
+    // события только пишем в лог. Ответ `{}` = «решения нет».
+    if (req.method === 'POST' && url.pathname.startsWith('/hooks/')) {
+      const b = await readJson(req).catch(() => ({}));
+      await hookLog({
+        event: b.hook_event_name, session: b.session_id, tool: b.tool_name,
+        notification: b.notification_type, message: b.message, mode: b.permission_mode,
+        input: b.tool_input ? JSON.stringify(b.tool_input).slice(0, 500) : undefined,
+      });
+      if (b.hook_event_name !== 'PermissionRequest' || !b.session_id) return send(res, 200, {});
+      return holdPermission(b, res);
+    }
+    if (url.pathname === '/api/requests') return send(res, 200, requestsPayload());
+    if (req.method === 'POST' && url.pathname === '/api/requests/decision') {
+      if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
+      const b = await readJson(req);
+      const r = requests.get(b.id);
+      if (!r || r.status !== 'pending') return send(res, 409, { error: 'запрос уже закрыт' });
+      return send(res, 200, { ok: true, request: publicRequest(decide(r, b)) });
     }
     if (req.method === 'POST' && url.pathname === '/api/meta') {
       // Защита от запросов с чужих страниц: принимаем только JSON (простая форма его не отправит).

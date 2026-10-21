@@ -620,6 +620,58 @@ function taskBrief(n, sessionId) {
   };
 }
 
+// ---------- статусы задач в Яндекс Трекере ----------
+// Только чтение: POST /v2/issues/_search по списку ключей. Токен и организация — из env или из
+// ~/Разработка/.mcp.json (сервер yandex-tracker), чтобы не заводить второй секрет. Нет доступа —
+// статусов просто нет, доска работает как раньше.
+const TRACKER_TTL_MS = 120_000;
+const trackerCache = new Map(); // key -> { at, status | null }
+let trackerCfg;
+function loadTrackerConfig() {
+  if (trackerCfg !== undefined) return trackerCfg;
+  let token = process.env.TRACKER_TOKEN, org = process.env.TRACKER_ORG_ID;
+  if (!token) {
+    try {
+      const env = JSON.parse(fs.readFileSync(path.join(path.dirname(VAULT), '.mcp.json'), 'utf8')).mcpServers?.['yandex-tracker']?.env || {};
+      token = env.TRACKER_TOKEN; org ||= env.TRACKER_ORG_ID;
+    } catch { /* нет файла — нет статусов */ }
+  }
+  trackerCfg = token && org ? { token, org } : null;
+  return trackerCfg;
+}
+
+// Ответа Трекера на каждый опрос доски не ждём: обновляем фоном, отдаём то, что в кэше.
+let trackerInflight = null;
+function trackerStatuses(keys) {
+  const cfg = loadTrackerConfig();
+  const out = {};
+  if (!cfg || !keys.length) return out;
+  const stale = keys.filter(k => !(Date.now() - (trackerCache.get(k)?.at || 0) < TRACKER_TTL_MS));
+  if (stale.length && !trackerInflight) {
+    trackerInflight = fetch('https://api.tracker.yandex.net/v2/issues/_search?perPage=100', {
+      method: 'POST',
+      headers: { authorization: `OAuth ${cfg.token}`, 'x-org-id': cfg.org, 'content-type': 'application/json' },
+      body: JSON.stringify({ keys: stale.slice(0, 100) }),
+      signal: AbortSignal.timeout(15_000),
+    }).then(async res => {
+      if (!res.ok) throw new Error(`Трекер ${res.status}`);
+      const found = new Map((await res.json()).map(i => [i.key, i]));
+      for (const k of stale) {
+        const i = found.get(k);
+        // Тестирование и ревью у Трекера того же типа inProgress, что и «В работе», — различаем по ключу.
+        const type = /test|review|ready|check/i.test(i?.status?.key || '') && i?.statusType?.key === 'inProgress' ? 'review' : i?.statusType?.key || null;
+        trackerCache.set(k, { at: Date.now(), status: i ? { display: i.status?.display, key: i.status?.key, type, resolution: i.resolution?.display || null } : null });
+      }
+    }).catch(e => {
+      // Повторим через полминуты, старый статус пока оставляем.
+      for (const k of stale) trackerCache.set(k, { at: Date.now() - TRACKER_TTL_MS + 30_000, status: trackerCache.get(k)?.status ?? null });
+      console.error('[tracker]', e.message);
+    }).finally(() => { trackerInflight = null; });
+  }
+  for (const k of keys) { const st = trackerCache.get(k)?.status; if (st) out[k] = st; }
+  return out;
+}
+
 // ---------- сборка ответа ----------
 
 async function sessionSummary(a, cfg) {
@@ -662,6 +714,9 @@ async function sessionsPayload() {
   const agents = await liveAgents();
   const sessions = await Promise.all(agents.map(a => sessionSummary(a, cfg)));
   await closeAnsweredElsewhere();
+  const keysOf = x => [x.taskKey, ...(x.tasks || []).map(t => t.issue)].filter(Boolean);
+  const statuses = trackerStatuses([...new Set(sessions.flatMap(keysOf))]);
+  for (const x of sessions) x.trackerStatus = Object.fromEntries(keysOf(x).filter(k => statuses[k]).map(k => [k, statuses[k]]));
   const projects = [...new Set([...Object.values(cfg.queues || {}), ...Object.values(cfg.repos || {}), ...sessions.map(s => s.project)])].sort();
   const { pending } = requestsPayload();
   for (const s of sessions) s.requests = pending.filter(r => r.sessionId === s.sessionId);
@@ -685,6 +740,7 @@ async function sessionDetail(id, since) {
   s.chatSeq = st?.seq || 0;
   s.chatTruncated = (st?.chat[0]?.seq || 1) > 1;
   s.taskNotes = (await notesForSession(id, s.taskKey)).map(n => ({ ...n, file: path.relative(VAULT, n.file) }));
+  s.trackerStatus = trackerStatuses([...new Set([s.taskKey, ...s.taskNotes.map(n => n.issue)].filter(Boolean))]);
   return s;
 }
 

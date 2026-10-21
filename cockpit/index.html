@@ -200,7 +200,16 @@ details.tool > summary .ta { font-family: ui-monospace, Menlo, monospace; overfl
 .wl.mine { border-color: var(--accent); }
 .wl summary { cursor: pointer; color: var(--muted); }
 .wl .lbl { font-weight: 600; margin-top: 4px; }
-.chip.prog { font-variant-numeric: tabular-nums; }
+.tline { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 4px; font-size: 11.5px; }
+.titem { display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; }
+.tst { border-radius: 4px; padding: 0 6px; font-weight: 600; background: var(--chip); color: var(--muted); }
+.tst.t-inProgress { background: color-mix(in srgb, #3b82f6 18%, transparent); color: #60a5fa; }
+.tst.t-review { background: color-mix(in srgb, #a855f7 18%, transparent); color: #c084fc; }
+.tst.t-paused { background: color-mix(in srgb, #f59e0b 18%, transparent); color: #f59e0b; }
+.tst.t-done { background: color-mix(in srgb, #22c55e 18%, transparent); color: #22c55e; }
+.tst.t-cancelled { text-decoration: line-through; }
+.tkey { color: var(--accent); font-weight: 600; }
+.tprog { color: var(--muted); font-variant-numeric: tabular-nums; }
 h3 { font-size: 11.5px; margin: 16px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 h3:first-child { margin-top: 0; }
 .repo { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
@@ -469,10 +478,20 @@ async function decideRequest(id, kind) {
 const typingInRequest = () => !!document.activeElement?.closest?.('.req') && document.activeElement.type === 'text';
 
 // ---------- доска ----------
-// План задачи из заметки start-task: «☑ 8/9», в подсказке — что осталось.
-function taskChips(s) {
-  return (s.tasks || []).filter(t => t.total).map(t =>
-    `<span class="chip prog" title="${esc(`${t.issue || t.title}: сделано ${t.done} из ${t.total}${t.left ? `\nОсталось: ${t.left}` : ''}`)}">${t.done === t.total ? '✅' : '☑'} ${t.done}/${t.total}</span>`).join('');
+// Строка задач сессии: статус в Трекере и план из заметки start-task («☑ 8/9», в подсказке — что
+// осталось). Видна и в компактных строках «всё простаивает», где подвал карточки скрыт.
+function taskLine(s) {
+  const plans = Object.fromEntries((s.tasks || []).map(t => [t.issue || t.title, t]));
+  const keys = [...new Set([s.taskKey, ...Object.keys(plans)].filter(Boolean))];
+  const items = keys.map(k => {
+    const st = s.trackerStatus?.[k], t = plans[k];
+    if (!st && !t?.total) return '';
+    const showKey = keys.length > 1 || !s.title.includes(k);
+    const tip = [st ? `${k}: ${st.display}${st.resolution ? ` (${st.resolution})` : ''}` : k,
+      t?.total ? `план: сделано ${t.done} из ${t.total}` : '', t?.left ? `Осталось: ${t.left}` : ''].filter(Boolean).join('\n');
+    return `<span class="titem" title="${esc(tip)}">${st ? `<span class="tst t-${esc(st.type || 'new')}">${esc(st.display)}</span>` : ''}${showKey ? `<span class="tkey">${esc(k)}</span>` : ''}${t?.total ? `<span class="tprog">${t.done === t.total ? '✅' : '☑'} ${t.done}/${t.total}</span>` : ''}</span>`;
+  }).join('');
+  return items ? `<div class="tline">${items}</div>` : '';
 }
 
 function cardHtml(s, lane) {
@@ -482,9 +501,10 @@ function cardHtml(s, lane) {
     : s.status === 'waiting' ? `<div class="why waiting">⏳ ${esc(s.waitingFor || 'ждёт ответа')}</div>` : '';
   return `<div class="card ${lane}" data-open="${s.sessionId}">
     <div class="row"><span class="dot ${lane}"></span><span class="title ${s.nameSource === 'derived' ? 'derived' : ''}">${s.naming ? '<span class="spin"></span> ' : ''}${esc(s.title)}</span><span class="time">${ago(s.lastActivity)}</span></div>
+    ${taskLine(s)}
     ${why}
     <div class="prompt">${esc(plain(s.lastPrompt).slice(0, 240))}</div>
-    <div class="foot">${s.taskKey && !s.title.includes(s.taskKey) ? `<span class="chip key">${esc(s.taskKey)}</span>` : ''}${taskChips(s)}${groupBy === 'none' ? `<span class="chip">${esc(s.project)}</span>` : ''}${s.filesCount ? `<span class="chip">✎ ${s.filesCount}</span>` : ''}${repos}</div>
+    <div class="foot">${s.taskKey && !s.title.includes(s.taskKey) && !s.trackerStatus?.[s.taskKey] ? `<span class="chip key">${esc(s.taskKey)}</span>` : ''}${groupBy === 'none' ? `<span class="chip">${esc(s.project)}</span>` : ''}${s.filesCount ? `<span class="chip">✎ ${s.filesCount}</span>` : ''}${repos}</div>
   </div>`;
 }
 
@@ -763,7 +783,7 @@ function taskTabHtml(s) {
         : `<details class="wl"><summary>${esc(e.date)} · сессия ${esc(e.session)}</summary>${body}</details>`;
     }).join('');
     return `<div class="task">
-      <div class="th">${n.issue ? `<a href="https://tracker.yandex.ru/${esc(n.issue)}" target="_blank" rel="noopener">${esc(n.issue)}</a>` : ''}<span>${esc(n.title.replace(`${n.issue} — `, ''))}</span></div>
+      <div class="th">${n.issue ? `<a href="https://tracker.yandex.ru/${esc(n.issue)}" target="_blank" rel="noopener">${esc(n.issue)}</a>` : ''}${s.trackerStatus?.[n.issue] ? `<span class="tst t-${esc(s.trackerStatus[n.issue].type || 'new')}">${esc(s.trackerStatus[n.issue].display)}</span>` : ''}<span>${esc(n.title.replace(`${n.issue} — `, ''))}</span></div>
       <div class="muted" style="font-size:11.5px"><code>${esc(n.file)}</code>${n.branch ? ` · ${esc(n.branch)}` : ''}${mrs.map((u, i) => ` · <a href="${esc(u)}" target="_blank" rel="noopener">MR${mrs.length > 1 ? ' ' + (i + 1) : ''}</a>`).join('')}</div>
       ${n.todo.length ? `<div class="bar"><i style="width:${pct}%"></i></div><div class="sub">Что нужно сделать · ${done}/${n.todo.length}</div>
       <ul class="todo">${n.todo.map(t => `<li class="${t.done ? 'done' : ''}"><span class="m">${t.done ? "✓" : "○"}</span><div class="md">${md(t.text)}</div></li>`).join('')}</ul>` : ''}

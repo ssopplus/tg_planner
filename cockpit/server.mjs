@@ -187,6 +187,7 @@ function applyEntry(st, o) {
       if (o.isSidechain) return;
       if (o.cwd) st.cwd = o.cwd;
       if (o.gitBranch) st.gitBranch = o.gitBranch;
+      if (o.permissionMode) st.permissionMode = o.permissionMode;
       const c = o.message?.content;
       if (Array.isArray(c)) {
         for (const b of c) {
@@ -484,7 +485,9 @@ function close(r, status) {
   hookLog({ event: `request-${status}`, id: r.id, session: r.sessionId });
 }
 
-// Решение из UI: { behavior: 'allow'|'deny', always?, message?, answers? }.
+const SETTABLE_MODES = ['default', 'acceptEdits', 'plan', 'auto'];
+
+// Решение из UI: { behavior: 'allow'|'deny', always?, message?, answers?, setMode? }.
 function decide(r, d) {
   const decision = { behavior: d.behavior === 'deny' ? 'deny' : 'allow' };
   if (decision.behavior === 'deny') {
@@ -496,6 +499,11 @@ function decide(r, d) {
     decision.updatedInput = { ...r.input, answers };
   } else if (d.always && Array.isArray(r.suggestions) && r.suggestions.length) {
     decision.updatedPermissions = r.suggestions;
+  }
+  // Смена режима сессии вместе с ответом — единственный способ поменять режим снаружи. Bypass и
+  // dontAsk снимают проверки, поэтому из cockpit их не включаем.
+  if (decision.behavior === 'allow' && SETTABLE_MODES.includes(d.setMode)) {
+    decision.updatedPermissions = [...(decision.updatedPermissions || []), { type: 'setMode', mode: d.setMode, destination: 'session' }];
   }
   r.status = 'answered'; r.closedAt = Date.now();
   r.decision = { ...d, behavior: decision.behavior };
@@ -686,6 +694,7 @@ async function sessionSummary(a, cfg) {
       s.lastAssistant = st.lastAssistant?.slice(0, 1500) ?? null;
       s.lastActivity = st.lastActivity; s.firstActivity = st.firstActivity;
       s.gitBranch = st.gitBranch; s.model = st.model; s.prompts = st.prompts;
+      s.permissionMode = st.permissionMode || null;
       s.toolCounts = st.toolCounts;
       s.filesCount = st.files.size;
       const roots = new Set();
@@ -719,7 +728,11 @@ async function sessionsPayload() {
   for (const x of sessions) x.trackerStatus = Object.fromEntries(keysOf(x).filter(k => statuses[k]).map(k => [k, statuses[k]]));
   const projects = [...new Set([...Object.values(cfg.queues || {}), ...Object.values(cfg.repos || {}), ...sessions.map(s => s.project)])].sort();
   const { pending } = requestsPayload();
-  for (const s of sessions) s.requests = pending.filter(r => r.sessionId === s.sessionId);
+  for (const s of sessions) {
+    s.requests = pending.filter(r => r.sessionId === s.sessionId);
+    // Режим из запроса свежее транскрипта: хук получает его в момент вопроса.
+    if (s.requests[0]?.mode) s.permissionMode = s.requests[0].mode;
+  }
   return { at: Date.now(), sessions, projects, pending, sync: syncStatus };
 }
 

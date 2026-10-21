@@ -422,11 +422,22 @@ const reqSummary = r => r.kind === 'question'
   ? (r.input.questions || []).map(q => q.question).join(' / ')
   : r.input.command || r.input.file_path || r.input.url || r.input.query || r.input.sql || JSON.stringify(r.input);
 
+// Режимы Claude Code так, как они названы в меню VS Code.
+const MODES = { default: 'Manual', manual: 'Manual', acceptEdits: 'Edit automatically', plan: 'Plan', auto: 'Auto', bypassPermissions: 'Bypass', dontAsk: "Don't ask" };
+const modeName = m => MODES[m] || m;
+// Выбор «режим после ответа»: режим сессии можно поменять только вместе с ответом на запрос.
+function modeSelect(r) {
+  const cur = drafts[`${r.id}|mode`] || '';
+  const opts = ['default', 'acceptEdits', 'plan', 'auto'].filter(m => m !== r.mode)
+    .map(m => `<option value="${m}" ${cur === m ? 'selected' : ''}>→ ${esc(modeName(m))}</option>`).join('');
+  return `<select data-draft-text="${r.id}|mode" title="Режим сессии после ответа — меняется вместе с ответом"><option value="">режим: ${esc(r.mode ? modeName(r.mode) : 'не менять')}</option>${opts}</select>`;
+}
+
 function requestHtml(r, opts = {}) {
   const s = sessions.find(x => x.sessionId === r.sessionId);
   const head = `<div class="rh">${r.kind === 'question' ? '❓' : '🔐'} <b>${esc(r.kind === 'question' ? 'Claude спрашивает' : r.tool)}</b>
     ${opts.withSession && s ? `<a href="#/session/${esc(r.sessionId)}">${esc(s.title)}</a> <span class="chip">${esc(s.project)}</span>` : ''}
-    <span class="time">${ago(r.createdAt)} назад</span>${r.mode ? `<span class="chip">${esc(r.mode)}</span>` : ''}</div>`;
+    <span class="time">${ago(r.createdAt)} назад</span>${r.mode ? `<span class="chip" title="Режим сессии">${esc(modeName(r.mode))}</span>` : ''}</div>`;
   if (r.kind === 'question') {
     const qs = (r.input.questions || []).map((q, qi) => {
       const picked = drafts[`${r.id}|${qi}`] || [];
@@ -437,7 +448,7 @@ function requestHtml(r, opts = {}) {
         <input type="text" placeholder="Свой вариант" data-draft-text="${r.id}|other|${qi}" value="${esc(drafts[`${r.id}|other|${qi}`] || '')}" style="width:100%;margin-top:4px">`;
     }).join('');
     return `<div class="req" data-req="${r.id}">${head}${qs}
-      <div class="acts"><button class="allow" data-decide="answer" data-id="${r.id}">Ответить</button>
+      <div class="acts"><button class="allow" data-decide="answer" data-id="${r.id}">Ответить</button>${modeSelect(r)}
       <span class="muted" style="font-size:12px">или ответь в окне сессии — сработает первый ответ</span></div></div>`;
   }
   const body = r.tool === 'Bash' && r.input.command
@@ -447,6 +458,7 @@ function requestHtml(r, opts = {}) {
     <div class="acts">
       <button class="allow" data-decide="allow" data-id="${r.id}">Разрешить</button>
       ${Array.isArray(r.suggestions) && r.suggestions.length ? `<button data-decide="always" data-id="${r.id}" title="${esc(JSON.stringify(r.suggestions))}">Разрешить всегда</button>` : ''}
+      ${modeSelect(r)}
       <input type="text" placeholder="Причина отказа (необязательно)" data-draft-text="${r.id}|reason" value="${esc(drafts[`${r.id}|reason`] || '')}">
       <button class="deny" data-decide="deny" data-id="${r.id}">Отклонить</button>
     </div></div>`;
@@ -467,15 +479,16 @@ async function decideRequest(id, kind) {
     });
     if (Object.keys(body.answers).length < (r?.input.questions || []).length) { toast('Ответь на все вопросы'); return; }
   } else { body.behavior = 'allow'; body.always = kind === 'always'; }
+  if (body.behavior === 'allow' && drafts[`${id}|mode`]) body.setMode = drafts[`${id}|mode`];
   try {
     await post('/api/requests/decision', body);
-    toast(body.behavior === 'deny' ? 'Отклонено' : kind === 'answer' ? 'Ответ отправлен' : 'Разрешено');
+    toast((body.behavior === 'deny' ? 'Отклонено' : kind === 'answer' ? 'Ответ отправлен' : 'Разрешено') + (body.setMode ? ` · режим → ${modeName(body.setMode)}` : ''));
   } catch (e) { toast('Не успел: ' + e.message); }
   for (const k of Object.keys(drafts)) if (k.startsWith(id + '|')) delete drafts[k];
   poll();
 }
 // Пока пользователь печатает в форме запроса, экран не перерисовываем — иначе пропадёт фокус.
-const typingInRequest = () => !!document.activeElement?.closest?.('.req') && document.activeElement.type === 'text';
+const typingInRequest = () => !!document.activeElement?.closest?.('.req') && (document.activeElement.type === 'text' || document.activeElement.tagName === 'SELECT');
 
 // ---------- доска ----------
 // Строка задач сессии: статус в Трекере и план из заметки start-task («☑ 8/9», в подсказке — что
@@ -627,7 +640,7 @@ function updateSessionHead() {
     <div class="crumbs"><a href="#/board">Доска</a> / <span>${esc(s.project)}</span></div>
     <div class="titlerow">
       <h2 id="titleEdit" title="Нажми, чтобы переименовать">${esc(s.title)}</h2>
-      <span class="pill ${lane}"><span class="dot ${lane}"></span>${LANE_LABEL[lane]}</span>
+      <span class="pill ${lane}"><span class="dot ${lane}"></span>${LANE_LABEL[lane]}</span>${s.permissionMode ? `<span class="chip" title="Режим сессии. Поменять можно вместе с ответом на запрос разрешения">${esc(modeName(s.permissionMode))}</span>` : ''}
       ${s.taskKey ? `<span class="chip key">${esc(s.taskKey)}</span>` : ''}
       <span class="time">активность ${ago(s.lastActivity)} назад</span>
       <span class="spacer"></span>
@@ -733,6 +746,7 @@ function updateSide() {
         <span class="k">Проект</span><span class="v"><input type="text" id="projInput" list="projList" value="${esc(s.project)}" style="width:100%"><datalist id="projList">${projects.map(p => `<option value="${esc(p)}">`).join('')}</datalist><span class="muted" style="font-size:12px">${psrc}</span></span>
         <span class="k">Статус</span><span class="v">${esc(LANE_LABEL[laneOf(s)])}${s.waitingFor ? ' — ' + esc(s.waitingFor) : ''}</span>
         ${s.taskKey ? `<span class="k">Задача</span><span class="v"><a href="https://tracker.yandex.ru/${esc(s.taskKey)}" target="_blank" rel="noopener">${esc(s.taskKey)}</a></span>` : ''}
+        <span class="k">Режим</span><span class="v">${esc(s.permissionMode ? modeName(s.permissionMode) : '—')} <span class="muted" style="font-size:12px">· меняется вместе с ответом на запрос</span></span>
         <span class="k">Ветка в cwd</span><span class="v">${esc(s.gitBranch || '—')}</span>
         <span class="k">Модель</span><span class="v">${esc(s.model || '—')}</span>
         <span class="k">Промптов</span><span class="v">${s.prompts ?? 0}</span>

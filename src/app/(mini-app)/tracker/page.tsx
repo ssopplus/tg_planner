@@ -31,15 +31,29 @@ interface ClaudeOnTask {
 }
 
 /**
- * Вкладки — не произвольный фильтр, а три состояния рабочего дня: что делаю
- * сейчас, что ждёт очереди, что уже закрыто. Статусы Трекера сведены к ним
- * ещё при синхронизации (mapTrackerStatus), поэтому здесь хватает трёх.
+ * Вкладки — не произвольный фильтр, а состояния рабочего дня: что делаю
+ * сейчас, что ушло в тестирование, что ждёт очереди, что уже закрыто.
+ * Синк (mapTrackerStatus) сводит тестирование в IN_PROGRESS, поэтому его
+ * отделяем здесь — по статусу словами Трекера.
  */
 const TABS = [
   { id: 'IN_PROGRESS', label: 'В работе' },
+  { id: 'TESTING', label: 'Тестирование' },
   { id: 'TODO', label: 'Открытые' },
   { id: 'DONE', label: 'Закрытые' },
 ] as const
+
+type TabId = (typeof TABS)[number]['id']
+
+/** «Можно тестировать», «Тестируется», «Testing», «Ready for test» — у каждой очереди свои слова. */
+const TESTING_RE = /тест|test/i
+
+const isTesting = (t: TrackerTask) => t.status === 'IN_PROGRESS' && TESTING_RE.test(t.trackerStatus ?? '')
+
+function tabOf(t: TrackerTask): TabId | null {
+  if (isTesting(t)) return 'TESTING'
+  return t.status === 'ARCHIVED' ? null : t.status
+}
 
 /** Цвет статуса Трекера — по нашему статусу, в который он сведён синком. */
 const TRACKER_STATUS: Record<TaskStatus, string> = {
@@ -114,11 +128,14 @@ export default function TrackerPage() {
     loadClaude()
   }, [load, loadSpent, loadClaude])
 
-  const visible = useMemo(() => tasks.filter((t) => t.status === tab), [tasks, tab])
+  const visible = useMemo(() => tasks.filter((t) => tabOf(t) === tab), [tasks, tab])
   const counts = useMemo(() => {
-    const byStatus: Record<string, number> = {}
-    for (const t of tasks) byStatus[t.status] = (byStatus[t.status] ?? 0) + 1
-    return byStatus
+    const byTab: Record<string, number> = {}
+    for (const t of tasks) {
+      const id = tabOf(t)
+      if (id) byTab[id] = (byTab[id] ?? 0) + 1
+    }
+    return byTab
   }, [tasks])
 
   return (
@@ -156,7 +173,9 @@ export default function TrackerPage() {
             description={
               tab === 'IN_PROGRESS'
                 ? 'Ни одна задача не взята в работу. Переведите задачу из «Открытых».'
-                : 'Задачи приезжают из Яндекс.Трекера при синхронизации.'
+                : tab === 'TESTING'
+                  ? 'В тестировании ничего нет.'
+                  : 'Задачи приезжают из Яндекс.Трекера при синхронизации.'
             }
           />
         ) : (
@@ -203,7 +222,9 @@ function TrackerCard({
             {task.externalId}
           </span>
           {task.trackerStatus ? (
-            <span className={`truncate rounded px-1.5 text-[10.5px] font-semibold ${TRACKER_STATUS[task.status]}`}>
+            <span
+              className={`truncate rounded px-1.5 text-[10.5px] font-semibold ${isTesting(task) ? 'bg-purple-500/15 text-purple-500' : TRACKER_STATUS[task.status]}`}
+            >
               {task.trackerStatus}
             </span>
           ) : null}

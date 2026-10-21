@@ -560,6 +560,8 @@ export type CockpitSessionSnapshot = {
   taskKey?: string | null
   /** Задачи сессии: статус в Трекере и заметка start-task (план и запись ворклога этой сессии). */
   tasks?: CockpitTaskSnapshot[]
+  /** Режим разрешений сессии (default, acceptEdits, plan, auto…) — из транскрипта или запроса. */
+  permissionMode?: string | null
   updatedAt: string
 }
 
@@ -621,12 +623,14 @@ export const cockpitRequests = pgTable(
     canAlways: boolean('can_always').default(false).notNull(),
     /** pending | answered | answered-elsewhere | expired */
     status: text('status').default('pending').notNull(),
-    /** Решение из Mini App: `{ behavior, message?, always?, answers? }`. */
+    /** Решение из Mini App: `{ behavior, message?, always?, answers?, setMode? }`. */
     decision: jsonb('decision').$type<{
       behavior: 'allow' | 'deny'
       message?: string
       always?: boolean
       answers?: Record<string, string>
+      /** Переключить режим сессии вместе с ответом. */
+      setMode?: string
     } | null>(),
     /** Когда cockpit забрал решение — до этого оно ещё не дошло до сессии. */
     deliveredAt: timestamp('delivered_at'),

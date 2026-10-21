@@ -869,6 +869,7 @@ async function syncTick() {
     status: s.requests?.length ? 'waiting' : ['busy', 'waiting'].includes(s.status) ? s.status : 'idle',
     lastAssistant: s.lastAssistant ? mask(s.lastAssistant.slice(0, 700)) : undefined,
     taskKey: s.taskKey || null,
+    permissionMode: s.permissionMode || null,
     tasks: taskSnapshot(s, await notesForSession(s.sessionId, s.taskKey)),
     updatedAt: new Date(s.lastActivity || Date.now()).toISOString(),
   })));

@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { authorizeMiniApp } from '@/lib/telegram/auth'
-import { applyDecision, type DecisionInput } from '@/lib/cockpit/requests'
+import { applyDecision, isSettableMode, type DecisionInput } from '@/lib/cockpit/requests'
 
 /**
  * POST /api/cockpit/requests/:id — решение из Mini App.
  * Тело: `{ behavior: 'allow', always? }`, `{ behavior: 'deny', message? }`
- * или `{ answers: { вопрос: метка } }`.
+ * или `{ answers: { вопрос: метка } }`. К разрешению и ответу можно добавить
+ * `setMode` — режим сессии после ответа (default, acceptEdits, plan, auto).
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await authorizeMiniApp(request.headers.get('X-Telegram-Init-Data') ?? '')
@@ -13,13 +14,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const { id } = await params
   const body = (await request.json()) as Record<string, unknown>
+  const setMode = isSettableMode(body.setMode) ? body.setMode : undefined
   let input: DecisionInput
   if (body.answers && typeof body.answers === 'object') {
-    input = { answers: Object.fromEntries(Object.entries(body.answers).map(([q, a]) => [q, String(a)])) }
+    input = { answers: Object.fromEntries(Object.entries(body.answers).map(([q, a]) => [q, String(a)])), setMode }
   } else if (body.behavior === 'deny') {
     input = { behavior: 'deny', message: typeof body.message === 'string' ? body.message : undefined }
   } else if (body.behavior === 'allow') {
-    input = { behavior: 'allow', always: body.always === true }
+    input = { behavior: 'allow', always: body.always === true, setMode }
   } else {
     return NextResponse.json({ error: 'Нет решения' }, { status: 400 })
   }

@@ -38,6 +38,12 @@ button.ghost { background: transparent; border-color: transparent; color: var(--
 button.ghost:hover { color: var(--text); border-color: var(--line); }
 button:disabled { opacity: .5; cursor: default; }
 input[type=text], input[type=search] { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
+select { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 26px 3px 8px; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 13px) 55%, calc(100% - 9px) 55%; background-size: 4px 4px; background-repeat: no-repeat; }
+select:hover { border-color: var(--accent); }
+input[type=text]:focus, input[type=search]:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 
 /* ---------- верхняя панель ---------- */
 header { display: flex; gap: 14px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex: none; }
@@ -250,6 +256,8 @@ pre.diff .m { color: var(--muted); font-weight: 600; }
 .req .opt .d { color: var(--muted); font-size: 12px; }
 .req .acts { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
 .req .acts input[type=text] { flex: 1; min-width: 160px; }
+.req .modepick { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.req .modepick select.on { border-color: var(--accent); color: var(--accent); }
 button.allow { background: var(--busy); border-color: var(--busy); color: #fff; }
 button.deny { color: var(--del); }
 .reqs-top { padding: 10px 20px 0; max-height: 50vh; overflow: auto; }
@@ -430,7 +438,8 @@ function modeSelect(r) {
   const cur = drafts[`${r.id}|mode`] || '';
   const opts = ['default', 'acceptEdits', 'plan', 'auto'].filter(m => m !== r.mode)
     .map(m => `<option value="${m}" ${cur === m ? 'selected' : ''}>→ ${esc(modeName(m))}</option>`).join('');
-  return `<select data-draft-text="${r.id}|mode" title="Режим сессии после ответа — меняется вместе с ответом"><option value="">режим: ${esc(r.mode ? modeName(r.mode) : 'не менять')}</option>${opts}</select>`;
+  return `<label class="modepick" title="Режим сессии меняется вместе с ответом">после ответа
+    <select class="${cur ? 'on' : ''}" data-draft-text="${r.id}|mode"><option value="">режим не менять</option>${opts}</select></label>`;
 }
 
 function requestHtml(r, opts = {}) {
@@ -877,7 +886,11 @@ document.addEventListener('toggle', e => {
   if (it) d.insertAdjacentHTML('beforeend', toolIo(it));
 }, true);
 $('#q').addEventListener('input', () => render(false));
-document.addEventListener('input', e => { const k = e.target.dataset?.draftText; if (k) drafts[k] = e.target.value; });
+document.addEventListener('input', e => {
+  const k = e.target.dataset?.draftText; if (!k) return;
+  drafts[k] = e.target.value;
+  if (e.target.tagName === 'SELECT') e.target.classList.toggle('on', !!e.target.value);
+});
 document.addEventListener('change', e => {
   const k = e.target.dataset?.draft; if (!k) return;
   const set = new Set(e.target.type === 'radio' ? [] : drafts[k] || []);

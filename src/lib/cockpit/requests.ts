@@ -49,11 +49,20 @@ export async function getRequest(userId: string, id: string): Promise<CockpitReq
   return req ?? null
 }
 
-/** Решение из Mini App. Для вопроса — ответы целиком. */
+/** Режимы, на которые сессию можно переключить вместе с ответом (как в меню VS Code). */
+export const SETTABLE_MODES = ['default', 'acceptEdits', 'plan', 'auto'] as const
+export type SettableMode = (typeof SETTABLE_MODES)[number]
+export const isSettableMode = (m: unknown): m is SettableMode =>
+  typeof m === 'string' && (SETTABLE_MODES as readonly string[]).includes(m)
+
+/**
+ * Решение из Mini App. Для вопроса — ответы целиком. `setMode` переключает
+ * режим сессии вместе с разрешением: cockpit кладёт его в `updatedPermissions`.
+ */
 export type DecisionInput =
-  | { behavior: 'allow'; always?: boolean }
+  | { behavior: 'allow'; always?: boolean; setMode?: SettableMode }
   | { behavior: 'deny'; message?: string }
-  | { answers: Record<string, string> }
+  | { answers: Record<string, string>; setMode?: SettableMode }
 
 export type DecisionResult =
   | { ok: true; req: CockpitRequest; complete: boolean }
@@ -80,13 +89,18 @@ export async function applyDecision(
   if ('answers' in input) {
     if (req.kind !== 'question') return { ok: false, error: 'Это не вопрос', req }
     const answers = { ...(req.decision?.answers ?? {}), ...input.answers }
-    decision = { behavior: 'allow', answers }
+    const setMode = input.setMode ?? req.decision?.setMode
+    decision = { behavior: 'allow', answers, ...(setMode ? { setMode } : {}) }
     complete = questionsOf(req).every((q) => answers[q.question] !== undefined)
   } else if (input.behavior === 'deny') {
     decision = { behavior: 'deny', message: input.message?.slice(0, 2000) || 'Отклонено в планировщике' }
   } else {
     if (req.kind === 'question') return { ok: false, error: 'Выбери вариант ответа', req }
-    decision = { behavior: 'allow', ...(input.always && req.canAlways ? { always: true } : {}) }
+    decision = {
+      behavior: 'allow',
+      ...(input.always && req.canAlways ? { always: true } : {}),
+      ...(input.setMode ? { setMode: input.setMode } : {}),
+    }
   }
 
   const [updated] = await db

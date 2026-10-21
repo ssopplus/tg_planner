@@ -9,6 +9,7 @@ import { apiFetch } from '@/lib/telegram/webapp'
 import {
   Composer,
   hint,
+  ModeChip,
   RequestCard,
   STATUS,
   TaskBadge,
@@ -134,6 +135,7 @@ export default function SessionPage() {
             </span>
           ) : null}
           {s?.project ? <span className={`text-[12px] ${hint}`}>{s.project}</span> : null}
+          <ModeChip mode={s?.permissionMode} />
           {(s?.tasks ?? []).map((t) => (
             <TaskBadge key={t.issue ?? t.title} t={t} showKey />
           ))}
@@ -150,7 +152,7 @@ export default function SessionPage() {
       ) : null}
 
       {data?.requests.map((r) => (
-        <RequestCard key={r.id} req={r} onDone={load} />
+        <RequestCard key={r.id} req={r} mode={s?.permissionMode} onDone={load} />
       ))}
 
       <div className="flex flex-col gap-2.5">

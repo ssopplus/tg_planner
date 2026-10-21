@@ -64,6 +64,8 @@ tail -f ~/Library/Logs/dev-cockpit.log
 - Режим сессии (Manual / Edit automatically / Plan / Auto) виден в шапке сессии и в «Свойствах». Поменять его снаружи
   можно только вместе с ответом на запрос: в карточке запроса выбрать «режим после ответа», cockpit добавит к решению
   `updatedPermissions: [{type: "setMode", mode, destination: "session"}]`. Bypass и dontAsk из cockpit не включаются.
+  То же в Mini App: режим приходит в снимке (`permissionMode`), выбор «Режим после ответа» в карточке запроса
+  уходит в решение полем `setMode` и доходит до сессии через синк.
   Переключить режим простаивающей сессии внешнего входа у Claude Code нет — только Remote Control в приложении Claude.
 - Свободный текст из поля под перепиской уходит в межсессионный сокет сессии (`messagingSocketPath` из
   `~/.claude/sessions/<pid>.json`). Claude получает его как реплику соседней сессии с пометкой `[из dev-cockpit]`.

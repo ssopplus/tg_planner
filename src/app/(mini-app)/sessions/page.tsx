@@ -9,6 +9,7 @@ import {
   chip,
   Composer,
   hint,
+  ModeChip,
   RequestCard,
   STATUS,
   TaskBadge,
@@ -97,7 +98,12 @@ export default function SessionsPage() {
       ) : (
         <>
           {pending.map((r) => (
-            <RequestCard key={r.id} req={r} onDone={load} />
+            <RequestCard
+              key={r.id}
+              req={r}
+              mode={data.sessions.find((s) => s.id === r.sessionId)?.permissionMode}
+              onDone={load}
+            />
           ))}
 
           {ordered.length === 0 ? (
@@ -149,8 +155,9 @@ function SessionRow({ s, commands, onSent }: { s: Session; commands: Command[]; 
           <span className={`min-w-0 flex-1 truncate text-[14px] ${text}`}>{s.name}</span>
           <span className={`text-[11px] ${hint}`}>{st.label}</span>
         </span>
-        {tasks.length ? (
-          <span className="flex flex-wrap gap-x-3 gap-y-1">
+        {tasks.length || !['default', 'manual', null, undefined].includes(s.permissionMode) ? (
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <ModeChip mode={s.permissionMode} quiet />
             {tasks.map((t) => (
               <TaskBadge key={t.issue ?? t.title} t={t} showKey={tasks.length > 1 || !s.name.includes(t.issue ?? '')} />
             ))}

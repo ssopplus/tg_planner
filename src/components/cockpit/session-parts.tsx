@@ -25,6 +25,7 @@ export interface Session {
   lastAssistant?: string
   taskKey?: string | null
   tasks?: SessionTask[]
+  permissionMode?: string | null
   updatedAt: string
 }
 
@@ -56,7 +57,7 @@ export interface Request {
   payload: Record<string, unknown> & { questions?: Question[] }
   canAlways: boolean
   status: string
-  decision: { behavior: 'allow' | 'deny'; always?: boolean; answers?: Record<string, string> } | null
+  decision: { behavior: 'allow' | 'deny'; always?: boolean; answers?: Record<string, string>; setMode?: string } | null
   createdAt: string
 }
 
@@ -81,10 +82,33 @@ export const COMMAND_STATUS: Record<Command['status'], string> = {
   failed: 'не вышло',
 }
 
+/** Названия режимов — как в меню VS Code. */
+export const MODES: Record<string, string> = {
+  default: 'Manual',
+  manual: 'Manual',
+  acceptEdits: 'Edit automatically',
+  plan: 'Plan',
+  auto: 'Auto',
+  bypassPermissions: 'Bypass',
+  dontAsk: "Don't ask",
+}
+/** На какие режимы можно переключить вместе с ответом (см. SETTABLE_MODES на сервере). */
+const SETTABLE = ['default', 'acceptEdits', 'plan', 'auto']
+const modeName = (m?: string | null) => (m ? (MODES[m] ?? m) : null)
+
 export const hint = 'text-[var(--tg-theme-hint-color,#8e8e93)]'
 export const text = 'text-[var(--tg-theme-text-color,#000)]'
 export const card = 'rounded-xl border border-border bg-[var(--tg-theme-section-bg-color,#fff)]'
 export const chip = 'rounded-full bg-[var(--tg-theme-secondary-bg-color,#efeff4)] px-3 py-1.5 text-[12px]'
+
+/** Режим сессии. `quiet` — не показывать обычный Manual (для плотных списков). */
+export function ModeChip({ mode, quiet }: { mode?: string | null; quiet?: boolean }) {
+  const name = modeName(mode)
+  if (!name || (quiet && (mode === 'default' || mode === 'manual'))) return null
+  return (
+    <span className={`rounded bg-[var(--tg-theme-secondary-bg-color,#efeff4)] px-1.5 text-[11px] ${hint}`}>режим: {name}</span>
+  )
+}
 
 export function TaskBadge({ t, showKey }: { t: SessionTask; showKey: boolean }) {
   const done = t.todo.filter((x) => x.done).length
@@ -200,18 +224,25 @@ export function Composer({ sessionId, commands, onSent }: { sessionId: string; c
   )
 }
 
-export function RequestCard({ req, onDone }: { req: Request; onDone: () => void }) {
+/**
+ * Запрос разрешения или вопрос Claude. `mode` — текущий режим сессии: рядом с
+ * кнопками можно выбрать, на какой режим переключить её вместе с ответом.
+ */
+export function RequestCard({ req, mode, onDone }: { req: Request; mode?: string | null; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [reason, setReason] = useState('')
   const [picked, setPicked] = useState<Record<string, string[]>>({})
+  const [setMode, setSetMode] = useState('')
   const questions = req.kind === 'question' ? (req.payload.questions ?? []) : []
+  const current = mode === 'manual' ? 'default' : mode
 
   const submit = async (body: Record<string, unknown>) => {
     setBusy(true)
     setError(null)
     try {
-      const res = await apiFetch(`/api/cockpit/requests/${req.id}`, { method: 'POST', body: JSON.stringify(body) })
+      const withMode = setMode && body.behavior !== 'deny' ? { ...body, setMode } : body
+      const res = await apiFetch(`/api/cockpit/requests/${req.id}`, { method: 'POST', body: JSON.stringify(withMode) })
       if (!res.ok) setError(((await res.json()) as { error?: string }).error ?? 'Ошибка')
       onDone()
     } finally {
@@ -233,7 +264,10 @@ export function RequestCard({ req, onDone }: { req: Request; onDone: () => void 
         {req.kind === 'question' ? '❓ Вопрос Claude' : '🔐 Запрос разрешения'}
         {req.project ? ` · ${req.project}` : ''}
       </p>
-      <p className={`text-[14px] font-semibold ${text}`}>{req.sessionName}</p>
+      <p className={`flex flex-wrap items-center gap-2 text-[14px] font-semibold ${text}`}>
+        {req.sessionName}
+        <ModeChip mode={mode} />
+      </p>
 
       {req.kind === 'permission' ? (
         <>
@@ -277,6 +311,21 @@ export function RequestCard({ req, onDone }: { req: Request; onDone: () => void 
         placeholder="Причина отказа (необязательно)"
         className={`rounded-lg border border-border bg-transparent px-2 py-1.5 text-[13px] ${text}`}
       />
+      <label className={`flex items-center gap-2 text-[12px] ${hint}`}>
+        Режим после ответа
+        <select
+          value={setMode}
+          onChange={(e) => setSetMode(e.target.value)}
+          className={`min-w-0 flex-1 rounded-lg border border-border bg-transparent px-2 py-1.5 text-[13px] ${text}`}
+        >
+          <option value="">не менять{current ? ` (${modeName(current)})` : ''}</option>
+          {SETTABLE.filter((m) => m !== current).map((m) => (
+            <option key={m} value={m}>
+              → {MODES[m]}
+            </option>
+          ))}
+        </select>
+      </label>
       <div className="flex flex-wrap gap-2">
         {req.kind === 'permission' ? (
           <>

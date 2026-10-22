@@ -98,6 +98,31 @@ export const MODES: Record<string, string> = {
 const SETTABLE = ['default', 'acceptEdits', 'plan', 'auto']
 const modeName = (m?: string | null) => (m ? (MODES[m] ?? m) : null)
 
+/**
+ * «Просмотрено» — как на доске cockpit: сессия, которая что-то сделала после
+ * последнего просмотра, попадает в «Готово, посмотреть». Хранится на устройстве.
+ */
+const SEEN_KEY = 'sessions-seen'
+export function readSeen(): Record<string, number> | null {
+  try {
+    const raw = localStorage.getItem(SEEN_KEY)
+    return raw ? (JSON.parse(raw) as Record<string, number>) : null
+  } catch {
+    return {}
+  }
+}
+export function writeSeen(seen: Record<string, number>) {
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify(seen))
+  } catch {}
+}
+export function markSeen(id: string, at: string) {
+  const seen = readSeen() ?? {}
+  const ts = new Date(at).getTime()
+  if ((seen[id] ?? 0) >= ts) return
+  writeSeen({ ...seen, [id]: ts })
+}
+
 export const hint = 'text-[var(--tg-theme-hint-color,#8e8e93)]'
 export const text = 'text-[var(--tg-theme-text-color,#000)]'
 export const card = 'rounded-xl border border-border bg-[var(--tg-theme-section-bg-color,#fff)]'

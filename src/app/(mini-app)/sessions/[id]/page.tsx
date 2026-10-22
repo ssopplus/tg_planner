@@ -9,6 +9,7 @@ import { apiFetch } from '@/lib/telegram/webapp'
 import {
   Composer,
   hint,
+  markSeen,
   ModeChip,
   RequestCard,
   STATUS,
@@ -112,6 +113,11 @@ export default function SessionPage() {
 
   const s = data?.session
   const st = s ? (STATUS[s.status] ?? STATUS.idle) : null
+
+  // Открыл переписку — сессия просмотрена и уходит из «Готово, посмотреть» на доске.
+  useEffect(() => {
+    if (s?.updatedAt) markSeen(s.id, s.updatedAt)
+  }, [s?.id, s?.updatedAt])
   const transcriptAgo = data?.transcriptAt ? Math.round((now - new Date(data.transcriptAt).getTime()) / 1000) : null
 
   return (

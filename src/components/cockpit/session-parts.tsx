@@ -123,6 +123,21 @@ export function markSeen(id: string, at: string) {
   writeSeen({ ...seen, [id]: ts })
 }
 
+/** Копирование в буфер; во вьюхе Telegram без Clipboard API — через выделение textarea. */
+export async function copyText(value: string) {
+  try {
+    await navigator.clipboard.writeText(value)
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = value
+    ta.style.cssText = 'position:fixed;opacity:0'
+    document.body.append(ta)
+    ta.select()
+    document.execCommand('copy')
+    ta.remove()
+  }
+}
+
 export const hint = 'text-[var(--tg-theme-hint-color,#8e8e93)]'
 export const text = 'text-[var(--tg-theme-text-color,#000)]'
 export const card = 'rounded-xl border border-border bg-[var(--tg-theme-section-bg-color,#fff)]'

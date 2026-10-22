@@ -161,6 +161,16 @@ header input[type=search] { width: 240px; }
 .md li { margin: 2px 0; }
 .md code { font: 12px ui-monospace, Menlo, monospace; background: var(--code-bg); padding: 1px 4px; border-radius: 4px; }
 .md pre { background: var(--code-bg); padding: 8px 10px; border-radius: 6px; overflow: auto; margin: 0 0 8px; }
+.md .codebox { position: relative; margin: 0 0 8px; }
+.md .codebox pre { margin: 0; white-space: pre-wrap; word-break: break-word; padding-right: 92px; }
+.md .codebox pre.plain, .md .codebox pre.plain code { font: inherit; line-height: 1.55; }
+/* Подпись — через CSS: так она не попадает в innerText, когда копируют всё сообщение. */
+.md .codebox .copy::after { content: 'Копировать'; }
+.md .codebox .copy { position: absolute; top: 6px; right: 6px; font-size: 11.5px; padding: 1px 8px; opacity: .75; }
+.md .codebox .copy:hover { opacity: 1; }
+.msg .who .copy-msg { font-size: 11.5px; padding: 0 6px; opacity: 0; }
+.msg:hover .who .copy-msg, .msg .who .copy-msg:focus { opacity: 1; }
+@media (hover: none) { .msg .who .copy-msg { opacity: .7; } }
 .md pre code { background: none; padding: 0; }
 .md table { border-collapse: collapse; margin: 0 0 8px; display: block; overflow: auto; }
 .md th, .md td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; vertical-align: top; }
@@ -338,8 +348,36 @@ if (hasMd) marked.setOptions({ gfm: true, breaks: true });
 function md(text) {
   if (!hasMd) return `<div style="white-space:pre-wrap">${esc(text)}</div>`;
   const html = DOMPurify.sanitize(marked.parse(String(text || '')), { ADD_ATTR: ['target'] });
-  return html.replace(/<a /g, '<a target="_blank" rel="noopener" ');
+  return codeBoxes(html.replace(/<a /g, '<a target="_blank" rel="noopener" '));
 }
+// Блоки ``` — с кнопкой «Копировать» и переносом строк. Блок без языка (или text) — это обычно
+// текст «вставить как есть»: показываем его обычным шрифтом, а не моноширинным.
+function codeBoxes(html) {
+  if (!html.includes('<pre')) return html;
+  const t = document.createElement('template'); t.innerHTML = html;
+  for (const pre of t.content.querySelectorAll('pre')) {
+    const lang = pre.querySelector('code')?.className.match(/language-(\S+)/)?.[1];
+    if (!lang || /^(text|txt|plain|plaintext|markdown|md)$/i.test(lang)) pre.classList.add('plain');
+    const box = document.createElement('div'); box.className = 'codebox';
+    pre.replaceWith(box); box.append(pre);
+    box.insertAdjacentHTML('afterbegin', '<button class="copy" data-copy="pre" title="Скопировать блок"></button>');
+  }
+  return t.innerHTML;
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.append(ta); ta.select(); document.execCommand('copy'); ta.remove();
+  }
+  toast('Скопировано');
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest?.('[data-copy]'); if (!b) return;
+  e.stopPropagation();
+  const src = b.dataset.copy === 'pre' ? b.closest('.codebox')?.querySelector('pre') : b.closest('.msg')?.querySelector('.body');
+  if (src) copyText(src.innerText.trim());
+});
 const plain = text => String(text || '').replace(/```[\s\S]*?```/g, ' [код] ').replace(/[*_`#>|]/g, '').replace(/\s+/g, ' ').trim();
 
 // ---------- состояние ----------
@@ -772,7 +810,7 @@ function updateChat() {
     flush();
     html += it.kind === 'user'
       ? `<div class="msg user"><div class="who"><b>${it.via === 'cockpit' ? 'Вы · из cockpit' : it.via === 'peer' ? 'Соседняя сессия' : 'Вы'}</b><span class="time">${dayTime(it.ts)}</span></div><div class="body md">${md(it.text)}</div></div>`
-      : `<div class="msg assistant"><div class="who"><b>Claude</b><span class="time">${hhmm(it.ts)}</span></div><div class="body md">${md(it.text)}</div></div>`;
+      : `<div class="msg assistant"><div class="who"><b>Claude</b><span class="time">${hhmm(it.ts)}</span><button class="ghost copy-msg" data-copy="msg" title="Скопировать сообщение текстом">копировать</button></div><div class="body md">${md(it.text)}</div></div>`;
   }
   flush();
   if (!items.length) html += '<div class="empty">В транскрипте пока нет сообщений</div>';

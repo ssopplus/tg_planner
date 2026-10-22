@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
@@ -8,6 +8,7 @@ import remarkGfm from 'remark-gfm'
 import { apiFetch } from '@/lib/telegram/webapp'
 import {
   Composer,
+  copyText,
   hint,
   markSeen,
   ModeChip,
@@ -219,13 +220,78 @@ function ChatBlock({ b }: { b: Block }) {
     )
   }
   if (it.kind !== 'assistant') return null
+  return <AssistantMessage text={it.text} ts={it.ts} />
+}
+
+/** Кнопка копирования: подпись меняется на секунду, чтобы было видно, что сработало. */
+function CopyButton({ get, className }: { get: () => string; className: string }) {
+  const [done, setDone] = useState(false)
+  return (
+    <button
+      type="button"
+      data-copy-btn
+      onClick={async () => {
+        await copyText(get())
+        setDone(true)
+        setTimeout(() => setDone(false), 1200)
+      }}
+      className={className}
+    >
+      {done ? 'Скопировано' : 'Копировать'}
+    </button>
+  )
+}
+
+/**
+ * Блок ``` с кнопкой «Копировать» и переносом строк. Блок без языка (или text)
+ * — обычно текст «вставить как есть»: обычным шрифтом, а не моноширинным.
+ */
+function CodeBlock({ children }: { children?: ReactNode }) {
+  const ref = useRef<HTMLPreElement>(null)
+  const child = Array.isArray(children) ? children[0] : children
+  const lang = /language-(\S+)/.exec(
+    ((child as { props?: { className?: string } } | null)?.props?.className as string | undefined) ?? '',
+  )?.[1]
+  const plain = !lang || /^(text|txt|plain|plaintext|markdown|md)$/i.test(lang)
+  return (
+    <div className="relative my-2">
+      <pre
+        ref={ref}
+        className={`!my-0 !overflow-visible whitespace-pre-wrap break-words pr-24 ${plain ? '[&_code]:!font-sans [&_code]:!text-[14px] [&_code]:!leading-relaxed' : ''}`}
+      >
+        {children}
+      </pre>
+      <CopyButton
+        get={() => ref.current?.innerText.trim() ?? ''}
+        className="absolute right-1.5 top-1.5 rounded-md bg-[var(--tg-theme-section-bg-color,#fff)] px-2 py-0.5 text-[11.5px] text-[var(--tg-theme-link-color,#007aff)] shadow-sm"
+      />
+    </div>
+  )
+}
+
+function AssistantMessage({ text: body, ts }: { text: string; ts: number | null }) {
+  const ref = useRef<HTMLDivElement>(null)
+  // Текст сообщения без подписей кнопок: на время чтения прячем их (innerText пропускает display:none).
+  const plainText = () => {
+    const el = ref.current
+    if (!el) return body
+    const btns = [...el.querySelectorAll<HTMLElement>('[data-copy-btn]')]
+    btns.forEach((b) => (b.style.display = 'none'))
+    const value = el.innerText.trim()
+    btns.forEach((b) => (b.style.display = ''))
+    return value
+  }
   return (
     <div className="flex flex-col gap-0.5">
-      <span className={`text-[11px] ${hint}`}>Claude · {hhmm(it.ts)}</span>
-      <div className={`${MD} ${text}`}>
+      <span className={`flex items-center gap-2 text-[11px] ${hint}`}>
+        Claude · {hhmm(ts)}
+        <CopyButton get={plainText} className="text-[11px] text-[var(--tg-theme-link-color,#007aff)]" />
+      </span>
+      <div ref={ref} className={`${MD} ${text}`}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
+            pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
             table: ({ children }) => (
               <div className="overflow-x-auto">
                 <table>{children}</table>
@@ -238,7 +304,7 @@ function ChatBlock({ b }: { b: Block }) {
             ),
           }}
         >
-          {it.text}
+          {body}
         </ReactMarkdown>
       </div>
     </div>

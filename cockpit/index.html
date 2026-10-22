@@ -649,7 +649,7 @@ function layoutSession() {
   $('#app').innerHTML = `<div class="sess" id="sessRoot">
     <div class="sess-main"><div class="sess-head" id="sessHead"></div><div class="chat" id="chat"><div class="chat-inner" id="chatInner"></div></div>
       <div class="composer"><div class="inner">
-        <textarea id="msgInput" rows="2" placeholder="Написать в сессию… (⌘+Enter — отправить)"></textarea>
+        <textarea id="msgInput" rows="2" placeholder="Написать в сессию… (Enter — отправить, ⌘+Enter — новая строка)"></textarea>
         <div class="sendcol"><button class="primary" id="msgSend">Отправить</button>
           <button id="askConfirm" title="Попросить сессию задать вопрос, которого она ждёт, карточкой с вариантами">Спросить кнопками</button></div>
         <div class="hint muted">Сообщение уйдёт через межсессионный сокет с пометкой «[из dev-cockpit]»: Claude увидит его как реплику соседней сессии, а не как твою команду, и «да» отсюда за подтверждение не примет. Если сессия ждёт твоего «да» — жми «Спросить кнопками»: она задаст вопрос карточкой, и ответ в карточке засчитается как твой.</div>
@@ -662,7 +662,15 @@ function layoutSession() {
   const input = $('#msgInput');
   input.value = drafts[`msg|${sessView.id}`] || '';
   input.addEventListener('input', () => { drafts[`msg|${sessView.id}`] = input.value; });
-  input.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendMessage(); } });
+  // Enter — отправить; ⌘/Ctrl+Enter (и Shift+Enter) — перенос строки. Во время набора через IME Enter не трогаем.
+  input.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    e.preventDefault();
+    if (e.metaKey || e.ctrlKey || e.shiftKey) {
+      input.setRangeText('\n', input.selectionStart, input.selectionEnd, 'end');
+      drafts[`msg|${sessView.id}`] = input.value;
+    } else sendMessage();
+  });
   $('#msgSend').addEventListener('click', () => sendMessage());
   $('#askConfirm').addEventListener('click', () => sendMessage(ASK_CONFIRM));
   $('#chat').addEventListener('scroll', e => { const c = e.target; sessView.stick = c.scrollHeight - c.scrollTop - c.clientHeight < 80; });

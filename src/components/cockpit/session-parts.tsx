@@ -378,6 +378,7 @@ export function RequestCard({ req, mode, onDone }: { req: Request; mode?: string
   const [error, setError] = useState<string | null>(null)
   const [reason, setReason] = useState('')
   const [picked, setPicked] = useState<Record<string, string[]>>({})
+  const [other, setOther] = useState<Record<string, string>>({})
   const [setMode, setSetMode] = useState('')
   const questions = req.kind === 'question' ? (req.payload.questions ?? []) : []
   const current = mode === 'manual' ? 'default' : mode
@@ -395,13 +396,27 @@ export function RequestCard({ req, mode, onDone }: { req: Request; mode?: string
     }
   }
 
-  const toggle = (q: Question, label: string) =>
+  const toggle = (q: Question, label: string) => {
     setPicked((p) => {
       const cur = p[q.question] ?? []
       const next = q.multiSelect ? (cur.includes(label) ? cur.filter((l) => l !== label) : [...cur, label]) : [label]
       return { ...p, [q.question]: next }
     })
-  const allPicked = questions.every((q) => (picked[q.question] ?? []).length > 0)
+    // Один ответ: выбрал вариант — свой текст больше не нужен.
+    if (!q.multiSelect) setOther((o) => ({ ...o, [q.question]: '' }))
+  }
+  const typeOther = (q: Question, value: string) => {
+    setOther((o) => ({ ...o, [q.question]: value }))
+    // Один ответ: свой текст заменяет отмеченный вариант.
+    if (!q.multiSelect && value.trim()) setPicked((p) => ({ ...p, [q.question]: [] }))
+  }
+  /** Ответ на вопрос: свой текст заменяет вариант (один ответ) или добавляется к отмеченным (несколько). */
+  const answerOf = (q: Question) => {
+    const own = (other[q.question] ?? '').trim()
+    const ls = picked[q.question] ?? []
+    return (q.multiSelect ? [...ls, ...(own ? [own] : [])] : own ? [own] : ls.slice(0, 1)).join(', ')
+  }
+  const allPicked = questions.every((q) => answerOf(q) !== '')
 
   return (
     <section className={`${card} flex flex-col gap-2 border-amber-400 p-3`}>
@@ -446,6 +461,12 @@ export function RequestCard({ req, mode, onDone }: { req: Request; mode?: string
                 </button>
               )
             })}
+            <input
+              value={other[q.question] ?? ''}
+              onChange={(e) => typeOther(q, e.target.value)}
+              placeholder="Свой вариант"
+              className={`rounded-lg border border-border bg-transparent px-2 py-1.5 text-[13px] ${text}`}
+            />
           </div>
         ))
       )}
@@ -487,7 +508,7 @@ export function RequestCard({ req, mode, onDone }: { req: Request; mode?: string
           <button
             type="button"
             disabled={busy || !allPicked}
-            onClick={() => submit({ answers: Object.fromEntries(Object.entries(picked).map(([q, ls]) => [q, ls.join(', ')])) })}
+            onClick={() => submit({ answers: Object.fromEntries(questions.map((q) => [q.question, answerOf(q)])) })}
             className="rounded-lg bg-green-600 px-3 py-2 text-[13px] text-white disabled:opacity-50"
           >
             Ответить

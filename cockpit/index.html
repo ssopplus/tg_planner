@@ -492,8 +492,9 @@ async function decideRequest(id, kind) {
     (r?.input.questions || []).forEach((q, qi) => {
       const other = (drafts[`${id}|other|${qi}`] || '').trim();
       const picked = drafts[`${id}|${qi}`] || [];
-      const val = other ? [...picked, other] : picked;
-      if (val.length) body.answers[q.question] = q.multiSelect ? val : val[0];
+      // Один вариант: свой текст заменяет отмеченный пункт. Несколько — добавляется к ним.
+      if (q.multiSelect) { const val = other ? [...picked, other] : picked; if (val.length) body.answers[q.question] = val; }
+      else if (other || picked.length) body.answers[q.question] = other || picked[0];
     });
     if (Object.keys(body.answers).length < (r?.input.questions || []).length) { toast('Ответь на все вопросы'); return; }
   } else { body.behavior = 'allow'; body.always = kind === 'always'; }
@@ -928,12 +929,25 @@ document.addEventListener('input', e => {
   const k = e.target.dataset?.draftText; if (!k) return;
   drafts[k] = e.target.value;
   if (e.target.tagName === 'SELECT') e.target.classList.toggle('on', !!e.target.value);
+  // «Свой вариант» в вопросе с одним ответом снимает отметку с вариантов — уйдёт именно текст.
+  const m = k.match(/^(.+)\|other\|(\d+)$/);
+  if (m && e.target.value.trim()) {
+    const radios = document.querySelectorAll(`input[type=radio][data-draft="${m[1]}|${m[2]}"]`);
+    if (radios.length) { radios.forEach(r => { r.checked = false; }); drafts[`${m[1]}|${m[2]}`] = []; }
+  }
 });
 document.addEventListener('change', e => {
   const k = e.target.dataset?.draft; if (!k) return;
   const set = new Set(e.target.type === 'radio' ? [] : drafts[k] || []);
   if (e.target.checked) set.add(e.target.value); else set.delete(e.target.value);
   drafts[k] = [...set];
+  // Выбрал вариант в вопросе с одним ответом — свой текст больше не нужен.
+  if (e.target.type === 'radio') {
+    const [id, qi] = k.split('|');
+    const other = document.querySelector(`input[data-draft-text="${id}|other|${qi}"]`);
+    if (other) other.value = '';
+    delete drafts[`${id}|other|${qi}`];
+  }
 });
 document.addEventListener('change', e => { if (e.target.id === 'showCold') { showCold = e.target.checked; store.set('showCold', showCold); render(false); } });
 $('#autoname').onclick = async () => {

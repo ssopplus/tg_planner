@@ -285,6 +285,7 @@ button.deny { color: var(--del); }
   <div class="spacer"></div>
   <span id="boardTools"></span>
   <input type="search" id="q" placeholder="Поиск: задача, имя, текст…">
+  <button id="openTask" title="Открыть в VS Code новую вкладку Claude с /start-task КЛЮЧ — отправить Enter там">▶ Задача в VS Code</button>
   <button id="autoname" title="Придумать имена сессиям без имени (Haiku через claude -p)">✨ Имена</button>
   <span id="syncPill" class="ghost" hidden></span>
   <button id="notifyBtn" class="ghost" title="Уведомления, когда сессия ждёт ответа">🔕</button>
@@ -895,6 +896,13 @@ document.addEventListener('toggle', e => {
   if (it) d.insertAdjacentHTML('beforeend', toolIo(it));
 }, true);
 $('#q').addEventListener('input', () => render(false));
+$('#openTask').addEventListener('click', () => {
+  const key = (prompt('Ключ задачи Трекера, например POLAERP-194') || '').trim().toUpperCase();
+  if (!key) return;
+  if (!/^[A-Z][A-Z0-9]{1,15}-\d{1,6}$/.test(key)) return toast('Неверный ключ задачи');
+  // Расширение Claude подставит текст во вкладку, отправить — Enter в VS Code.
+  location.href = `vscode://anthropic.claude-code/open?prompt=${encodeURIComponent(`/start-task ${key}`)}`;
+});
 document.addEventListener('input', e => {
   const k = e.target.dataset?.draftText; if (!k) return;
   drafts[k] = e.target.value;

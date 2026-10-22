@@ -18,8 +18,10 @@ const MAX_IMAGES_CHARS = 3_000_000
  * - `{ kind: 'message', sessionId, text, images? }` — текст в сессию. Claude получит его
  *   межсессионным сообщением с пометкой «[из dev-cockpit]». `images` — до 4 скринов
  *   data-URL'ами: cockpit сохранит их файлами и допишет пути в сообщение.
- * - `{ kind: 'start-task', issueKey, title? }` — новая фоновая сессия
- *   `claude --bg "/start-task КЛЮЧ"` в ~/Разработка.
+ * - `{ kind: 'start-task', issueKey, title?, where? }` — взять задачу в Claude:
+ *   `where: 'background'` (по умолчанию) — фоновая сессия `claude --bg "/start-task КЛЮЧ"`
+ *   в ~/Разработка; `where: 'vscode'` — вкладка Claude в VS Code на рабочей машине
+ *   с подставленным `/start-task КЛЮЧ` (отправить — Enter там же).
  *
  * Команда ждёт в БД, пока cockpit не заберёт её синком (раз в 10 с).
  */
@@ -55,7 +57,8 @@ export async function POST(request: NextRequest) {
     const issueKey = typeof body.issueKey === 'string' ? body.issueKey.trim().toUpperCase() : ''
     if (!TASK_KEY_RE.test(issueKey)) return NextResponse.json({ error: 'Неверный ключ задачи' }, { status: 400 })
     const title = typeof body.title === 'string' ? body.title.slice(0, 200) : ''
-    values = { userId: user.id, kind: 'start-task', payload: { issueKey, title } }
+    const where = body.where === 'vscode' ? 'vscode' : 'background'
+    values = { userId: user.id, kind: 'start-task', payload: { issueKey, title, where } }
   } else {
     return NextResponse.json({ error: 'Неизвестная команда' }, { status: 400 })
   }

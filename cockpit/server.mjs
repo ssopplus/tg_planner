@@ -840,6 +840,9 @@ function taskSnapshot(s, notes) {
 }
 
 // Команда из Mini App: текст в сессию или новая фоновая сессия по задаче.
+// Вкладка Claude в VS Code с подставленным `/start-task КЛЮЧ` (uri-хендлер расширения: /open?prompt=&session=).
+const vscodeTaskUri = key => `vscode://anthropic.claude-code/open?prompt=${encodeURIComponent(`/start-task ${key}`)}`;
+
 // Скрины из Mini App: сохраняем файлами, в сессию уходят пути — Claude откроет их через Read.
 const UPLOADS_DIR = path.join(HERE, 'data', 'uploads');
 const UPLOADS_TTL_MS = 7 * 86400e3;
@@ -880,6 +883,12 @@ async function runCommand(c) {
     if (c.kind === 'start-task') {
       const key = String(c.payload?.issueKey || '');
       if (!/^[A-Z][A-Z0-9]{1,15}-\d{1,6}$/.test(key)) throw new Error('неверный ключ задачи');
+      if (c.payload?.where === 'vscode') {
+        // Расширение Claude открывает вкладку с подставленным текстом, но не отправляет его.
+        await pexec('open', [vscodeTaskUri(key)], { timeout: 15_000 });
+        hookLog({ event: 'task-opened-vscode', issue: key });
+        return { id: c.id, ok: true, output: 'вкладка Claude открыта в VS Code — отправь /start-task там Enter' };
+      }
       const env = { ...process.env };
       delete env.ANTHROPIC_API_KEY; // иначе фоновая сессия уйдёт в оплату по API, а не по подписке
       const { stdout, stderr } = await pexec(CLAUDE_BIN, ['--bg', '--name', key, `/start-task ${key}`], { cwd: TASK_CWD, env, timeout: 60_000 });

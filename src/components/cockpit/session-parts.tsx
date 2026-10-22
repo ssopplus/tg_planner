@@ -131,8 +131,16 @@ export function TaskBadge({ t, showKey }: { t: SessionTask; showKey: boolean }) 
   )
 }
 
-/** План и запись ворклога из заметки start-task. */
+/**
+ * План и запись ворклога из заметки start-task. Сразу видно, что осталось:
+ * невыполненные пункты открыты, выполненные и ворклог — по нажатию.
+ */
 export function TaskDetail({ t }: { t: SessionTask }) {
+  const [showDone, setShowDone] = useState(false)
+  const [showLog, setShowLog] = useState(false)
+  const done = t.todo.filter((x) => x.done)
+  const left = t.todo.filter((x) => !x.done)
+  const pct = t.todo.length ? Math.round((done.length / t.todo.length) * 100) : 0
   const field = (label: string, value?: string) =>
     value ? (
       <div>
@@ -140,32 +148,69 @@ export function TaskDetail({ t }: { t: SessionTask }) {
         <p className={`whitespace-pre-wrap text-[12.5px] leading-snug ${text}`}>{value}</p>
       </div>
     ) : null
+  const item = (x: SessionTask['todo'][number], i: number) => (
+    <li key={i} className={`flex gap-1.5 text-[13px] leading-snug ${x.done ? `${hint} line-through` : text}`}>
+      <span className={`shrink-0 ${x.done ? 'text-green-600' : ''}`}>{x.done ? '✓' : '○'}</span>
+      <span>{x.text}</span>
+    </li>
+  )
+  const toggle = 'w-fit text-[12px] text-[var(--tg-theme-link-color,#007aff)]'
+
   return (
     <section className="flex flex-col gap-2 rounded-lg bg-[var(--tg-theme-secondary-bg-color,#efeff4)] p-2.5">
       <p className={`text-[13px] font-semibold ${text}`}>
         {t.issue ? `${t.issue} · ` : ''}
         {t.title}
       </p>
+
       {t.todo.length ? (
-        <ul className="flex flex-col gap-0.5">
-          {t.todo.map((x, i) => (
-            <li key={i} className={`flex gap-1.5 text-[12.5px] leading-snug ${x.done ? `${hint} line-through` : text}`}>
-              <span className="shrink-0">{x.done ? '✓' : '○'}</span>
-              <span>{x.text}</span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {t.log ? (
         <>
-          <p className={`text-[11px] ${hint}`}>Ворклог · {t.log.date}{t.log.own ? ' · эта сессия' : ' · последняя запись'}</p>
-          {field('Сделано', t.log.done)}
-          {field('Осталось', t.log.left)}
-          {t.log.blockers && !/^нет\.?$/i.test(t.log.blockers) ? field('Блокеры', t.log.blockers) : null}
+          <div className="flex items-center gap-2">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-black/10">
+              <div className="h-full rounded-full bg-green-600" style={{ width: `${pct}%` }} />
+            </div>
+            <span className={`text-[11px] tabular-nums ${hint}`}>
+              {done.length}/{t.todo.length}
+            </span>
+          </div>
+          {left.length ? (
+            <>
+              <p className={`text-[11px] font-semibold uppercase ${hint}`}>Осталось · {left.length}</p>
+              <ul className="flex flex-col gap-1">{left.map(item)}</ul>
+            </>
+          ) : (
+            <p className="text-[12.5px] text-green-600">Все пункты плана выполнены ✅</p>
+          )}
+          {done.length ? (
+            <>
+              <button type="button" onClick={() => setShowDone((v) => !v)} className={toggle}>
+                {showDone ? 'Скрыть выполненные' : `Выполнено · ${done.length}`}
+              </button>
+              {showDone ? <ul className="flex flex-col gap-1">{done.map(item)}</ul> : null}
+            </>
+          ) : null}
         </>
       ) : (
-        <p className={`text-[12px] ${hint}`}>Ворклога нет — его ведёт /start-task.</p>
+        <p className={`text-[12px] ${hint}`}>Плана нет — чек-лист «Что нужно сделать» ведёт /start-task.</p>
       )}
+
+      {t.log ? (
+        <>
+          <button type="button" onClick={() => setShowLog((v) => !v)} className={toggle}>
+            {showLog ? 'Скрыть ворклог' : `Ворклог · ${t.log.date}${t.log.own ? ' · эта сессия' : ''}`}
+          </button>
+          {showLog ? (
+            <div className="flex flex-col gap-2">
+              {field('Сделано', t.log.done)}
+              {field('Осталось', t.log.left)}
+              {t.log.blockers && !/^нет\.?$/i.test(t.log.blockers) ? field('Блокеры', t.log.blockers) : null}
+            </div>
+          ) : null}
+          {!showLog && t.log.blockers && !/^нет\.?$/i.test(t.log.blockers) ? (
+            <p className="text-[12px] leading-snug text-red-500">Блокеры: {t.log.blockers}</p>
+          ) : null}
+        </>
+      ) : null}
     </section>
   )
 }

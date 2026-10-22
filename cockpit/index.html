@@ -118,6 +118,13 @@ header input[type=search] { width: 240px; }
 .irow .t { font-weight: 600; }
 .irow .ex { color: var(--muted); margin-top: 3px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .irow .side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.plan { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 11.5px; color: var(--muted); min-width: 0; }
+.plan .pbar { flex: none; width: 120px; height: 5px; border-radius: 3px; background: var(--chip); overflow: hidden; }
+.plan .pbar i { display: block; height: 100%; background: var(--busy); border-radius: 3px; }
+.irow > div { min-width: 0; }
+.plan .tkey { flex: none; white-space: nowrap; }
+.plan .pnext { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.plan .pdone { color: var(--busy); }
 
 /* ---------- страница сессии ---------- */
 .sess { display: grid; grid-template-columns: 1fr 400px; height: 100%; min-height: 0; }
@@ -518,6 +525,19 @@ function taskLine(s) {
   return items ? `<div class="tline">${items}</div>` : '';
 }
 
+// Прогресс планов задач сессии: полоса и первый невыполненный пункт (для «Входящих»).
+function planHtml(s) {
+  const plans = (s.tasks || []).filter(t => t.total);
+  return plans.map(t => {
+    const pct = Math.round(t.done / t.total * 100);
+    const many = plans.length > 1 && t.issue ? `<span class="tkey">${esc(t.issue)}</span>` : '';
+    const tail = t.done === t.total ? '<span class="pdone">план выполнен</span>'
+      : t.next ? `<span class="pnext" title="${esc(t.next)}">дальше: ${esc(plain(t.next))}</span>` : '';
+    // Число «x/y» уже есть в строке задач над полосой — здесь только полоса и следующий пункт.
+    return `<div class="plan" title="план: сделано ${t.done} из ${t.total}">${many}<span class="pbar"><i style="width:${pct}%"></i></span>${tail}</div>`;
+  }).join('');
+}
+
 function cardHtml(s, lane) {
   const repos = (s.repos || []).filter(r => !r.endsWith('/Документация')).slice(0, 3).map(r => `<span class="chip">${esc(r.split('/').pop())}</span>`).join('');
   const rq = s.requests?.[0];
@@ -585,6 +605,7 @@ function renderInbox() {
   const row = (s, lane) => `<div class="irow" data-open="${s.sessionId}">
     <span class="dot ${lane}"></span>
     <div><div class="t">${esc(s.title)} <span class="chip">${esc(s.project)}</span></div>
+      ${taskLine(s)}${planHtml(s)}
       <div class="ex">${lane === 'waiting' ? `<b style="color:var(--wait)">⏳ ${esc(s.waitingFor || 'ждёт ответа')}.</b> ` : ''}${esc(plain(s.lastAssistant || s.lastPrompt).slice(0, 400))}</div></div>
     <div class="side"><span class="time">${ago(s.lastActivity)}</span>${lane === 'review' ? `<button class="ghost" data-seen="${s.sessionId}">✓ просмотрено</button>` : ''}</div>
   </div>`;

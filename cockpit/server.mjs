@@ -639,6 +639,7 @@ function taskBrief(n, sessionId) {
   return {
     issue: n.issue, title: n.title, done: n.todo.filter(t => t.done).length, total: n.todo.length,
     left: (mine || n.log.at(-1))?.left || null, own: !!mine,
+    next: n.todo.find(t => !t.done)?.text.slice(0, 200) || null,
   };
 }
 

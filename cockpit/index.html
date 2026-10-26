@@ -717,8 +717,8 @@ function renderInbox() {
   app.innerHTML = `<div class="inbox">
     ${pending.length ? `<h2>Запросы разрешений и вопросы · ${pending.length}</h2>${pending.map(r => requestHtml(r, { withSession: true })).join('')}` : ''}
     <h2>Ждут моего ответа · ${waiting.length}</h2>${waiting.map(s => row(s, 'waiting')).join('') || '<div class="muted">Никто не ждёт 🎉</div>'}
-    <h2>Закончили, не смотрел · ${review.length} ${review.length ? '<button class="ghost" id="seenAll">отметить все</button>' : ''}</h2>${review.map(s => row(s, 'review')).join('') || '<div class="muted">Всё просмотрено</div>'}
     <h2>Работают сейчас · ${busy.length}</h2>${busy.map(s => row(s, 'busy')).join('') || '<div class="muted">—</div>'}
+    <h2>Закончили, не смотрел · ${review.length} ${review.length ? '<button class="ghost" id="seenAll">отметить все</button>' : ''}</h2>${review.map(s => row(s, 'review')).join('') || '<div class="muted">Всё просмотрено</div>'}
   </div>`;
   app.scrollTop = scroll;
 }

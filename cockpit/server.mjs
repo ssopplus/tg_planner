@@ -699,6 +699,33 @@ function trackerStatuses(keys) {
   return out;
 }
 
+// Карточка задачи для вкладки «Задача»: название, описание, люди, сроки. Только чтение.
+const ISSUE_TTL_MS = 120_000;
+const issueCache = new Map(); // key -> { at, issue }
+async function trackerIssue(key) {
+  const hit = issueCache.get(key);
+  if (hit && Date.now() - hit.at < ISSUE_TTL_MS) return hit.issue;
+  const cfg = loadTrackerConfig();
+  if (!cfg) throw new Error('нет токена Трекера (.mcp.json → yandex-tracker)');
+  const res = await fetch(`https://api.tracker.yandex.net/v2/issues/${encodeURIComponent(key)}`, {
+    headers: { authorization: `OAuth ${cfg.token}`, 'x-org-id': cfg.org },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 404) throw new Error('задача не найдена или нет доступа');
+  if (!res.ok) throw new Error(`Трекер ${res.status}`);
+  const i = await res.json();
+  const type = /test|review|ready|check/i.test(i.status?.key || '') && i.statusType?.key === 'inProgress' ? 'review' : i.statusType?.key || null;
+  const issue = {
+    key: i.key, summary: i.summary || '', description: i.description || '',
+    status: i.status ? { display: i.status.display, type } : null,
+    type: i.type?.display || null, priority: i.priority?.display || null,
+    assignee: i.assignee?.display || null, author: i.createdBy?.display || null,
+    deadline: i.deadline || null, createdAt: i.createdAt || null, updatedAt: i.updatedAt || null,
+  };
+  issueCache.set(key, { at: Date.now(), issue });
+  return issue;
+}
+
 // ---------- сборка ответа ----------
 
 // Фоновые сессии (`claude --bg`, запуск задачи из Mini App) отдают не status, а state.
@@ -1078,6 +1105,11 @@ const server = http.createServer(async (req, res) => {
       return holdPermission(b, res);
     }
     if (url.pathname === '/api/requests') return send(res, 200, requestsPayload());
+    if (url.pathname === '/api/issue') {
+      const key = String(url.searchParams.get('key') || '').toUpperCase();
+      if (!/^[A-Z][A-Z0-9]{1,15}-\d{1,6}$/.test(key)) return send(res, 400, { error: 'неверный ключ задачи' });
+      try { return send(res, 200, await trackerIssue(key)); } catch (e) { return send(res, 502, { error: e.message }); }
+    }
     if (req.method === 'POST' && url.pathname === '/api/requests/decision') {
       if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
       const b = await readJson(req);

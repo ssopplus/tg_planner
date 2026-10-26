@@ -210,6 +210,12 @@ details.tool > summary .ta { font-family: ui-monospace, Menlo, monospace; overfl
 .btnrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
 .task { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
+details.issue { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; margin-bottom: 10px; }
+details.issue > summary { cursor: pointer; line-height: 1.45; }
+details.issue[open] > summary { margin-bottom: 6px; }
+details.issue .imeta { font-size: 11.5px; margin: 4px 0; }
+details.issue .imeta a { color: var(--accent); }
+details.issue .idesc { max-height: 60vh; overflow: auto; border-top: 1px solid var(--line); padding-top: 6px; }
 .task .th { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
 .task a { color: var(--accent); }
 .task .th a { font-weight: 600; }
@@ -857,7 +863,9 @@ function updateSide() {
       try { await post('/api/meta', { sessionId: s.sessionId, project: pi.value }); toast(pi.value ? `Проект: ${pi.value}` : 'Проект определяется автоматически'); await poll(); } catch (e) { toast('Ошибка: ' + e.message); }
     });
   } else if (v.tab === 'task') {
-    body.innerHTML = taskTabHtml(s);
+    // Только при изменениях: иначе раз в 5 с сбрасывается прокрутка длинного описания задачи.
+    const html = taskTabHtml(s);
+    if (v.taskHtml !== html || !body.querySelector('.task, details.issue, .hint')) { body.innerHTML = html; v.taskHtml = html; }
   } else if (v.tab === 'changes') {
     renderChanges(s, body);
   } else {
@@ -868,12 +876,54 @@ function updateSide() {
 }
 
 // Вкладка «Задача»: заметка start-task в vault — план и ворклог; запись этой сессии раскрыта.
+// Описание задачи из Трекера: грузится по требованию, держится в кэше, чтобы перерисовка вкладки
+// раз в 5 с не дёргала Трекер и не схлопывала раскрытый блок.
+const issueCache = new Map(); // key -> { at, data | null, error | null, loading }
+const issueOpen = new Set(store.get('issueOpen', []));
+const ISSUE_TTL = 120_000;
+function ensureIssue(key) {
+  const c = issueCache.get(key);
+  if (c && (c.loading || Date.now() - c.at < ISSUE_TTL)) return;
+  issueCache.set(key, { ...(c || {}), loading: true, at: c?.at || 0 });
+  fetch(`/api/issue?key=${encodeURIComponent(key)}`).then(async r => {
+    const j = await r.json();
+    issueCache.set(key, r.ok ? { at: Date.now(), data: j } : { at: Date.now(), data: c?.data || null, error: j.error || r.status });
+  }).catch(e => issueCache.set(key, { at: Date.now(), data: c?.data || null, error: e.message }))
+    .finally(() => { const box = document.querySelector(`[data-issue="${key}"]`); if (box) box.outerHTML = issueHtml(key); });
+}
+// YFM Трекера: ((url текст)) — ссылка, картинки из вложений без авторизации не откроются.
+const yfm = t => String(t || '')
+  .replace(/\(\((https?:\/\/\S+)\s+([^)]+)\)\)/g, '[$2]($1)')
+  .replace(/!\[[^\]]*\]\((\/ajax\/[^)]+)\)/g, '_[картинка во вложениях задачи]_')
+  .replace(/\{%\s*(?:cut|endcut|note|endnote|list tabs)[^%]*%\}/g, '');
+function issueHtml(key) {
+  ensureIssue(key);
+  const c = issueCache.get(key) || {};
+  const i = c.data;
+  const meta = i ? [i.type, i.priority && `приоритет: ${i.priority}`, i.assignee && `исполнитель: ${i.assignee}`, i.author && `автор: ${i.author}`,
+    i.deadline && `срок: ${i.deadline}`, i.updatedAt && `обновлена ${ago(new Date(i.updatedAt).getTime())} назад`].filter(Boolean).join(' · ') : '';
+  const body = i ? (i.description.trim() ? `<div class="md idesc">${md(yfm(i.description))}</div>` : '<div class="muted">Описания нет</div>')
+    : c.error ? `<div class="muted">Не загрузилось: ${esc(c.error)}</div>` : '<div class="muted">Загружаю из Трекера…</div>';
+  return `<details class="issue" data-issue="${esc(key)}" ${issueOpen.has(key) ? 'open' : ''}>
+    <summary><b>${esc(key)}</b>${i?.status ? ` <span class="tst t-${esc(i.status.type || 'new')}">${esc(i.status.display)}</span>` : ''} ${esc(i?.summary || 'Описание в Трекере')}</summary>
+    ${meta ? `<div class="muted imeta">${esc(meta)}</div>` : ''}${body}
+    <div class="imeta"><a href="https://tracker.yandex.ru/${esc(key)}" target="_blank" rel="noopener">Открыть в Трекере ↗</a></div>
+  </details>`;
+}
+document.addEventListener('toggle', e => {
+  const k = e.target.dataset?.issue; if (!k) return;
+  if (e.target.open) issueOpen.add(k); else issueOpen.delete(k);
+  store.set('issueOpen', [...issueOpen].slice(-50));
+}, true);
+
 function taskTabHtml(s) {
   const notes = s.taskNotes || [];
-  if (!notes.length) return `<div class="muted">Заметки задачи нет.</div><div class="hint">План и ворклог по сессиям ведёт скилл <code>/start-task</code>: заметка в vault с шапкой <code>issue: КЛЮЧ</code>, разделами «Что нужно сделать» и «Ворклог» (<code>### дата · сессия ${esc(s.sessionId.slice(0, 8))}</code>). Сессии без него здесь пусто.</div>`;
+  const keys = [...new Set([s.taskKey, ...notes.map(n => n.issue)].filter(Boolean))];
+  const issues = keys.length ? `<div class="sub">Задача в Трекере</div>${keys.map(issueHtml).join('')}` : '';
+  if (!notes.length) return `${issues}<div class="muted" style="margin-top:10px">Заметки задачи нет.</div><div class="hint">План и ворклог по сессиям ведёт скилл <code>/start-task</code>: заметка в vault с шапкой <code>issue: КЛЮЧ</code>, разделами «Что нужно сделать» и «Ворклог» (<code>### дата · сессия ${esc(s.sessionId.slice(0, 8))}</code>). Сессии без него здесь пусто.</div>`;
   const sid = s.sessionId.slice(0, 8);
   const field = (lbl, t) => (t ? `<div class="lbl">${lbl}</div><div class="md">${md(t)}</div>` : '');
-  return notes.map(n => {
+  return issues + `<div class="sub">Заметка задачи</div>` + notes.map(n => {
     const done = n.todo.filter(t => t.done).length;
     const pct = n.todo.length ? Math.round((done / n.todo.length) * 100) : 0;
     const mrs = (n.mr || '').split(/[\s,]+/).filter(u => /^https?:/.test(u));

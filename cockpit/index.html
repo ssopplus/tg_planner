@@ -743,7 +743,8 @@ function loadPlan(p, fresh) {
   fetch('/api/plan?' + new URLSearchParams({ project: p, scope: planScope, ...(fresh ? { fresh: '1' } : {}) }))
     .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); st.data = j; st.error = j.error; })
     .catch(e => { st.error = e.message; })
-    .finally(() => { st.loading = false; st.at = Date.now(); if (route().view === 'plan') render(false); });
+    // Трекер не ответил (сеть, VPN) — повторяем через 10 с, а не через минуту.
+    .finally(() => { st.loading = false; st.at = st.error ? Date.now() - PLAN_POLL + 10_000 : Date.now(); if (route().view === 'plan') render(false); });
 }
 
 async function setPlan(p, keys) {
@@ -796,14 +797,14 @@ function planSection(p, q) {
   const more = d.total > shown ? ` · первые ${shown} из ${d.total}` : '';
   return `<section class="pl-sec">
     ${head(`${stats}${clean}${st.loading ? '<span class="spin"></span>' : ''}`)}
-    ${d.error ? `<div class="pl-err">Трекер: ${esc(d.error)}</div>` : ''}
+    ${d.error ? `<div class="pl-err">Трекер не ответил (${esc(d.error)}) — показываю, что было загружено раньше, повторю через 10 с или по ↻.</div>` : ''}
     <div class="pl-grid">
       <div class="pl-col mine"><h3>План · ${d.plan.length}</h3>
         <div class="pl-list" data-plan-project="${esc(p)}">${inPlan.map((i, n) => planRowHtml(i, d, { project: p, inPlan: true, pos: n, n: inPlan.length })).join('')
           || '<div class="pl-hint">Добавь задачи справа кнопкой «+ в план» или перетащи сюда. Порядок меняется перетаскиванием или ↑ ↓.</div>'}</div>
       </div>
       <div class="pl-col"><h3>Задачи проекта${planScope === 'mine' ? ' · мои' : ''} · ${pool.length}${esc(more)}</h3>
-        <div class="pl-pool" data-plan-project="${esc(p)}">${pool.map(i => planRowHtml(i, d, { project: p })).join('') || `<div class="pl-hint">${q ? 'Ничего не найдено' : 'Открытых задач нет'}</div>`}</div>
+        <div class="pl-pool" data-plan-project="${esc(p)}">${pool.map(i => planRowHtml(i, d, { project: p })).join('') || `<div class="pl-hint">${q ? 'Ничего не найдено' : d.error && !d.issues.length ? 'Список не загрузился — Трекер недоступен' : 'Открытых задач нет'}</div>`}</div>
       </div>
     </div>
   </section>`;

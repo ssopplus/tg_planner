@@ -186,7 +186,8 @@ export default function SessionsPage() {
   if (loading) return <p className={`py-10 text-center text-sm ${hint}`}>Загружаю…</p>
 
   const ago = data?.syncedAt ? Math.round((now - new Date(data.syncedAt).getTime()) / 1000) : null
-  const pending = data?.requests.filter((r) => r.status === 'pending') ?? []
+  // Старые сверху: новый запрос встаёт в конец и не сдвигает кнопки под пальцем.
+  const pending = data?.requests.filter((r) => r.status === 'pending').reverse() ?? []
   const closed = data?.requests.filter((r) => r.status !== 'pending').slice(0, 10) ?? []
   const requestsOf = (id: string) => pending.filter((r) => r.sessionId === id)
 

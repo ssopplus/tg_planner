@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { and, desc, eq, gt } from 'drizzle-orm'
+import { and, asc, desc, eq, gt } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { cockpitCommands, cockpitRequests, cockpitState, cockpitTranscripts } from '@/lib/db/schema'
 import { authorizeMiniApp } from '@/lib/telegram/auth'
@@ -32,7 +32,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     .where(
       and(eq(cockpitRequests.userId, user.id), eq(cockpitRequests.sessionId, id), eq(cockpitRequests.status, 'pending')),
     )
-    .orderBy(desc(cockpitRequests.createdAt))
+    // Старые сверху: новый запрос не сдвигает карточку, на которую уже нажимаешь.
+    .orderBy(asc(cockpitRequests.createdAt))
   const commands = await db
     .select({
       id: cockpitCommands.id,

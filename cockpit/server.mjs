@@ -536,7 +536,8 @@ function requestsPayload() {
   const now = Date.now();
   for (const [id, r] of requests) if (r.status !== 'pending' && now - r.closedAt > 3600e3) requests.delete(id);
   const list = [...requests.values()].map(publicRequest).sort((a, b) => b.createdAt - a.createdAt);
-  return { pending: list.filter(r => r.status === 'pending'), recent: list.filter(r => r.status !== 'pending').slice(0, 30) };
+  // Ожидающие — старые сверху: новый запрос встаёт в конец и не сдвигает карточку, по которой уже целишься.
+  return { pending: list.filter(r => r.status === 'pending').reverse(), recent: list.filter(r => r.status !== 'pending').slice(0, 30) };
 }
 
 // ---------- свободный текст в сессию ----------

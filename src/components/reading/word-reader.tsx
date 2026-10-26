@@ -24,6 +24,9 @@ function bare(token: string): string {
  * Текст, разобранный на слова-спаны: по ним указка ищет строки, «Без голоса»
  * приглушает служебные слова, английское чтение ловит клик по слову. Каждый
  * спан несёт `data-w` — сквозной индекс слова в тексте.
+ *
+ * Контейнер — свой контекст наложения (`isolate`): подложки из `children` с
+ * отрицательным z-index рисуются под текстом, но над фоном карточки.
  */
 export const WordReader = memo(
   forwardRef<
@@ -49,12 +52,12 @@ export const WordReader = memo(
     return (
       <div
         ref={ref}
-        className={`relative font-[family-name:var(--font-reading)] text-[18px] leading-[1.75] text-[var(--tg-theme-text-color,#000)] ${className}`}
+        className={`relative isolate font-[family-name:var(--font-reading)] text-[18px] leading-[1.75] text-[var(--tg-theme-text-color,#000)] ${className}`}
         style={style}
       >
         {children}
         {paragraphs.map((words, p) => (
-          <p key={p} className="relative z-[1] mb-[0.9em] max-w-[62ch]">
+          <p key={p} className="mb-[0.9em] max-w-[62ch]">
             {words.map((token, i) => {
               const index = globalIndex++
               const isFn = fn.has(bare(token))

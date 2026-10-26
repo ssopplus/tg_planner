@@ -13,7 +13,7 @@ import {
   formatDuration,
   recommendedPacerWpm,
 } from '@/lib/reading/stats'
-import type { ReadingQuestion } from '@/lib/reading/types'
+import type { ReadingQuestion, ReadingText } from '@/lib/reading/types'
 
 type Phase = 'idle' | 'reading' | 'quiz' | 'done'
 
@@ -23,8 +23,22 @@ type Phase = 'idle' | 'reading' | 'quiz' | 'done'
  * либо вопросы, сгенерированные по тексту.
  */
 export default function ReadingTestPage() {
-  const { addSession, reloadTexts } = useReading()
   const { text, list, select } = useSelectedText()
+  if (!text) return null
+  // key: другой текст — новый тест с начала.
+  return <TestRunner key={text.id} text={text} list={list} select={select} />
+}
+
+function TestRunner({
+  text,
+  list,
+  select,
+}: {
+  text: ReadingText
+  list: ReadingText[]
+  select: (id: string) => void
+}) {
+  const { addSession, reloadTexts } = useReading()
   const [phase, setPhase] = useState<Phase>('idle')
   const [startedAt, setStartedAt] = useState(0)
   const [elapsed, setElapsed] = useState(0)
@@ -36,7 +50,7 @@ export default function ReadingTestPage() {
   const [generating, setGenerating] = useState(false)
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const questions: ReadingQuestion[] | null = text?.questions?.length ? text.questions : null
+  const questions: ReadingQuestion[] | null = text.questions?.length ? text.questions : null
 
   const reset = () => {
     if (timer.current) clearInterval(timer.current)
@@ -49,10 +63,6 @@ export default function ReadingTestPage() {
   }
 
   useEffect(() => () => clearInterval(timer.current ?? undefined), [])
-  // Другой текст — новый тест с начала.
-  useEffect(reset, [text?.id])
-
-  if (!text) return null
 
   const start = () => {
     const now = Date.now()

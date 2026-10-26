@@ -687,7 +687,7 @@ function trackerStatuses(keys) {
         const i = found.get(k);
         // Тестирование и ревью у Трекера того же типа inProgress, что и «В работе», — различаем по ключу.
         const type = /test|review|ready|check/i.test(i?.status?.key || '') && i?.statusType?.key === 'inProgress' ? 'review' : i?.statusType?.key || null;
-        trackerCache.set(k, { at: Date.now(), status: i ? { display: i.status?.display, key: i.status?.key, type, resolution: i.resolution?.display || null } : null });
+        trackerCache.set(k, { at: Date.now(), status: i ? { display: i.status?.display, key: i.status?.key, type, resolution: i.resolution?.display || null, summary: i.summary || null } : null });
       }
     }).catch(e => {
       // Повторим через полминуты, старый статус пока оставляем.

@@ -261,6 +261,15 @@ h3:first-child { margin-top: 0; }
 .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, .35); display: flex; justify-content: center; align-items: flex-start; padding: 40px 20px; z-index: 10; }
 .overlay .win { background: var(--panel); border-radius: 10px; width: min(1200px, 100%); max-height: calc(100vh - 80px); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line); }
 .overlay .wh { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.overlay .win.peek { width: min(860px, 100%); }
+.overlay .win.peek .wh a { color: var(--accent); white-space: nowrap; }
+.peekbody { overflow: auto; padding: 10px 16px 16px; }
+.peekbody .imeta { font-size: 12px; margin-bottom: 8px; }
+.tsum { display: flex; align-items: center; gap: 6px; margin-top: 3px; font-size: 12.5px; min-width: 0; }
+.tsum .txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tsum .tkey { flex: none; color: var(--accent); font-weight: 600; font-size: 11.5px; }
+.tsum .peek { flex: none; font-size: 11px; padding: 0 6px; color: var(--accent); opacity: .8; }
+.tsum .peek:hover { opacity: 1; }
 .overlay .wh b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 pre.diff { margin: 0; font: 12px/1.4 ui-monospace, Menlo, monospace; overflow: auto; flex: 1; }
 pre.diff span { display: block; padding: 0 12px; white-space: pre; }
@@ -583,6 +592,13 @@ function planHtml(s) {
   }).join('');
 }
 
+// Названия задач из Трекера под строкой статусов и кнопка быстрого просмотра описания.
+function summaryHtml(s) {
+  const keys = [...new Set([s.taskKey, ...(s.tasks || []).map(t => t.issue)].filter(Boolean))]
+    .filter(k => s.trackerStatus?.[k]?.summary);
+  return keys.map(k => `<div class="tsum" title="${esc(`${k}: ${s.trackerStatus[k].summary}`)}">${keys.length > 1 ? `<span class="tkey">${esc(k)}</span> ` : ''}<span class="txt">${esc(s.trackerStatus[k].summary)}</span><button class="ghost peek" data-peek="${esc(k)}" title="Описание задачи из Трекера">описание</button></div>`).join('');
+}
+
 function cardHtml(s, lane) {
   const repos = (s.repos || []).filter(r => !r.endsWith('/Документация')).slice(0, 3).map(r => `<span class="chip">${esc(r.split('/').pop())}</span>`).join('');
   const rq = s.requests?.[0];
@@ -591,6 +607,7 @@ function cardHtml(s, lane) {
   return `<div class="card ${lane}" data-open="${s.sessionId}">
     <div class="row"><span class="dot ${lane}"></span><span class="title ${s.nameSource === 'derived' ? 'derived' : ''}">${s.naming ? '<span class="spin"></span> ' : ''}${esc(s.title)}</span><span class="time">${ago(s.lastActivity)}</span></div>
     ${taskLine(s)}
+    ${summaryHtml(s)}
     ${why}
     <div class="prompt">${esc(plain(s.lastPrompt).slice(0, 240))}</div>
     <div class="foot">${s.taskKey && !s.title.includes(s.taskKey) && !s.trackerStatus?.[s.taskKey] ? `<span class="chip key">${esc(s.taskKey)}</span>` : ''}${groupBy === 'none' ? `<span class="chip">${esc(s.project)}</span>` : ''}${s.filesCount ? `<span class="chip">✎ ${s.filesCount}</span>` : ''}${repos}</div>
@@ -650,7 +667,7 @@ function renderInbox() {
   const row = (s, lane) => `<div class="irow" data-open="${s.sessionId}">
     <span class="dot ${lane}"></span>
     <div><div class="t">${esc(s.title)} <span class="chip">${esc(s.project)}</span></div>
-      ${taskLine(s)}${planHtml(s)}
+      ${taskLine(s)}${summaryHtml(s)}${planHtml(s)}
       <div class="ex">${lane === 'waiting' ? `<b style="color:var(--wait)">⏳ ${esc(s.waitingFor || 'ждёт ответа')}.</b> ` : ''}${esc(plain(s.lastAssistant || s.lastPrompt).slice(0, 400))}</div></div>
     <div class="side"><span class="time">${ago(s.lastActivity)}</span>${lane === 'review' ? `<button class="ghost" data-seen="${s.sessionId}">✓ просмотрено</button>` : ''}</div>
   </div>`;
@@ -889,7 +906,7 @@ function ensureIssue(key) {
     const j = await r.json();
     issueCache.set(key, r.ok ? { at: Date.now(), data: j } : { at: Date.now(), data: c?.data || null, error: j.error || r.status });
   }).catch(e => issueCache.set(key, { at: Date.now(), data: c?.data || null, error: e.message }))
-    .finally(() => { const box = document.querySelector(`[data-issue="${key}"]`); if (box) box.outerHTML = issueHtml(key); });
+    .finally(() => { const box = document.querySelector(`[data-issue="${key}"]`); if (box) box.outerHTML = issueHtml(key); refreshPeek(key); });
 }
 // YFM Трекера: ((url текст)) — ссылка, картинки из вложений без авторизации не откроются.
 const yfm = t => String(t || '')
@@ -914,6 +931,37 @@ document.addEventListener('toggle', e => {
   const k = e.target.dataset?.issue; if (!k) return;
   if (e.target.open) issueOpen.add(k); else issueOpen.delete(k);
   store.set('issueOpen', [...issueOpen].slice(-50));
+}, true);
+
+// Быстрый просмотр описания с доски и из «Входящих» — без перехода на страницу сессии.
+let peekKey = null;
+function peekBody(key) {
+  const c = issueCache.get(key) || {}; const i = c.data;
+  const meta = i ? [i.type, i.priority && `приоритет: ${i.priority}`, i.assignee && `исполнитель: ${i.assignee}`, i.author && `автор: ${i.author}`,
+    i.deadline && `срок: ${i.deadline}`, i.updatedAt && `обновлена ${ago(new Date(i.updatedAt).getTime())} назад`].filter(Boolean).join(' · ') : '';
+  const body = i ? (i.description.trim() ? `<div class="md">${md(yfm(i.description))}</div>` : '<div class="muted">Описания нет</div>')
+    : c.error ? `<div class="muted">Не загрузилось: ${esc(c.error)}</div>` : '<div class="muted">Загружаю из Трекера…</div>';
+  return `<div class="wh"><b>${esc(key)}${i?.status ? ` · ${esc(i.status.display)}` : ''}${i?.summary ? ` — ${esc(i.summary)}` : ''}</b>
+      <a href="https://tracker.yandex.ru/${esc(key)}" target="_blank" rel="noopener">Открыть в Трекере ↗</a><button data-peek-close>Закрыть (Esc)</button></div>
+    <div class="peekbody">${meta ? `<div class="muted imeta">${esc(meta)}</div>` : ''}${body}</div>`;
+}
+function openPeek(key) {
+  closePeek();
+  peekKey = key;
+  ensureIssue(key);
+  const o = document.createElement('div'); o.className = 'overlay'; o.id = 'peek';
+  o.innerHTML = `<div class="win peek">${peekBody(key)}</div>`;
+  o.addEventListener('click', e => { if (e.target === o || e.target.closest('[data-peek-close]')) closePeek(); });
+  document.body.append(o);
+}
+function closePeek() { document.getElementById('peek')?.remove(); peekKey = null; }
+function refreshPeek(key) { const w = document.querySelector('#peek .win'); if (w && peekKey === key) w.innerHTML = peekBody(key); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && peekKey) closePeek(); });
+// В фазе перехвата: кнопка лежит внутри карточки, а клик по карточке открывает сессию.
+document.addEventListener('click', e => {
+  const b = e.target.closest?.('[data-peek]'); if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  openPeek(b.dataset.peek);
 }, true);
 
 function taskTabHtml(s) {

@@ -18,6 +18,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   { command: 'meet', description: '📆 Встречи' },
   { command: 'time', description: '⏱ Списать время' },
   { command: 'coord', description: '🤝 Координация' },
+  { command: 'read', description: '📖 Темп чтения' },
   { command: 'app', description: '📱 Открыть планировщик' },
   { command: 'help', description: '❓ Справка' },
 ]

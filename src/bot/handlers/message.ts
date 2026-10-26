@@ -10,6 +10,7 @@ import { formatTaskPreview } from '../services/format'
 import { handleCoordinationText } from './coordination'
 import { handleQuickAction } from './quick-actions'
 import { handleTitleReply } from './task-edit'
+import { handleReadingText } from './reading'
 import { BOT_COMMANDS } from '../commands'
 import { escapeMarkdown } from '../services/markdown'
 
@@ -34,6 +35,10 @@ export async function handleMessage(ctx: Context) {
   // Правка названия черновика: пользователь нажал «📝 Название» и прислал
   // новое. До парсера — иначе текст стал бы второй задачей вместо правки.
   if (await handleTitleReply(ctx, text)) return
+
+  // Голая ссылка или пересланный длинный пост — текст для «Темпа чтения»,
+  // а не задача: заводить дело с названием-URL никто не хочет.
+  if (await handleReadingText(ctx, text)) return
 
   // Незнакомая команда со слэшем. Сюда попадают только те, под которые нет
   // обработчика: `/projects` пережила переработку в меню Telegram, и бот

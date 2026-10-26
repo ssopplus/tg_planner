@@ -12,6 +12,7 @@ import { handleCoordCommand } from './handlers/coordination'
 import { askWhichIssue, sendToday } from './handlers/quick-actions'
 import { handlePersonalCommand } from './handlers/personal'
 import { handleMeetingsCommand } from './handlers/meetings'
+import { handleReadCommand, handleReadingDocument } from './handlers/reading'
 
 const token = process.env.BOT_TOKEN
 if (!token) {
@@ -36,12 +37,16 @@ bot.command('dela', handlePersonalCommand) // личные дела: сегод�
 bot.command('meet', handleMeetingsCommand) // встречи из Яндекс.Календаря
 bot.command('time', askWhichIssue) // списание времени в задачу Трекера
 bot.command('coord', handleCoordCommand) // опрос по координации вручную
+bot.command('read', handleReadCommand) // «Темп чтения»: сводка и повторение слов
 
 // Callback queries (inline-кнопки)
 bot.on('callback_query:data', handleCallback)
 
 // Голосовые сообщения — Whisper + AI-парсинг
 bot.on('message:voice', handleVoice)
+
+// Файлы книг и документов — в тексты тренажёра чтения
+bot.on('message:document', handleReadingDocument)
 
 // Текстовые сообщения — AI-парсинг
 bot.on('message:text', handleMessage)

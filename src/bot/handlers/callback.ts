@@ -13,6 +13,7 @@ import { resolveBoardForText, resolveDueFromText } from './quick-actions'
 import { handleTaskEditCallback, resolveEditedBoard } from './task-edit'
 import { handlePersonalCallback } from './personal'
 import { handleMeetingsCallback } from './meetings'
+import { handleReadingCallback } from './reading'
 import { escapeMarkdown } from '../services/markdown'
 
 /**
@@ -38,6 +39,9 @@ export async function handleCallback(ctx: Context) {
   // Переключатели горизонта в списках дел и встреч.
   if (await handlePersonalCallback(ctx)) return
   if (await handleMeetingsCallback(ctx)) return
+
+  // Повторение карточек «Темпа чтения» прямо в чате.
+  if (await handleReadingCallback(ctx)) return
 
   const { dbUser } = ctx as BotContext
   const parts = data.split(':')

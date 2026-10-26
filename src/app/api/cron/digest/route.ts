@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { users } from '@/lib/db/schema'
 import { sendMorningDigest, sendEveningDigest } from '@/bot/services/digest'
+import { sendReadingReminder } from '@/bot/services/reading-remind'
 
 /**
  * Cron endpoint для отправки утренних и вечерних дайджестов.
@@ -19,6 +20,7 @@ export async function GET(request: Request) {
 
   let morningsSent = 0
   let eveningsSent = 0
+  let readingSent = 0
 
   for (const user of allUsers) {
     try {
@@ -47,12 +49,21 @@ export async function GET(request: Request) {
     } catch (error) {
       console.error(`Ошибка дайджеста для пользователя ${user.id}:`, error)
     }
+
+    // Напоминание о чтении — отдельно от дайджеста: у него своё время и
+    // свой учёт отправленного, сбой одного не должен глушить другое.
+    try {
+      if (await sendReadingReminder(user, now)) readingSent++
+    } catch (error) {
+      console.error(`Ошибка напоминания о чтении для пользователя ${user.id}:`, error)
+    }
   }
 
   return NextResponse.json({
     ok: true,
     morningsSent,
     eveningsSent,
+    readingSent,
     totalUsers: allUsers.length,
   })
 }

@@ -44,7 +44,9 @@ src/
   app/api/tracker/issues/     # REST API: переходы статусов и комментарии Трекера
   app/api/vault/              # REST API: задачи из Obsidian, только чтение
   app/api/settings/           # REST API: настройки пользователя
-  app/api/reading/            # REST API тренажёра чтения: свои тексты (дальше — сессии, карточки)
+  app/api/reading/            # REST API тренажёра чтения: тексты, сессии, карточки, перевод (translate),
+                              #   вопросы к тексту, импорт (import/file, import/url), лента Хабра (habr),
+                              #   копия в чат (export) и восстановление (backup)
   app/api/cockpit/            # dev-cockpit: синк с локальной машины (Bearer COCKPIT_SECRET) и решения из Mini App
   app/api/cron/reminders/     # Cron Job: отправка напоминаний (каждую минуту)
   app/api/cron/digest/        # Cron Job: утренний/вечерний дайджест (каждые 15 мин)
@@ -68,6 +70,7 @@ src/
   lib/calendar/               # Яндекс.Календарь: CalDAV-клиент, разбор ICS, синк встреч
   lib/worklog/                # Списания времени: синк с Трекером и зеркало в БД
   lib/reading/                # Тренажёр чтения: типы, встроенные тексты (content/texts.json),
+                              #   SRS, статистика, напоминания (remind.ts), импорт (import/), LLM (llm.ts),
                               #   разбор и проверка текста, настройки; тесты рядом (*.test.ts)
   lib/db/                     # Drizzle ORM (schema + client)
 drizzle/                      # SQL миграции
@@ -94,11 +97,11 @@ docs/plans/                   # Планы разработки (ADR workflow)
 - **Клавиатура бота, а не кнопка меню** — кнопка меню остаётся `web_app`, только она открывает Mini App во весь экран; быстрые действия живут на постоянной reply-клавиатуре
 - **Мульти-парсинг** — AI возвращает массив `ParsedTask[]`, одно сообщение = несколько задач
 - **Повторения** — rrule RFC 5545, автосоздание следующего напоминания при срабатывании
-- **«Темп чтения» — данные на сервере, а не в IndexedDB**, как предлагало исходное ТЗ: напоминания и повторение карточек в чате бота должны знать, занимался ли пользователь и что пора повторить. Встроенные тексты едут в бандле (`src/lib/reading/content/texts.json`), свои тексты, сессии и карточки — в `reading_*`, настройки — в `users.settings.reading` (объект целиком: `/api/settings` мержит только верхний уровень)
+- **«Темп чтения» — данные на сервере, а не в IndexedDB**, как предлагало исходное ТЗ: напоминания и повторение карточек в чате бота должны знать, занимался ли пользователь и что пора повторить. Встроенные тексты едут в бандле (`src/lib/reading/content/texts.json`), свои тексты, сессии и карточки — в `reading_*`, настройки — в `users.settings.reading` (объект целиком: `/api/settings` мержит только верхний уровень). Напоминания о чтении шлёт крон дайджестов (`src/bot/services/reading-remind.ts`), отметка об отправке — отдельный ключ `users.settings.readingReminder`. В боте: `/read`, повторение карточек кнопками `rd:*`, файл книги / голая ссылка / пересланный пост ≥120 слов уходят в тексты, а не в разбор задач
 
 ## БД (Drizzle схема)
 
-Таблицы: `users`, `projects`, `boards`, `tasks`, `reminders`, `subtasks`, `worklog_entries`, `tracker_queue_links`, `coordination_polls`, `pending_tasks`, `calendar_events`, `cockpit_state`, `cockpit_requests`, `reading_texts`, `reading_sessions`, `reading_cards`
+Таблицы: `users`, `projects`, `boards`, `tasks`, `reminders`, `subtasks`, `worklog_entries`, `tracker_queue_links`, `coordination_polls`, `pending_tasks`, `calendar_events`, `cockpit_state`, `cockpit_requests`, `reading_texts`, `reading_sessions`, `reading_cards`, `reading_translations`
 - Enums: `project_type`, `task_status`, `priority`, `deadline_type`, `reminder_type`, `reminder_status`
 - Relations: user → projects → tasks → reminders
 - Каскадное удаление через foreign keys
@@ -157,6 +160,7 @@ docs/plans/                   # Планы разработки (ADR workflow)
 | `LLM_API_KEY` | OpenRouter API key |
 | `LLM_MODEL` | Модель (default: `openai/gpt-4o-mini`) |
 | `LLM_BASE_URL` | Base URL API (default: OpenRouter) |
+| `READING_LLM_MODEL` | Модель для перевода слов и вопросов к текстам в «Темпе чтения» (опционально; по умолчанию `LLM_MODEL`) |
 | `WEBHOOK_URL` | Telegram webhook URL |
 | `CRON_SECRET` | Секрет для верификации cron запросов |
 | `STT_PROVIDERS` | Порядок STT-провайдеров через запятую (default: `groq,assemblyai,whisper`) |

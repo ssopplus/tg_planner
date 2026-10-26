@@ -36,8 +36,10 @@ export function ReadingHeader() {
   const activeId = pathname.replace(/^\/reading\/?/, '').split('/')[0]
 
   return (
-    <div className="flex flex-col gap-3 pt-4 pb-2">
-      <div className="flex items-center justify-between gap-2 px-4">
+    // Обычный блок, а не flex-колонка: WebKit сжимал прокручиваемую ленту по
+    // высоте до половины кнопок, а полоса прокрутки ложилась поверх них.
+    <div className="pt-4 pb-2">
+      <div className="mb-3 flex items-center justify-between gap-2 px-4">
         <h1 className="text-xl font-bold text-[var(--tg-theme-text-color,#000)]">Темп чтения</h1>
         <div
           role="group"

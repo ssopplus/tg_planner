@@ -32,7 +32,7 @@ export function TabStrip({
   action?: { label: string; onClick: () => void }
 }) {
   return (
-    <div className="flex gap-1.5 overflow-x-auto touch-pan-x px-4 pb-1 scrollbar-none">
+    <div className="flex gap-1.5 overflow-x-auto touch-pan-x px-4 pb-1 scrollbar-hide">
       {items.map((item) => {
         const isActive = item.id === activeId
         return (

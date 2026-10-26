@@ -16,6 +16,7 @@ export const READING_SECTIONS = [
   { id: 'english', label: 'Английский' },
   { id: 'cards', label: 'Карточки' },
   { id: 'texts', label: 'Тексты' },
+  { id: 'settings', label: 'Ещё' },
 ] as const
 
 const LANGS: { id: ReadingLang; label: string }[] = [

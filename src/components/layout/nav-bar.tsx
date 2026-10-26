@@ -4,7 +4,14 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { apiFetch } from '@/lib/telegram/webapp'
-import { Briefcase, CheckSquare, NotebookText, Settings, TerminalSquare } from 'lucide-react'
+import {
+  BookOpen,
+  Briefcase,
+  CheckSquare,
+  NotebookText,
+  Settings,
+  TerminalSquare,
+} from 'lucide-react'
 
 /**
  * Разделы приложения. Две половины — рабочая (Трекер) и жизненная (доски) —
@@ -14,12 +21,16 @@ import { Briefcase, CheckSquare, NotebookText, Settings, TerminalSquare } from '
  * «Сессии» — сессии Claude Code с рабочей машины (dev-cockpit). Запросы сессий
  * в чат бота не пишутся, поэтому о них сообщает счётчик на этой вкладке.
  *
+ * «Чтение» — тренажёр скорочтения и английских слов, отдельный от задач.
+ *
  * Доски в эту панель не выносятся: их может стать сколько угодно, а сюда
- * влезает пять пунктов. Переключение досок живёт лентой внутри раздела.
+ * влезает шесть пунктов (на 360 px — по 60 px на пункт). Переключение досок
+ * живёт лентой внутри раздела.
  */
 const tabs = [
   { href: '/tracker', label: 'Трекер', icon: Briefcase },
   { href: '/boards', label: 'Личное', icon: CheckSquare },
+  { href: '/reading', label: 'Чтение', icon: BookOpen },
   { href: '/sessions', label: 'Сессии', icon: TerminalSquare },
   { href: '/archive', label: 'Архив', icon: NotebookText },
   { href: '/settings', label: 'Ещё', icon: Settings },

@@ -32,6 +32,8 @@ src/
                               #   task/[id] — карточка-заметка
     archive/                  # Задачи из Obsidian-vault, только чтение
     sessions/                 # Сессии Claude Code из dev-cockpit: статусы и ответы на запросы
+    reading/                  # «Темп чтения»: тренажёр скорочтения RU/EN и английских слов
+                              #   (сегодня, разминка, указка, без голоса, тест, английский, карточки, тексты)
     settings/                 # Настройки (timezone, дайджест, очереди Трекера)
     today/, tasks/            # Редиректы со старых адресов (ссылки в боте)
   app/api/telegram/webhook/   # Telegram webhook endpoint
@@ -42,6 +44,7 @@ src/
   app/api/tracker/issues/     # REST API: переходы статусов и комментарии Трекера
   app/api/vault/              # REST API: задачи из Obsidian, только чтение
   app/api/settings/           # REST API: настройки пользователя
+  app/api/reading/            # REST API тренажёра чтения: свои тексты (дальше — сессии, карточки)
   app/api/cockpit/            # dev-cockpit: синк с локальной машины (Bearer COCKPIT_SECRET) и решения из Mini App
   app/api/cron/reminders/     # Cron Job: отправка напоминаний (каждую минуту)
   app/api/cron/digest/        # Cron Job: утренний/вечерний дайджест (каждые 15 мин)
@@ -64,6 +67,8 @@ src/
   lib/boards/                 # Доски: «Входящие» и логика колонок-сроков
   lib/calendar/               # Яндекс.Календарь: CalDAV-клиент, разбор ICS, синк встреч
   lib/worklog/                # Списания времени: синк с Трекером и зеркало в БД
+  lib/reading/                # Тренажёр чтения: типы, встроенные тексты (content/texts.json),
+                              #   разбор и проверка текста, настройки; тесты рядом (*.test.ts)
   lib/db/                     # Drizzle ORM (schema + client)
 drizzle/                      # SQL миграции
 cockpit/                      # dev-cockpit: локальная доска сессий Claude Code (`pnpm cockpit`),
@@ -89,10 +94,11 @@ docs/plans/                   # Планы разработки (ADR workflow)
 - **Клавиатура бота, а не кнопка меню** — кнопка меню остаётся `web_app`, только она открывает Mini App во весь экран; быстрые действия живут на постоянной reply-клавиатуре
 - **Мульти-парсинг** — AI возвращает массив `ParsedTask[]`, одно сообщение = несколько задач
 - **Повторения** — rrule RFC 5545, автосоздание следующего напоминания при срабатывании
+- **«Темп чтения» — данные на сервере, а не в IndexedDB**, как предлагало исходное ТЗ: напоминания и повторение карточек в чате бота должны знать, занимался ли пользователь и что пора повторить. Встроенные тексты едут в бандле (`src/lib/reading/content/texts.json`), свои тексты, сессии и карточки — в `reading_*`, настройки — в `users.settings.reading` (объект целиком: `/api/settings` мержит только верхний уровень)
 
 ## БД (Drizzle схема)
 
-Таблицы: `users`, `projects`, `boards`, `tasks`, `reminders`, `subtasks`, `worklog_entries`, `tracker_queue_links`, `coordination_polls`, `pending_tasks`, `calendar_events`, `cockpit_state`, `cockpit_requests`
+Таблицы: `users`, `projects`, `boards`, `tasks`, `reminders`, `subtasks`, `worklog_entries`, `tracker_queue_links`, `coordination_polls`, `pending_tasks`, `calendar_events`, `cockpit_state`, `cockpit_requests`, `reading_texts`, `reading_sessions`, `reading_cards`
 - Enums: `project_type`, `task_status`, `priority`, `deadline_type`, `reminder_type`, `reminder_status`
 - Relations: user → projects → tasks → reminders
 - Каскадное удаление через foreign keys
@@ -103,6 +109,7 @@ docs/plans/                   # Планы разработки (ADR workflow)
 - PostgreSQL через Docker Compose (порт **5433**, не 5432 — занят)
 - Next.js на порту **3004** (3000 занят)
 - Polling-режим: `pnpm bot:dev` (без ngrok)
+- Юнит-тесты: `pnpm test` (Vitest, файлы `src/**/*.test.ts`)
 - Webhook-режим: ngrok + `pnpm bot:webhook`
 
 ## Добавление нового проекта (vault → БД)

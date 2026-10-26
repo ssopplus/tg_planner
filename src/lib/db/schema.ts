@@ -718,3 +718,108 @@ export const cockpitTranscripts = pgTable('cockpit_transcripts', {
   /** Когда cockpit прислал переписку; null — ещё ни разу. */
   updatedAt: timestamp('updated_at'),
 })
+
+// === ТЕМП ЧТЕНИЯ ===
+
+/**
+ * Свои тексты для тренажёра чтения: вставленные, из файла, по ссылке, из бота,
+ * с Хабра. Встроенные тексты сюда не пишутся — они в бандле
+ * (`src/lib/reading/content/texts.json`). Абзацы в `body` разделены пустой строкой.
+ */
+export const readingTexts = pgTable(
+  'reading_texts',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    /** ru | en */
+    lang: text('lang').notNull(),
+    /** B1 | B2 | C1 — для английских текстов, оценивается при загрузке. */
+    level: text('level'),
+    title: text('title').notNull(),
+    body: text('body').notNull(),
+    wordCount: integer('word_count').notNull(),
+    /** paste | file | url | bot | habr | ai */
+    source: text('source').default('paste').notNull(),
+    /** Адрес статьи для текстов по ссылке и с Хабра — по нему не заводим дубль. */
+    sourceUrl: text('source_url'),
+    glossary: jsonb('glossary').$type<Record<string, string>>(),
+    questions: jsonb('questions').$type<{ q: string; options: string[]; answer: number }[]>(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('reading_texts_user_lang_idx').on(table.userId, table.lang),
+    uniqueIndex('reading_texts_user_source_url_idx')
+      .on(table.userId, table.sourceUrl)
+      .where(sql`${table.sourceUrl} is not null`),
+  ],
+)
+
+/**
+ * Тренировки. `day` — локальная дата пользователя (по ней считаются серия
+ * дней и отметки плана), поэтому хранится отдельно от `created_at`.
+ */
+export const readingSessions = pgTable(
+  'reading_sessions',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    /** rsvp | pacer | silent | test | read_en | cards */
+    type: text('type').notNull(),
+    lang: text('lang').notNull(),
+    day: date('day', { mode: 'string' }).notNull(),
+    wpm: integer('wpm'),
+    /** Понимание, 0–100. */
+    comp: integer('comp'),
+    ms: integer('ms'),
+    /** id текста: встроенного (`b1`, `e3`) или из `reading_texts` — поэтому без FK. */
+    textId: text('text_id'),
+    title: text('title'),
+    /** Сколько карточек повторено. */
+    cardsReviewed: integer('cards_reviewed'),
+    /** Сколько слов добавлено в карточки. */
+    wordsSaved: integer('words_saved'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('reading_sessions_user_day_idx').on(table.userId, table.day),
+    index('reading_sessions_user_type_idx').on(table.userId, table.type, table.lang),
+  ],
+)
+
+/**
+ * Карточки английских слов для интервального повторения. `box` — ступень
+ * Лейтнера 0–7, интервалы [0,1,3,7,14,30,60,120] дней.
+ */
+export const readingCards = pgTable(
+  'reading_cards',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
+      .references(() => users.id, { onDelete: 'cascade' })
+      .notNull(),
+    /** Словарная форма. */
+    en: text('en').notNull(),
+    ru: text('ru').notNull(),
+    /** Предложение, в котором встретилось слово. */
+    ctx: text('ctx').default('').notNull(),
+    /** Встреченные словоформы — по ним подчёркиваются уже сохранённые слова. */
+    forms: jsonb('forms').$type<string[]>().default([]).notNull(),
+    box: integer('box').default(0).notNull(),
+    dueAt: timestamp('due_at').defaultNow().notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex('reading_cards_user_en_idx').on(table.userId, table.en),
+    index('reading_cards_user_due_idx').on(table.userId, table.dueAt),
+  ],
+)

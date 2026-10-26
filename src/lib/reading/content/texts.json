@@ -1,0 +1,753 @@
+{
+  "ru": [
+    {
+      "id": "b1",
+      "lang": "ru",
+      "title": "Как глаза читают строку",
+      "body": "Кажется, что при чтении взгляд плавно скользит по строке. На самом деле глаза движутся рывками. Короткие скачки называются саккадами, а остановки между ними — фиксациями. Именно во время фиксаций мозг получает информацию: пока глаз прыгает, зрение почти выключено.\n\nСредняя фиксация у взрослого читателя длится около четверти секунды. За одну остановку мы чётко видим небольшой участок текста: примерно семь-восемь букв справа от точки взгляда и три-четыре слева. Это поле восприятия несимметрично, потому что в русском языке мы читаем слева направо и мозг заранее «подглядывает» вперёд.\n\nОколо десяти-пятнадцати процентов всех движений глаз направлены назад. Такие возвраты называют регрессиями. Часть из них полезна: читатель перепроверяет сложное место. Но многие регрессии возникают просто от рассеянного внимания, когда человек думает о другом и теряет нить.\n\nКороткие и частые слова — предлоги, союзы, частицы — глаз нередко пропускает вовсе. Мозг угадывает их по контексту и по форме соседних слов. Длинные и редкие слова, наоборот, притягивают взгляд дольше всего.\n\nОтсюда понятно, где можно выиграть время. Расширить поле зрения сильно не получится: его ограничивает устройство сетчатки. А вот сократить лишние возвраты и не задерживаться на служебных словах вполне реально. Указка под строкой помогает именно в этом: она задаёт ритм и не даёт взгляду возвращаться назад.",
+      "questions": [
+        {
+          "q": "Когда мозг получает зрительную информацию при чтении?",
+          "options": [
+            "Во время саккад",
+            "Во время фиксаций",
+            "Только при регрессиях",
+            "Непрерывно, пока глаз движется"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "Сколько примерно длится одна фиксация?",
+          "options": [
+            "Около 0,05 секунды",
+            "Около 0,25 секунды",
+            "Около 1 секунды",
+            "Около 2 секунд"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "Почему поле восприятия несимметрично?",
+          "options": [
+            "Из-за устройства хрусталика",
+            "Потому что мы читаем слева направо и мозг смотрит вперёд",
+            "Потому что правый глаз сильнее левого",
+            "Из-за размера шрифта"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "Что, по тексту, реально улучшить?",
+          "options": [
+            "Резко расширить поле зрения",
+            "Убрать фиксации совсем",
+            "Сократить лишние возвраты",
+            "Читать без движения глаз"
+          ],
+          "answer": 2
+        }
+      ]
+    },
+    {
+      "id": "b2",
+      "lang": "ru",
+      "title": "Маяки и их огни",
+      "body": "Первым знаменитым маяком считается Фаросский маяк в Александрии, построенный в третьем веке до нашей эры. На его вершине жгли костёр, а свет, по преданию, был виден с моря за десятки километров. Много веков маяки так и оставались башнями с открытым огнём или масляными лампами.\n\nПерелом произошёл в 1822 году, когда французский физик Огюстен Френель предложил новую линзу. Вместо одной толстой стеклянной линзы он собрал конструкцию из концентрических колец. Она была гораздо легче и при этом собирала свет лампы в узкий мощный луч. Линзы Френеля быстро распространились по всему миру, и дальность видимости маяков резко выросла.\n\nНочью все маяки выглядят как огоньки, поэтому моряку важно понять, какой именно перед ним. Для этого у каждого маяка есть своя характеристика огня: цвет, число вспышек и длина паузы. Например, две белые вспышки каждые десять секунд. Характеристики указаны в лоциях и на морских картах, и штурман сверяет с ними то, что видит.\n\nДолгое время на маяках жили смотрители: заводили часовой механизм вращения, чистили стёкла, следили за лампой. В двадцатом веке маяки перевели на электричество, а затем автоматизировали. Сегодня большинство из них работает без людей, а суда определяют своё место по спутниковой навигации. И всё же маяки не выключают: огонь на берегу остаётся простым и надёжным ориентиром, когда техника отказывает.",
+      "questions": [
+        {
+          "q": "Что изобрёл Огюстен Френель?",
+          "options": [
+            "Электрическую лампу для маяков",
+            "Составную линзу из концентрических колец",
+            "Часовой механизм вращения",
+            "Морскую лоцию"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "Как моряк отличает один маяк от другого ночью?",
+          "options": [
+            "По высоте башни",
+            "По характеристике огня",
+            "По радиосигналу",
+            "По цвету моря рядом"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "Почему на маяках почти не осталось смотрителей?",
+          "options": [
+            "Маяки закрыли",
+            "Маяки автоматизировали",
+            "Смотрителей заменили буями",
+            "Маяки перевели на костры"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "Почему маяки не выключают?",
+          "options": [
+            "Это запрещает закон",
+            "Они нужны туристам",
+            "Это надёжный ориентир на случай отказа техники",
+            "Их дорого выключать"
+          ],
+          "answer": 2
+        }
+      ]
+    },
+    {
+      "id": "b3",
+      "lang": "ru",
+      "title": "Танец пчёл",
+      "body": "Пчела-разведчица, найдя богатый источник нектара, возвращается в улей и сообщает о нём сёстрам. Делает она это с помощью танца. Расшифровал этот язык австрийский учёный Карл фон Фриш, получивший за свои исследования Нобелевскую премию в 1973 году.\n\nЕсли цветы недалеко, пчела исполняет круговой танец: быстро бегает по сотам кругами. Он сообщает только одно — еда где-то рядом, ищите поблизости. Если же источник находится дальше, разведчица переходит к виляющему танцу. Она пробегает прямой отрезок, покачивая брюшком, затем возвращается по дуге и повторяет движение снова и снова.\n\nСамое удивительное в том, как кодируется направление. Внутри тёмного улья пчела танцует на вертикальных сотах. Направление вверх обозначает направление на солнце. Если прямой отрезок танца отклонён от вертикали на сорок градусов вправо, значит, лететь нужно под углом сорок градусов правее солнца.\n\nРасстояние передаётся длительностью виляющего пробега: чем дольше пчела покачивается на прямом участке, тем дальше цветы. Другие пчёлы следуют за танцовщицей, касаются её усиками и запоминают сигнал. Заодно они чувствуют запах цветов, принесённый на её теле.\n\nСолнце за день смещается по небу, и пчёлы это учитывают: танец постепенно меняет угол, если разведчица долго передаёт одно и то же сообщение. Так маленький мозг насекомого решает задачу навигации, с которой люди справились только с изобретением компаса.",
+      "questions": [
+        {
+          "q": "Что сообщает круговой танец?",
+          "options": [
+            "Точное направление",
+            "Что еда рядом",
+            "Что в улей проник враг",
+            "Что пора роиться"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "Что в танце обозначает направление вверх по сотам?",
+          "options": [
+            "Север",
+            "Направление на солнце",
+            "Направление к улью",
+            "Направление ветра"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "Как пчела передаёт расстояние?",
+          "options": [
+            "Цветом пыльцы",
+            "Количеством кругов",
+            "Длительностью виляющего пробега",
+            "Громкостью жужжания"
+          ],
+          "answer": 2
+        },
+        {
+          "q": "Кто расшифровал язык пчёл?",
+          "options": [
+            "Карл фон Фриш",
+            "Чарльз Дарвин",
+            "Иван Павлов",
+            "Конрад Лоренц"
+          ],
+          "answer": 0
+        }
+      ]
+    },
+    {
+      "id": "b4",
+      "lang": "ru",
+      "title": "Зачем мозгу сон",
+      "body": "Долгое время сон считали просто отдыхом, когда мозг выключается до утра. Исследования последних десятилетий показали обратное: во сне мозг активно работает, и одна из главных его задач связана с памятью.\n\nДнём новые впечатления сначала записываются в гиппокамп — небольшую структуру в глубине мозга. Это что-то вроде временного буфера. Ночью, особенно в фазе глубокого медленного сна, гиппокамп как будто проигрывает дневные события заново. Во время таких повторов информация постепенно переносится в кору, где хранится долговременно. Этот процесс называют консолидацией памяти.\n\nЭксперименты подтверждают эту картину. Если человек выучил список слов или новое движение, а потом поспал, он вспоминает и выполняет заученное лучше, чем тот, кто провёл столько же времени без сна. Причём выигрыш заметен даже после короткого дневного сна.\n\nЕсть у сна и другая функция, похожая на уборку. Пока мы спим, межклеточное пространство мозга немного расширяется и через него активнее течёт жидкость, вымывающая продукты обмена. Эту систему очистки называют глимфатической.\n\nПрактический вывод простой. Если вы учитесь чему-то новому, в том числе тренируете навык чтения, регулярный сон — часть тренировки, а не перерыв в ней. Короткие ежедневные занятия с нормальным сном между ними обычно дают больше, чем одна длинная сессия раз в неделю.",
+      "questions": [
+        {
+          "q": "Какую роль текст отводит гиппокампу?",
+          "options": [
+            "Долговременное хранилище",
+            "Временный буфер для новых впечатлений",
+            "Центр зрения",
+            "Систему очистки мозга"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "Что такое консолидация памяти?",
+          "options": [
+            "Забывание лишнего",
+            "Перенос информации в кору для долгого хранения",
+            "Очистка мозга от продуктов обмена",
+            "Переход из медленного сна в быстрый"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "Что происходит в глимфатической системе во сне?",
+          "options": [
+            "Мозг охлаждается",
+            "Активнее вымываются продукты обмена",
+            "Растут новые нейроны",
+            "Записываются сны"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "Какой практический вывод делает автор?",
+          "options": [
+            "Учиться лучше ночью",
+            "Лучше одна длинная сессия в неделю",
+            "Короткие ежедневные занятия и нормальный сон",
+            "Сон мешает тренировке навыков"
+          ],
+          "answer": 2
+        }
+      ]
+    },
+    {
+      "id": "b5",
+      "lang": "ru",
+      "title": "Северный морской путь",
+      "body": "Северный морской путь проходит вдоль арктического побережья России, от Карских ворот на западе до Берингова пролива на востоке. Для судов, идущих из Европы в Восточную Азию, он может оказаться почти вдвое короче привычного маршрута через Суэцкий канал.\n\nИдея этого пути волновала мореплавателей несколько веков. Впервые пройти его за одну навигацию удалось экспедиции на ледокольном пароходе «Сибиряков» в 1932 году. После этого началось регулярное освоение трассы: строились порты, полярные станции, создавался ледокольный флот.\n\nГлавная трудность — лёд. Даже летом в проливах и у берегов встречаются ледяные поля, а зимой большая часть трассы покрыта сплошным льдом. Поэтому основная навигация для обычных судов приходится на конец лета и осень, а в остальное время нужны суда ледового класса и проводка ледоколов. Россия — единственная страна, у которой есть атомные ледоколы: они могут долго работать без захода в порт и ломать толстый лёд.\n\nКороткий путь не всегда означает дешёвый. Нужно учитывать стоимость ледокольной проводки, страховку, ограничения по размеру судов на мелководных участках и непредсказуемость ледовой обстановки. Поэтому судоходные компании каждый раз считают, что выгоднее: более длинный, но предсказуемый южный маршрут или короткий северный.\n\nС потеплением климата ледовый период в Арктике сокращается, и интерес к трассе растёт. Но погода и лёд по-прежнему остаются главными факторами, которые определяют, когда и как здесь можно пройти.",
+      "questions": [
+        {
+          "q": "Между какими точками проходит Северный морской путь?",
+          "options": [
+            "От Мурманска до Владивостока",
+            "От Карских ворот до Берингова пролива",
+            "От Босфора до Суэца",
+            "От Архангельска до Аляски"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "Какое судно первым прошло путь за одну навигацию?",
+          "options": [
+            "Атомный ледокол «Ленин»",
+            "Пароход «Сибиряков»",
+            "Ледокол «Красин»",
+            "Шхуна «Заря»"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "Когда основная навигация для обычных судов?",
+          "options": [
+            "Зимой",
+            "Весной",
+            "В конце лета и осенью",
+            "Круглый год"
+          ],
+          "answer": 2
+        },
+        {
+          "q": "Почему короткий путь не всегда выгоднее?",
+          "options": [
+            "Он опаснее из-за пиратов",
+            "Нужно учитывать проводку, страховку, ограничения и лёд",
+            "На нём нет портов",
+            "Он закрыт для иностранных судов"
+          ],
+          "answer": 1
+        }
+      ]
+    }
+  ],
+  "en": [
+    {
+      "id": "e1",
+      "lang": "en",
+      "level": "B1",
+      "title": "Why We Forget Names",
+      "body": "Have you ever met someone at a party, heard their name, and forgotten it ten seconds later? You are not alone. Forgetting names is one of the most common memory complaints, and there are simple reasons behind it.\n\nFirst, names are arbitrary. A face tells you nothing about whether a person is called Anna or Maria. Other facts are easier to remember because they connect to things we already know. If someone tells you they are a baker, your brain immediately links this to bread, early mornings and the smell of a bakery. A name has no such hooks.\n\nSecond, we are often distracted at the moment of introduction. We are busy shaking hands, thinking about what to say next, or worrying about the impression we are making. The name arrives, but our attention is somewhere else, so it never gets stored properly.\n\nThe good news is that a few small habits help a lot. Repeat the name out loud: \"Nice to meet you, Maria.\" Use it once more during the conversation. Try to connect it to something vivid: perhaps Maria reminds you of a friend with the same name, or the name sounds like a word you know. Finally, write new names down after the meeting.\n\nNone of these tricks requires a special talent. They simply give your memory a second chance to catch what it missed the first time.",
+      "glossary": {
+        "forgotten": "забытый (от forget — забывать)",
+        "complaints": "жалобы",
+        "arbitrary": "произвольный, случайный",
+        "connect": "связываться",
+        "links": "связывает",
+        "hooks": "крючки, зацепки",
+        "distracted": "отвлечённый",
+        "introduction": "знакомство, представление",
+        "impression": "впечатление",
+        "attention": "внимание",
+        "stored": "сохранён (от store — хранить)",
+        "properly": "как следует",
+        "habits": "привычки",
+        "vivid": "яркий, запоминающийся",
+        "reminds": "напоминает",
+        "tricks": "приёмы, хитрости",
+        "requires": "требует",
+        "catch": "поймать, уловить",
+        "missed": "упустил"
+      },
+      "questions": [
+        {
+          "q": "Why are names hard to remember, according to the text?",
+          "options": [
+            "They are usually too long",
+            "They do not connect to anything we already know",
+            "We hear them too often",
+            "People speak them too quietly"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "What often happens at the moment of introduction?",
+          "options": [
+            "We are distracted",
+            "We write the name down",
+            "We forget our own name",
+            "We ask for a business card"
+          ],
+          "answer": 0
+        },
+        {
+          "q": "Which habit is NOT recommended in the text?",
+          "options": [
+            "Repeat the name out loud",
+            "Use the name during the conversation",
+            "Ask the person to spell the name",
+            "Write new names down later"
+          ],
+          "answer": 2
+        },
+        {
+          "q": "What is the main idea of the last paragraph?",
+          "options": [
+            "Only talented people remember names",
+            "Simple habits give memory a second chance",
+            "Memory gets worse with age",
+            "Names are not important"
+          ],
+          "answer": 1
+        }
+      ]
+    },
+    {
+      "id": "e2",
+      "lang": "en",
+      "level": "B1",
+      "title": "Life on a Container Ship",
+      "body": "Most of the things in your home, from your phone to the bananas in your kitchen, probably travelled part of their journey by sea. About ninety percent of world trade moves on ships, and many of them are huge container ships.\n\nA large container ship can be longer than three football fields and carry more than twenty thousand containers. Yet the crew is surprisingly small: often only twenty to twenty-five people. Modern engines and computers do much of the work that once needed many sailors.\n\nLife on board follows a strict routine. Officers work in shifts called watches, usually four hours on duty and eight hours off. During a watch, they check the ship's position, watch the radar and talk to other vessels by radio. Engineers look after the engine room, where the temperature can be very high.\n\nThe crew may spend six to nine months away from home. Internet access at sea has improved, but it is still slow and expensive on many ships, so sailors often feel isolated. To stay healthy, they exercise in a small gym, play cards and celebrate birthdays together.\n\nWhen the ship arrives at a port, there is little time to rest. Huge cranes unload and load the containers in less than two days, and then the ship leaves again. For most people, a port is just a name on a label. For sailors, it is a short break before the next long voyage.",
+      "glossary": {
+        "journey": "путь, путешествие",
+        "trade": "торговля",
+        "huge": "огромный",
+        "crew": "экипаж",
+        "surprisingly": "удивительно",
+        "engines": "двигатели",
+        "sailors": "моряки",
+        "board": "борт (on board — на борту)",
+        "strict": "строгий",
+        "routine": "распорядок",
+        "shifts": "смены",
+        "watches": "вахты",
+        "duty": "дежурство (on duty — на вахте)",
+        "vessels": "суда",
+        "improved": "улучшился",
+        "isolated": "оторванный от мира",
+        "celebrate": "праздновать",
+        "cranes": "краны",
+        "unload": "разгружать",
+        "label": "этикетка",
+        "voyage": "рейс, плавание"
+      },
+      "questions": [
+        {
+          "q": "How much world trade moves by sea?",
+          "options": [
+            "About 50%",
+            "About 70%",
+            "About 90%",
+            "Almost 100%"
+          ],
+          "answer": 2
+        },
+        {
+          "q": "How big is the crew of a large container ship?",
+          "options": [
+            "5–10 people",
+            "20–25 people",
+            "About 100 people",
+            "More than 200 people"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "What is a typical watch schedule?",
+          "options": [
+            "4 hours on, 8 hours off",
+            "8 hours on, 4 hours off",
+            "12 hours on, 12 off",
+            "2 hours on, 2 off"
+          ],
+          "answer": 0
+        },
+        {
+          "q": "Why do sailors often feel isolated?",
+          "options": [
+            "They cannot leave the engine room",
+            "Internet at sea is slow and expensive",
+            "They work alone",
+            "Ports are closed to them"
+          ],
+          "answer": 1
+        }
+      ]
+    },
+    {
+      "id": "e3",
+      "lang": "en",
+      "level": "B1",
+      "title": "Learning a Language as an Adult",
+      "body": "Many adults believe it is too late for them to learn a new language. Children, they say, pick up languages easily, while grown-ups struggle. Research shows that the truth is more interesting.\n\nChildren do have one clear advantage: pronunciation. If you start learning before about the age of ten, you are much more likely to sound like a native speaker. But adults have advantages too. They already understand how grammar works, they can use dictionaries and they know how to plan their study. In the first months, adult beginners often make faster progress than children.\n\nThe biggest difference is time. A child living in a new country hears the language for many hours every day. An adult may study for one hour a week and wonder why progress is slow. Language learning depends heavily on the amount of contact with the language.\n\nThat is why reading is so useful. A book or an article gives you thousands of words in context, and you can read whenever you have a free moment. When you meet the same word several times in different sentences, you start to understand it without a dictionary.\n\nShort daily practice works better than long, rare sessions. Fifteen minutes every day is better than two hours on Sunday. The brain needs repetition and sleep to turn new words into long-term memory.",
+      "glossary": {
+        "believe": "считают, верят",
+        "pick": "pick up — схватывать, усваивать",
+        "grown": "grown-ups — взрослые",
+        "grown-ups": "взрослые",
+        "struggle": "с трудом справляются",
+        "research": "исследования",
+        "advantage": "преимущество",
+        "advantages": "преимущества",
+        "pronunciation": "произношение",
+        "likely": "вероятно (more likely — с большей вероятностью)",
+        "native": "родной (native speaker — носитель языка)",
+        "beginners": "начинающие",
+        "wonder": "удивляться, задаваться вопросом",
+        "depends": "зависит",
+        "heavily": "сильно",
+        "amount": "количество",
+        "whenever": "всякий раз, когда",
+        "rare": "редкий",
+        "repetition": "повторение",
+        "long-term": "долговременный"
+      },
+      "questions": [
+        {
+          "q": "What clear advantage do children have?",
+          "options": [
+            "Grammar",
+            "Pronunciation",
+            "Vocabulary",
+            "Planning"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "Which is an advantage of adults?",
+          "options": [
+            "They sound like native speakers",
+            "They understand how grammar works",
+            "They have more free time",
+            "They never forget words"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "What is the biggest difference between children and adults?",
+          "options": [
+            "Intelligence",
+            "Motivation",
+            "The amount of time with the language",
+            "The quality of teachers"
+          ],
+          "answer": 2
+        },
+        {
+          "q": "What does the author recommend?",
+          "options": [
+            "Two hours on Sunday",
+            "Short daily practice",
+            "Studying only grammar",
+            "Avoiding dictionaries"
+          ],
+          "answer": 1
+        }
+      ]
+    },
+    {
+      "id": "e4",
+      "lang": "en",
+      "level": "B2",
+      "title": "The Myth of Multitasking",
+      "body": "Many of us are proud of our ability to multitask: answering emails during a meeting, listening to a podcast while writing a report, checking messages while reading. Yet psychologists have found that what we call multitasking is, in most cases, something quite different.\n\nThe human brain is remarkably poor at performing two demanding tasks at the same time. Instead, it switches rapidly between them. Each switch carries a cost: for a fraction of a second, the brain has to reload the rules and goals of the new task. These fractions add up. Studies suggest that frequent switching can reduce productivity by as much as forty percent, and it noticeably increases the number of mistakes.\n\nThere is an important exception. If one of the tasks is highly automatic, such as walking or folding laundry, we can combine it with a thinking task fairly well. The trouble begins when both activities require attention, language or decision-making.\n\nIronically, people who multitask most often tend to overestimate how good they are at it. In laboratory tests, heavy multitaskers were more easily distracted by irrelevant information than those who rarely multitask.\n\nThe practical lesson is to protect blocks of focused time. Turning off notifications for even thirty minutes allows the brain to stay with one task long enough to go deep. For reading, this matters a great deal: comprehension depends on holding the thread of an argument, and every interruption cuts that thread.",
+      "glossary": {
+        "proud": "гордый (be proud of — гордиться)",
+        "ability": "способность",
+        "remarkably": "на удивление",
+        "performing": "выполнение",
+        "demanding": "сложный, требующий усилий",
+        "switches": "переключается",
+        "rapidly": "быстро",
+        "cost": "цена, издержки",
+        "fraction": "доля",
+        "fractions": "доли",
+        "suggest": "предполагают, указывают",
+        "frequent": "частый",
+        "reduce": "снижать",
+        "noticeably": "заметно",
+        "exception": "исключение",
+        "folding": "складывание",
+        "laundry": "бельё (для стирки)",
+        "fairly": "довольно",
+        "require": "требуют",
+        "ironically": "по иронии",
+        "overestimate": "переоценивать",
+        "irrelevant": "не относящийся к делу",
+        "rarely": "редко",
+        "notifications": "уведомления",
+        "comprehension": "понимание",
+        "thread": "нить",
+        "interruption": "прерывание, отвлечение"
+      },
+      "questions": [
+        {
+          "q": "What does the brain actually do when we 'multitask'?",
+          "options": [
+            "Processes both tasks in parallel",
+            "Switches rapidly between tasks",
+            "Ignores the harder task",
+            "Slows down both tasks equally"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "How much can frequent switching reduce productivity?",
+          "options": [
+            "Up to 10%",
+            "Up to 20%",
+            "Up to 40%",
+            "Up to 80%"
+          ],
+          "answer": 2
+        },
+        {
+          "q": "When can we combine two tasks fairly well?",
+          "options": [
+            "When both are interesting",
+            "When one of them is highly automatic",
+            "When both use language",
+            "When we are under pressure"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "What did lab tests show about heavy multitaskers?",
+          "options": [
+            "They were better at filtering information",
+            "They were more easily distracted",
+            "They read faster",
+            "They made fewer mistakes"
+          ],
+          "answer": 1
+        }
+      ]
+    },
+    {
+      "id": "e5",
+      "lang": "en",
+      "level": "B2",
+      "title": "How Maps Shape the World",
+      "body": "Every flat map of the world is, in a sense, a lie. The Earth is round, and it is mathematically impossible to show its curved surface on a flat sheet without distorting something: shapes, areas, distances or directions.\n\nThe most famous example is the Mercator projection, created by the Flemish cartographer Gerardus Mercator in 1569. It was designed for navigation: a straight line on the map corresponds to a constant compass direction, which made it invaluable for sailors. The price of this convenience is that areas far from the equator are enormously stretched. Greenland appears roughly the size of Africa, although Africa is in fact about fourteen times larger.\n\nBecause the Mercator map became the standard in schools and offices, it quietly shaped how generations imagined the world. Northern countries looked larger and, perhaps, more important than they really are.\n\nCartographers have proposed many alternatives. Equal-area projections preserve the relative size of countries but distort their shapes. Compromise projections, such as the one adopted by the National Geographic Society in 1998, try to balance several kinds of distortion so that no single error is extreme.\n\nToday most online maps still use a version of Mercator, because it keeps shapes correct when you zoom into a city or a street. The lesson is not that one map is right and the others are wrong. Each projection is a tool, chosen for a purpose, and a good reader of maps asks what that purpose was.",
+      "glossary": {
+        "flat": "плоский",
+        "sense": "смысл (in a sense — в некотором смысле)",
+        "curved": "изогнутый",
+        "surface": "поверхность",
+        "sheet": "лист",
+        "distorting": "искажая",
+        "distort": "искажать",
+        "distortion": "искажение",
+        "projection": "проекция",
+        "corresponds": "соответствует",
+        "constant": "постоянный",
+        "invaluable": "бесценный",
+        "convenience": "удобство",
+        "enormously": "чрезвычайно",
+        "stretched": "растянутый",
+        "roughly": "примерно",
+        "quietly": "незаметно",
+        "generations": "поколения",
+        "proposed": "предложили",
+        "preserve": "сохраняют",
+        "relative": "относительный",
+        "adopted": "принятый",
+        "extreme": "крайний",
+        "purpose": "цель"
+      },
+      "questions": [
+        {
+          "q": "Why was the Mercator projection designed?",
+          "options": [
+            "For school geography",
+            "For navigation at sea",
+            "To show true country sizes",
+            "For online maps"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "How do Greenland and Africa really compare?",
+          "options": [
+            "They are about the same size",
+            "Greenland is larger",
+            "Africa is about 14 times larger",
+            "Africa is about 2 times larger"
+          ],
+          "answer": 2
+        },
+        {
+          "q": "What do equal-area projections do?",
+          "options": [
+            "Keep shapes but distort sizes",
+            "Keep sizes but distort shapes",
+            "Keep both perfectly",
+            "Show only northern countries"
+          ],
+          "answer": 1
+        },
+        {
+          "q": "Why do online maps still use Mercator?",
+          "options": [
+            "It is the oldest",
+            "It keeps shapes correct when zooming in",
+            "It shows true areas",
+            "It was adopted in 1998"
+          ],
+          "answer": 1
+        }
+      ]
+    }
+  ],
+  "functionWords": {
+    "ru": [
+      "и",
+      "в",
+      "во",
+      "не",
+      "на",
+      "с",
+      "со",
+      "что",
+      "как",
+      "а",
+      "но",
+      "по",
+      "к",
+      "ко",
+      "у",
+      "о",
+      "об",
+      "обо",
+      "от",
+      "до",
+      "из",
+      "за",
+      "для",
+      "же",
+      "ли",
+      "бы",
+      "то",
+      "это",
+      "так",
+      "да",
+      "или",
+      "при",
+      "над",
+      "под",
+      "без",
+      "через",
+      "который",
+      "которая",
+      "которое",
+      "которые",
+      "которого",
+      "которой",
+      "которых",
+      "котором",
+      "которым",
+      "также",
+      "тоже",
+      "ещё",
+      "уже",
+      "лишь",
+      "только",
+      "был",
+      "была",
+      "были",
+      "было",
+      "есть",
+      "его",
+      "её",
+      "их",
+      "он",
+      "она",
+      "они",
+      "оно",
+      "мы",
+      "вы",
+      "я",
+      "ты",
+      "им",
+      "ним",
+      "ней",
+      "нём",
+      "тот",
+      "та",
+      "те",
+      "этот",
+      "эта",
+      "эти",
+      "эту",
+      "этого",
+      "чтобы",
+      "если",
+      "когда",
+      "где",
+      "там",
+      "тут",
+      "ни",
+      "ну",
+      "вот"
+    ],
+    "en": [
+      "the",
+      "a",
+      "an",
+      "of",
+      "to",
+      "in",
+      "on",
+      "at",
+      "for",
+      "and",
+      "or",
+      "but",
+      "is",
+      "are",
+      "was",
+      "were",
+      "be",
+      "been",
+      "it",
+      "its",
+      "this",
+      "that",
+      "with",
+      "as",
+      "by",
+      "from",
+      "they",
+      "them",
+      "their",
+      "we",
+      "you",
+      "he",
+      "she",
+      "his",
+      "her",
+      "not",
+      "do",
+      "does",
+      "did",
+      "have",
+      "has",
+      "had",
+      "so",
+      "if",
+      "than",
+      "then",
+      "there"
+    ]
+  }
+}

@@ -440,7 +440,11 @@ async function queueAutoname(ids, force) {
 
 // ---------- запросы сессий (разрешения и вопросы) ----------
 
-const HOOK_HOLD_MS = Number(process.env.HOOK_HOLD_MS || 590_000); // чуть меньше timeout хука 600 с
+// Держим запрос, пока не ответят, — чуть меньше timeout хука PermissionRequest в ~/.claude/settings.json.
+// Для сессий VS Code долгое удержание не мешает (родной диалог виден параллельно, первый ответ побеждает),
+// а фоновой сессии (`claude --bg`) после таймаута ответить уже негде: вопрос уходит в невидимый терминал.
+// Поэтому по умолчанию — сутки; если timeout хука меньше, запрос закроется по нему раньше.
+const HOOK_HOLD_MS = Number(process.env.HOOK_HOLD_MS || 86_340_000);
 const HOOK_LOG = path.join(path.dirname(META_FILE), 'hooks.jsonl');
 const requests = new Map(); // id -> запрос
 let requestSeq = 0;
@@ -844,6 +848,24 @@ function taskSnapshot(s, notes) {
 // Вкладка Claude в VS Code с подставленным `/start-task КЛЮЧ` (uri-хендлер расширения: /open?prompt=&session=).
 const vscodeTaskUri = key => `vscode://anthropic.claude-code/open?prompt=${encodeURIComponent(`/start-task ${key}`)}`;
 
+// Перенос фоновой сессии в VS Code. Пока её держит процесс `claude --bg`, расширение её не откроет
+// («That session is running in the background»). Останавливаем фоновый процесс — переписка остаётся —
+// и открываем сессию во вкладке Claude через uri-хендлер расширения.
+async function moveToVSCode(a) {
+  if (a.kind === 'background') {
+    const env = { ...process.env };
+    delete env.ANTHROPIC_API_KEY;
+    await pexec(CLAUDE_BIN, ['stop', a.id], { env, timeout: 30_000 });
+    for (let i = 0; i < 20; i++) {
+      agentsCache.at = 0;
+      if (!(await liveAgents()).some(x => x.sessionId === a.sessionId && x.kind === 'background')) break;
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+  await pexec('open', [`vscode://anthropic.claude-code/open?session=${encodeURIComponent(a.sessionId)}`], { timeout: 15_000 });
+  hookLog({ event: 'moved-to-vscode', session: a.sessionId, background: a.kind === 'background' });
+}
+
 // Скрины из Mini App: сохраняем файлами, в сессию уходят пути — Claude откроет их через Read.
 const UPLOADS_DIR = path.join(HERE, 'data', 'uploads');
 const UPLOADS_TTL_MS = 7 * 86400e3;
@@ -880,6 +902,12 @@ async function runCommand(c) {
         : '';
       await sendToSession(a, text + shots);
       return { id: c.id, ok: true };
+    }
+    if (c.kind === 'to-vscode') {
+      const a = (await liveAgents()).find(x => x.sessionId === c.sessionId);
+      if (!a) throw new Error('сессия закрыта или не найдена');
+      await moveToVSCode(a);
+      return { id: c.id, ok: true, output: 'сессия открыта в VS Code' };
     }
     if (c.kind === 'start-task') {
       const key = String(c.payload?.issueKey || '');
@@ -935,6 +963,7 @@ async function syncTick() {
     taskKey: s.taskKey || null,
     permissionMode: s.permissionMode || null,
     waitingFor: s.waitingFor || null,
+    background: s.kind === 'background',
     tasks: taskSnapshot(s, await notesForSession(s.sessionId, s.taskKey)),
     updatedAt: new Date(s.lastActivity || Date.now()).toISOString(),
   })));
@@ -1064,6 +1093,14 @@ const server = http.createServer(async (req, res) => {
       const a = (await liveAgents()).find(x => x.sessionId === b.sessionId);
       if (!a) return send(res, 404, { error: 'session not found' });
       await sendToSession(a, text);
+      return send(res, 200, { ok: true });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/to-vscode') {
+      if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
+      const b = await readJson(req);
+      const a = (await liveAgents()).find(x => x.sessionId === b.sessionId);
+      if (!a) return send(res, 404, { error: 'session not found' });
+      await moveToVSCode(a);
       return send(res, 200, { ok: true });
     }
     if (req.method === 'POST' && url.pathname === '/api/meta') {

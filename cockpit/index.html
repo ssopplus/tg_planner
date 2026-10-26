@@ -725,6 +725,7 @@ function updateSessionHead() {
       ${s.taskKey ? `<span class="chip key">${esc(s.taskKey)}</span>` : ''}
       <span class="time">активность ${ago(s.lastActivity)} назад</span>
       <span class="spacer"></span>
+      ${s.kind === 'background' ? '<button id="toVSCode" title="Остановить фоновый процесс и открыть сессию во вкладке Claude в VS Code — переписка сохранится">Перенести в VS Code</button>' : ''}
     </div>
     ${(s.requests || []).length ? `<div style="margin-top:8px">${s.requests.map(r => requestHtml(r)).join('')}</div>`
       : s.status === 'waiting' ? `<div class="waitbar">⏳ Сессия ждёт: ${esc(s.waitingFor || 'ответа')}. Ответить можно в окне сессии (VS Code / терминал).</div>` : ''}`;
@@ -964,6 +965,13 @@ document.addEventListener('toggle', e => {
   if (it) d.insertAdjacentHTML('beforeend', toolIo(it));
 }, true);
 $('#q').addEventListener('input', () => render(false));
+document.addEventListener('click', async e => {
+  if (e.target.id !== 'toVSCode' || !sessView) return;
+  if (!confirm('Остановить фоновую сессию и открыть её в VS Code? Переписка сохранится; если Claude ждал разрешения, он повторит этот шаг уже в VS Code.')) return;
+  e.target.disabled = true;
+  try { await post('/api/to-vscode', { sessionId: sessView.id }); toast('Открываю в VS Code'); }
+  catch (err) { toast('Не вышло: ' + err.message); e.target.disabled = false; }
+});
 $('#openTask').addEventListener('click', () => {
   const key = (prompt('Ключ задачи Трекера, например POLAERP-194') || '').trim().toUpperCase();
   if (!key) return;

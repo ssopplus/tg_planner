@@ -10,6 +10,24 @@ export function getWebApp() {
   return (window as unknown as { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp ?? null
 }
 
+/**
+ * Подтверждение действия. В Telegram — его диалог: системный confirm() во
+ * вьюхе Telegram на iOS может не показаться и сразу вернуть false.
+ */
+export function webAppConfirm(message: string): Promise<boolean> {
+  const wa = getWebApp()
+  if (wa?.showConfirm) {
+    return new Promise((resolve) => {
+      try {
+        wa.showConfirm?.(message, (ok) => resolve(ok))
+      } catch {
+        resolve(window.confirm(message))
+      }
+    })
+  }
+  return Promise.resolve(window.confirm(message))
+}
+
 /** Получить initData для авторизации API-запросов */
 export function getInitData(): string {
   return getWebApp()?.initData ?? ''
@@ -205,6 +223,8 @@ interface TelegramWebApp {
   }
   /** 'tdesktop' | 'macos' | 'windows' | 'android' | 'ios' | 'weba' | … */
   platform?: string
+  /** Bot API 6.2+: системный диалог подтверждения. */
+  showConfirm?: (message: string, callback: (ok: boolean) => void) => void
   disableVerticalSwipes?: () => void
   enableVerticalSwipes?: () => void
   BackButton: {

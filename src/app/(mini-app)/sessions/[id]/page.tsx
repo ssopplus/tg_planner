@@ -12,6 +12,7 @@ import {
   hint,
   markSeen,
   ModeChip,
+  MoveToVSCode,
   RequestCard,
   STATUS,
   TaskBadge,
@@ -148,6 +149,8 @@ export default function SessionPage() {
           ))}
         </div>
       </div>
+
+      {s?.background ? <MoveToVSCode sessionId={id} commands={data?.commands ?? []} onSent={load} /> : null}
 
       {s?.waitingFor ? (
         <p className="rounded-xl border border-amber-400 p-2.5 text-[13px] leading-snug text-amber-600">⏳ Ждёт {s.waitingFor}</p>

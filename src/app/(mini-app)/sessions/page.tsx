@@ -11,6 +11,7 @@ import {
   chip,
   Composer,
   hint,
+  MoveToVSCode,
   ModeChip,
   readSeen,
   RequestCard,
@@ -480,6 +481,7 @@ function SessionCard({
               </button>
             ) : null}
           </div>
+          {s.background ? <MoveToVSCode sessionId={s.id} commands={commands} onSent={onSent} /> : null}
           {tasks.map((t) => (
             <TaskDetail key={t.issue ?? t.title} t={t} />
           ))}

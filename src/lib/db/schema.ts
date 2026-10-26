@@ -564,6 +564,8 @@ export type CockpitSessionSnapshot = {
   permissionMode?: string | null
   /** Чего ждёт сессия, если это не запрос (например, фоновая стоит на вопросе в терминале). */
   waitingFor?: string | null
+  /** Фоновая сессия (`claude --bg`): в VS Code её открывает только «Перенести в VS Code». */
+  background?: boolean
   updatedAt: string
 }
 

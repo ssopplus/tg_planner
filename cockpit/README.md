@@ -101,6 +101,12 @@ Cockpit сам ходит в `POST /api/cockpit/sync` tg-planer: шлёт сни
   `claude agents --json`, pid нет) — cockpit показывает её «ждёт» с подсказкой `claude attach <id>`; подключиться
   можно из любого терминала, в том числе встроенного в VS Code. Сообщения в фоновую сессию идут по регистрации
   в `~/.claude/sessions/`, найденной по id сессии.
+- Фоновую сессию расширение VS Code не открывает, пока жив её процесс («That session is running in the background»).
+  «Перенести в VS Code» (страница сессии в cockpit и в Mini App) делает `claude stop <id>` и открывает её через
+  `vscode://anthropic.claude-code/open?session=<sessionId>` — переписка сохраняется.
+- Запрос разрешения cockpit держит до ответа, но не дольше `timeout` хука PermissionRequest в
+  `~/.claude/settings.json` (cockpit по умолчанию готов ждать сутки, `HOOK_HOLD_MS`). При 600 с фоновая сессия через
+  10 минут без ответа застревает на вопросе в невидимом терминале — поэтому timeout стоит поднять до 86400.
 - «Открыть в VS Code на Маке» (там же) и «▶ Задача в VS Code» на доске cockpit открывают вкладку Claude через
   uri-хендлер расширения `vscode://anthropic.claude-code/open?prompt=/start-task КЛЮЧ`. Расширение текст только
   подставляет, отправить — Enter в VS Code; поэтому с телефона задачу начинает фоновая сессия.

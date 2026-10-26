@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { ImagePlus, X } from 'lucide-react'
-import { apiFetch } from '@/lib/telegram/webapp'
+import { apiFetch, webAppConfirm } from '@/lib/telegram/webapp'
 import { requestBody } from '@/lib/cockpit/format'
 
 /**
@@ -28,12 +28,13 @@ export interface Session {
   tasks?: SessionTask[]
   permissionMode?: string | null
   waitingFor?: string | null
+  background?: boolean
   updatedAt: string
 }
 
 export interface Command {
   id: string
-  kind: 'message' | 'start-task'
+  kind: 'message' | 'start-task' | 'to-vscode'
   sessionId: string | null
   payload: { text?: string; issueKey?: string; imageCount?: number }
   status: 'pending' | 'sent' | 'done' | 'failed'
@@ -256,6 +257,49 @@ export function TaskDetail({ t }: { t: SessionTask }) {
 }
 
 /**
+ * «Перенести в VS Code» для фоновой сессии: пока её держит `claude --bg`, расширение
+ * VS Code её не откроет. Cockpit останавливает фоновый процесс и открывает сессию
+ * во вкладке Claude — переписка сохраняется.
+ */
+export function MoveToVSCode({ sessionId, commands, onSent }: { sessionId: string; commands: Command[]; onSent: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const last = commands.find((c) => c.kind === 'to-vscode')
+  const inFlight = last && (last.status === 'pending' || last.status === 'sent')
+  const move = async () => {
+    if (!(await webAppConfirm('Остановить фоновую сессию и открыть её в VS Code на Маке? Переписка сохранится.'))) return
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await apiFetch('/api/cockpit/commands', { method: 'POST', body: JSON.stringify({ kind: 'to-vscode', sessionId }) })
+      if (!res.ok) setError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? 'Ошибка')
+      onSent()
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <button type="button" disabled={busy || !!inFlight} onClick={move} className={`${chip} ${text} w-fit disabled:opacity-50`}>
+        Перенести в VS Code
+      </button>
+      {last ? (
+        <p className={`text-[11px] ${last.status === 'failed' ? 'text-red-500' : hint}`}>
+          {last.status === 'done' ? 'Открыто в VS Code на Маке' : COMMAND_STATUS[last.status]}
+          {last.result?.error ? `: ${last.result.error}` : ''}
+        </p>
+      ) : (
+        <p className={`text-[11px] leading-snug ${hint}`}>
+          Фоновая сессия: в VS Code её можно открыть только так — cockpit остановит фоновый процесс и откроет переписку во
+          вкладке Claude.
+        </p>
+      )}
+      {error ? <p className="text-[11px] text-red-500">{error}</p> : null}
+    </div>
+  )
+}
+
+/**
  * Реплика из cockpit для сессии — чужая, «да» в ней подтверждением не считается.
  * Ответ на AskUserQuestion — считается: приходит через хук как ответ пользователя.
  * Этим текстом просим сессию переспросить карточкой.
@@ -398,7 +442,7 @@ export function Composer({ sessionId, commands, onSent }: { sessionId: string; c
         «да» — жми «Спросить кнопками»: сессия задаст вопрос карточкой, ответ в ней засчитается как твой.
       </span>
       {error ? <p className="text-[12px] text-red-500">{error}</p> : null}
-      {commands.slice(0, 3).map((c) => (
+      {commands.filter((c) => c.kind === 'message').slice(0, 3).map((c) => (
         <p key={c.id} className={`truncate text-[11px] ${c.status === 'failed' ? 'text-red-500' : hint}`}>
           {COMMAND_STATUS[c.status]}
           {c.result?.error ? ` (${c.result.error})` : ''}: {c.payload.imageCount ? `📎${c.payload.imageCount} ` : ''}

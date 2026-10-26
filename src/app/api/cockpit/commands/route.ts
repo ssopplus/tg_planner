@@ -23,6 +23,9 @@ const MAX_IMAGES_CHARS = 3_000_000
  *   в ~/Разработка; `where: 'vscode'` — вкладка Claude в VS Code на рабочей машине
  *   с подставленным `/start-task КЛЮЧ` (отправить — Enter там же).
  *
+ * - `{ kind: 'to-vscode', sessionId }` — перенести фоновую сессию в VS Code: cockpit
+ *   останавливает `claude --bg` и открывает сессию во вкладке Claude.
+ *
  * Команда ждёт в БД, пока cockpit не заберёт её синком (раз в 10 с).
  */
 export async function POST(request: NextRequest) {
@@ -53,6 +56,9 @@ export async function POST(request: NextRequest) {
       sessionId: body.sessionId,
       payload: { text: text.slice(0, MAX_TEXT), ...(images.length ? { images, imageCount: images.length } : {}) },
     }
+  } else if (body.kind === 'to-vscode') {
+    if (typeof body.sessionId !== 'string') return NextResponse.json({ error: 'Нужна сессия' }, { status: 400 })
+    values = { userId: user.id, kind: 'to-vscode', sessionId: body.sessionId, payload: {} }
   } else if (body.kind === 'start-task') {
     const issueKey = typeof body.issueKey === 'string' ? body.issueKey.trim().toUpperCase() : ''
     if (!TASK_KEY_RE.test(issueKey)) return NextResponse.json({ error: 'Неверный ключ задачи' }, { status: 400 })

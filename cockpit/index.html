@@ -302,6 +302,42 @@ button.deny { color: var(--del); }
 .composer .sendcol { display: flex; flex-direction: column; gap: 6px; }
 .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 6px 14px; border-radius: 8px; font-size: 12.5px; z-index: 20; }
 
+/* ---------- план ---------- */
+.planpage { max-width: 1400px; margin: 0 auto; padding: 16px; }
+.pl-projects { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 14px; }
+.pl-projects button.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.pl-sec { margin-bottom: 28px; }
+.pl-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
+.pl-head h2 { font-size: 16px; margin: 0; }
+.pl-err { color: var(--wait); font-size: 12.5px; margin-bottom: 6px; }
+.pl-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.pl-col h3 { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 0 0 6px; font-weight: 600; }
+.pl-col.mine { position: sticky; top: 0; max-height: calc(100vh - 70px); overflow-y: auto; }
+.pl-list, .pl-pool { min-height: 44px; border-radius: 8px; }
+.pl-list.drop-end, .pl-pool.drop-in { outline: 2px dashed var(--accent); outline-offset: 2px; }
+.pl-hint { border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); padding: 12px; font-size: 12.5px; text-align: center; }
+.pl-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px; align-items: start; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; cursor: grab; }
+.pl-row:hover { border-color: var(--accent); }
+.pl-row.dragging { opacity: .4; }
+.pl-row.drop-before { box-shadow: 0 -3px 0 var(--accent); }
+.pl-row.drop-after { box-shadow: 0 3px 0 var(--accent); }
+.pl-row.closed { opacity: .6; }
+.pl-row.active { border-left: 3px solid var(--busy); }
+.pl-num { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 600; text-align: right; }
+.pl-main { min-width: 0; }
+.pl-t { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.pl-t .tkey { flex: none; text-decoration: none; font-size: 12px; }
+.pl-t .tst { flex: none; font-size: 11.5px; }
+.pl-t .txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.pl-t .txt:hover { color: var(--accent); text-decoration: underline; }
+.pl-meta { font-size: 11.5px; color: var(--muted); margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.pl-row .plan .tprog { flex: none; white-space: nowrap; }
+.pl-acts { display: flex; gap: 2px; align-items: center; }
+.pl-acts button { padding: 0 6px; font-size: 12px; }
+.chip.sess { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.chip.sess .dot { flex: none; width: 7px; height: 7px; }
+@media (max-width: 900px) { .pl-grid { grid-template-columns: 1fr; } .pl-col.mine { position: static; max-height: none; } }
+
 @media (max-width: 1100px) { .cols { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sess { grid-template-columns: 1fr; height: auto; } .side { border-left: 0; border-top: 1px solid var(--line); } .chat { overflow: visible; } }
 @media (max-width: 640px) { .cols, .cols.nocold { grid-template-columns: 1fr; } header { flex-wrap: wrap; } header input[type=search] { width: 100%; order: 9; } }
 </style>
@@ -312,6 +348,7 @@ button.deny { color: var(--del); }
   <nav>
     <a href="#/board" data-view="board">Доска</a>
     <a href="#/inbox" data-view="inbox">Входящие <span id="inboxBadge"></span></a>
+    <a href="#/plan" data-view="plan">План</a>
   </nav>
   <span id="stale"></span>
   <div class="spacer"></div>
@@ -396,7 +433,7 @@ document.addEventListener('click', e => {
 const plain = text => String(text || '').replace(/```[\s\S]*?```/g, ' [код] ').replace(/[*_`#>|]/g, '').replace(/\s+/g, ' ').trim();
 
 // ---------- состояние ----------
-let sessions = [], projects = [], pending = [], lastOk = 0;
+let sessions = [], projects = [], queues = {}, pending = [], lastOk = 0;
 let seen = store.get('seen', {});           // sessionId → lastActivity, которую я уже видел
 let prevStatus = {};
 const notified = new Set();
@@ -436,7 +473,7 @@ window.addEventListener('hashchange', () => render(true));
 async function poll() {
   try {
     const data = await (await fetch('/api/sessions')).json();
-    sessions = data.sessions; projects = data.projects; pending = data.pending || []; lastOk = Date.now();
+    sessions = data.sessions; projects = data.projects; queues = data.queues || {}; pending = data.pending || []; lastOk = Date.now();
     // Связь с Telegram (tg-planer): пилюля видна, только когда синк включён в data/sync.json.
     const sp = $('#syncPill'), sy = data.sync || {};
     sp.hidden = !sy.enabled;
@@ -470,10 +507,15 @@ function render(force) {
   $('#autoname').disabled = !!namingN || !unnamed;
   $('#boardTools').innerHTML = r.view === 'board' ? `
     <span class="seg"><button data-group="project" class="${groupBy === 'project' ? 'on' : ''}">По проектам</button><button data-group="none" class="${groupBy === 'none' ? 'on' : ''}">Все вместе</button></span>
-    <label class="muted" style="margin-left:8px"><input type="checkbox" id="showCold" ${showCold ? 'checked' : ''}> простаивающие</label>` : '';
+    <label class="muted" style="margin-left:8px"><input type="checkbox" id="showCold" ${showCold ? 'checked' : ''}> простаивающие</label>`
+    : r.view === 'plan' ? `
+    <span class="seg"><button data-plan-scope="mine" class="${planScope === 'mine' ? 'on' : ''}" title="Открытые задачи, где я исполнитель">Мои</button><button data-plan-scope="all" class="${planScope === 'all' ? 'on' : ''}" title="Все открытые задачи очередей проекта">Все открытые</button></span>
+    <button class="ghost" data-plan-refresh title="Перечитать задачи из Трекера">↻</button>` : '';
   $('#notifyBtn').textContent = notifyOn ? '🔔' : '🔕';
   if (r.view === 'session') return renderSession(r.id, force);
   sessView = null;
+  if (r.view !== 'plan') lastPlanHtml = '';
+  if (r.view === 'plan') return renderPlan();
   if (r.view === 'inbox') return renderInbox();
   return renderBoard();
 }
@@ -680,6 +722,181 @@ function renderInbox() {
   </div>`;
   app.scrollTop = scroll;
 }
+
+// ---------- план ----------
+// Задачи проекта из Трекера (открытые в его очередях) и план — очерёдность, которую выставляю я.
+// Порядок хранит сервер в data/plan.json; выборка Трекера перечитывается раз в минуту.
+let planProjects = store.get('planProjects', []);
+let planScope = store.get('planScope', 'mine');
+const planData = {}; // проект -> { at, scope, loading, data, error }
+let planDrag = null; // { key, project, fromPlan } — пока тащу карточку, экран не перерисовываем
+let lastPlanHtml = '';
+const PLAN_POLL = 60_000;
+const queueProjects = () => [...new Set(Object.values(queues))].sort();
+const sessKeys = s => [s.taskKey, ...(s.tasks || []).map(t => t.issue)].filter(Boolean);
+const sessionsOf = key => sessions.filter(s => sessKeys(s).includes(key)).sort(byActivity);
+
+function loadPlan(p, fresh) {
+  const st = (planData[p] ||= { at: 0 });
+  if (st.loading) return;
+  st.loading = true; st.scope = planScope;
+  fetch('/api/plan?' + new URLSearchParams({ project: p, scope: planScope, ...(fresh ? { fresh: '1' } : {}) }))
+    .then(async r => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); st.data = j; st.error = j.error; })
+    .catch(e => { st.error = e.message; })
+    .finally(() => { st.loading = false; st.at = Date.now(); if (route().view === 'plan') render(false); });
+}
+
+async function setPlan(p, keys) {
+  const d = planData[p]?.data; if (!d) return;
+  d.plan = keys; lastPlanHtml = ''; render(false);
+  try { await post('/api/plan', { project: p, keys }); }
+  catch (e) { toast('План не сохранился: ' + e.message); loadPlan(p); }
+}
+
+function planRowHtml(i, d, o) {
+  const note = d.notes[i.key];
+  const ss = sessionsOf(i.key);
+  const closed = i.resolved || i.status?.type === 'done' || i.status?.type === 'cancelled';
+  const working = ss.some(s => s.status === 'busy' || s.status === 'waiting');
+  const prog = note ? `<div class="plan" title="план в заметке: сделано ${note.done} из ${note.total}"><span class="tprog">${note.done === note.total ? '✅' : '☑'} ${note.done}/${note.total}</span><span class="pbar"><i style="width:${Math.round(note.done / note.total * 100)}%"></i></span>${
+    note.done === note.total ? '<span class="pdone">план выполнен</span>' : note.next ? `<span class="pnext" title="${esc(note.next)}">дальше: ${esc(plain(note.next))}</span>` : ''}</div>` : '';
+  const sess = ss.map(s => { const l = laneOf(s); return `<span class="chip sess" data-open="${s.sessionId}" title="${esc(`${LANE_LABEL[l]}: ${s.title}`)}"><span class="dot ${l}"></span>${esc(s.title.slice(0, 40))}</span>`; }).join('');
+  const meta = [i.type, i.priority, i.assignee, i.deadline && `срок ${i.deadline}`, i.updatedAt && `обновлена ${ago(new Date(i.updatedAt).getTime())} назад`].filter(Boolean).map(esc).join(' · ');
+  const acts = o.inPlan
+    ? `<button class="ghost" data-plan-move="-1" title="Выше" ${o.pos === 0 ? 'disabled' : ''}>↑</button><button class="ghost" data-plan-move="1" title="Ниже" ${o.pos === o.n - 1 ? 'disabled' : ''}>↓</button><button class="ghost" data-plan-start title="Открыть в VS Code вкладку Claude с /start-task ${esc(i.key)}">▶</button><button class="ghost" data-plan-remove title="Убрать из плана">✕</button>`
+    : `<button data-plan-add title="Добавить в конец плана">+ в план</button>`;
+  return `<div class="pl-row ${closed ? 'closed' : ''} ${working ? 'active' : ''}" draggable="true" data-plan-key="${esc(i.key)}" data-plan-project="${esc(o.project)}" data-in-plan="${o.inPlan ? 1 : ''}">
+    <span class="pl-num">${o.inPlan ? o.pos + 1 : ''}</span>
+    <div class="pl-main">
+      <div class="pl-t"><a class="tkey" href="https://tracker.yandex.ru/${esc(i.key)}" target="_blank" rel="noopener">${esc(i.key)}</a>${i.status ? `<span class="tst t-${esc(i.status.type || 'new')}">${esc(i.status.display)}</span>` : ''}<span class="txt" data-peek="${esc(i.key)}" title="${esc(i.summary)} — открыть описание">${esc(i.summary || 'Описание в Трекере')}</span></div>
+      ${meta || sess ? `<div class="pl-meta">${meta ? `<span>${meta}</span>` : ''}${sess}</div>` : ''}
+      ${prog}
+    </div>
+    <div class="pl-acts">${acts}</div>
+  </div>`;
+}
+
+function planSection(p, q) {
+  const st = planData[p];
+  if (!st || (!st.loading && (st.scope !== planScope || Date.now() - st.at > PLAN_POLL))) loadPlan(p);
+  const d = st?.data;
+  const head = extra => `<div class="pl-head"><h2>${esc(p)}</h2><span class="muted">${esc(Object.keys(queues).filter(k => queues[k] === p).join(', '))}</span>${extra || ''}</div>`;
+  if (!d) return `<section class="pl-sec">${head()}<div class="muted">${st?.error ? `Не загрузилось: ${esc(st.error)}` : 'Загружаю задачи из Трекера…'}</div></section>`;
+  const byKey = new Map(d.issues.map(i => [i.key, i]));
+  const inPlan = d.plan.map(k => byKey.get(k) || { key: k, summary: '', status: null });
+  const match = i => !q || `${i.key} ${i.summary} ${i.assignee || ''}`.toLowerCase().includes(q);
+  // Сначала то, что уже в работе (сессия или статус), дальше — по свежести изменений в Трекере.
+  const weight = i => (sessionsOf(i.key).length ? 0 : ['inProgress', 'review'].includes(i.status?.type) ? 1 : 2);
+  const pool = d.issues.filter(i => !d.plan.includes(i.key) && !i.resolved && match(i)).sort((a, b) => weight(a) - weight(b));
+  const closedN = inPlan.filter(i => i.resolved || i.status?.type === 'done').length;
+  const workN = inPlan.filter(i => ['inProgress', 'review'].includes(i.status?.type) || sessionsOf(i.key).length).length;
+  const stats = d.plan.length ? `<span class="pill busy">${workN} в работе</span> <span class="pill review">${closedN} закрыто</span> <span class="muted">из ${d.plan.length}</span>` : '';
+  const clean = closedN ? `<button class="ghost" data-plan-clean="${esc(p)}">убрать закрытые</button>` : '';
+  const shown = d.issues.filter(i => !i.resolved).length;
+  const more = d.total > shown ? ` · первые ${shown} из ${d.total}` : '';
+  return `<section class="pl-sec">
+    ${head(`${stats}${clean}${st.loading ? '<span class="spin"></span>' : ''}`)}
+    ${d.error ? `<div class="pl-err">Трекер: ${esc(d.error)}</div>` : ''}
+    <div class="pl-grid">
+      <div class="pl-col mine"><h3>План · ${d.plan.length}</h3>
+        <div class="pl-list" data-plan-project="${esc(p)}">${inPlan.map((i, n) => planRowHtml(i, d, { project: p, inPlan: true, pos: n, n: inPlan.length })).join('')
+          || '<div class="pl-hint">Добавь задачи справа кнопкой «+ в план» или перетащи сюда. Порядок меняется перетаскиванием или ↑ ↓.</div>'}</div>
+      </div>
+      <div class="pl-col"><h3>Задачи проекта${planScope === 'mine' ? ' · мои' : ''} · ${pool.length}${esc(more)}</h3>
+        <div class="pl-pool" data-plan-project="${esc(p)}">${pool.map(i => planRowHtml(i, d, { project: p })).join('') || `<div class="pl-hint">${q ? 'Ничего не найдено' : 'Открытых задач нет'}</div>`}</div>
+      </div>
+    </div>
+  </section>`;
+}
+
+function renderPlan() {
+  if (planDrag) return;
+  const all = queueProjects();
+  const sel = planProjects.filter(p => all.includes(p));
+  const q = $('#q').value.trim().toLowerCase();
+  const html = `<div class="planpage">
+    <div class="pl-projects"><span class="muted">Проекты:</span>${all.map(p => `<button data-plan-proj="${esc(p)}" class="${sel.includes(p) ? 'on' : ''}">${esc(p)}</button>`).join('') || '<span class="muted">нет очередей в projects.json</span>'}</div>
+    ${sel.map(p => planSection(p, q)).join('') || '<div class="empty">Выбери проекты — у каждого будут его задачи из Трекера и план с очерёдностью.</div>'}
+  </div>`;
+  if (html === lastPlanHtml) return;
+  const app = $('#app'); const scroll = app.scrollTop;
+  app.innerHTML = html; app.scrollTop = scroll; lastPlanHtml = html;
+}
+
+document.addEventListener('click', e => {
+  const pj = e.target.closest('[data-plan-proj]');
+  if (pj) {
+    const p = pj.dataset.planProj;
+    planProjects = planProjects.includes(p) ? planProjects.filter(x => x !== p) : [...planProjects, p];
+    store.set('planProjects', planProjects); render(false); return;
+  }
+  const sc = e.target.closest('[data-plan-scope]');
+  if (sc) { planScope = sc.dataset.planScope; store.set('planScope', planScope); render(false); return; }
+  if (e.target.closest('[data-plan-refresh]')) { planProjects.forEach(p => { if (planData[p]) planData[p].loading = false; loadPlan(p, true); }); return; }
+  const cl = e.target.closest('[data-plan-clean]');
+  if (cl) {
+    const p = cl.dataset.planClean, d = planData[p]?.data; if (!d) return;
+    const byKey = new Map(d.issues.map(i => [i.key, i]));
+    setPlan(p, d.plan.filter(k => !(byKey.get(k)?.resolved || byKey.get(k)?.status?.type === 'done'))); return;
+  }
+  const row = e.target.closest('.pl-row'); if (!row) return;
+  const key = row.dataset.planKey, p = row.dataset.planProject;
+  const keys = [...(planData[p]?.data?.plan || [])];
+  if (e.target.closest('[data-plan-add]')) return setPlan(p, [...keys, key]);
+  if (e.target.closest('[data-plan-remove]')) return setPlan(p, keys.filter(k => k !== key));
+  const mv = e.target.closest('[data-plan-move]');
+  if (mv) {
+    const i = keys.indexOf(key), j = i + Number(mv.dataset.planMove);
+    if (i < 0 || j < 0 || j >= keys.length) return;
+    [keys[i], keys[j]] = [keys[j], keys[i]];
+    return setPlan(p, keys);
+  }
+  if (e.target.closest('[data-plan-start]')) location.href = `vscode://anthropic.claude-code/open?prompt=${encodeURIComponent(`/start-task ${key}`)}`;
+});
+
+// Перетаскивание: внутри плана — порядок, из списка задач в план — вставка на место, из плана
+// в список задач — убрать из плана. Между проектами не переносится.
+const clearDrop = () => document.querySelectorAll('.drop-before, .drop-after, .drop-end, .drop-in').forEach(x => x.classList.remove('drop-before', 'drop-after', 'drop-end', 'drop-in'));
+document.addEventListener('dragstart', e => {
+  const row = e.target.closest?.('.pl-row'); if (!row) return;
+  planDrag = { key: row.dataset.planKey, project: row.dataset.planProject, fromPlan: !!row.dataset.inPlan };
+  e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', planDrag.key);
+  row.classList.add('dragging');
+});
+document.addEventListener('dragend', () => {
+  if (!document.querySelector('.pl-row.dragging')) return;
+  planDrag = null; clearDrop(); lastPlanHtml = ''; render(false);
+});
+function dropTarget(e) {
+  if (!planDrag) return null;
+  const box = e.target.closest?.('.pl-list, .pl-pool');
+  if (!box || box.dataset.planProject !== planDrag.project) return null;
+  if (box.classList.contains('pl-pool') && !planDrag.fromPlan) return null;
+  return box;
+}
+document.addEventListener('dragover', e => {
+  const box = dropTarget(e); if (!box) return;
+  e.preventDefault(); clearDrop();
+  if (box.classList.contains('pl-pool')) { box.classList.add('drop-in'); return; }
+  const row = e.target.closest('.pl-row');
+  if (row && row.dataset.planKey !== planDrag.key) {
+    const r = row.getBoundingClientRect();
+    row.classList.add(e.clientY < r.top + r.height / 2 ? 'drop-before' : 'drop-after');
+  } else if (!row) box.classList.add('drop-end');
+});
+document.addEventListener('drop', e => {
+  const box = dropTarget(e); if (!box) return;
+  e.preventDefault();
+  const { key, project } = planDrag;
+  const keys = (planData[project]?.data?.plan || []).filter(k => k !== key);
+  if (box.classList.contains('pl-list')) {
+    const tgt = box.querySelector('.drop-before, .drop-after');
+    const at = tgt ? keys.indexOf(tgt.dataset.planKey) + (tgt.classList.contains('drop-after') ? 1 : 0) : keys.length;
+    keys.splice(at < 0 ? keys.length : at, 0, key);
+  }
+  planDrag = null; clearDrop();
+  setPlan(project, keys);
+});
 
 // ---------- страница сессии ----------
 let sessView = null; // { id, data, chat: Map(seq→item), seq, tab, renderedSig }

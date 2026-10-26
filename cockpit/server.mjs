@@ -726,6 +726,71 @@ async function trackerIssue(key) {
   return issue;
 }
 
+// ---------- план: очерёдность задач по проектам ----------
+// Задачи проекта — открытые тикеты его очередей из projects.json (только чтение). Порядок, который
+// выставил пользователь, хранится локально в data/plan.json: { projects: { <проект>: [КЛЮЧ, …] } }.
+const PLAN_FILE = path.join(HERE, 'data', 'plan.json');
+const PLAN_TTL_MS = 60_000;
+const planSearchCache = new Map(); // `${project}|${scope}` -> { at, issues }
+let plan = { projects: {} };
+try { plan = JSON.parse(fs.readFileSync(PLAN_FILE, 'utf8')); plan.projects ||= {}; } catch {}
+async function savePlan() {
+  await fsp.mkdir(path.dirname(PLAN_FILE), { recursive: true });
+  await fsp.writeFile(PLAN_FILE + '.tmp', JSON.stringify(plan, null, 2));
+  await fsp.rename(PLAN_FILE + '.tmp', PLAN_FILE);
+}
+
+const planIssue = i => ({
+  key: i.key, summary: i.summary || '',
+  status: i.status ? { display: i.status.display, type: /test|review|ready|check/i.test(i.status.key || '') && i.statusType?.key === 'inProgress' ? 'review' : i.statusType?.key || null } : null,
+  resolved: !!i.resolution, priority: i.priority?.display || null, type: i.type?.display || null,
+  assignee: i.assignee?.display || null, deadline: i.deadline || null, updatedAt: i.updatedAt || null,
+});
+
+async function trackerSearch(body) {
+  const cfg = loadTrackerConfig();
+  if (!cfg) throw new Error('нет токена Трекера (.mcp.json → yandex-tracker)');
+  const res = await fetch('https://api.tracker.yandex.net/v2/issues/_search?perPage=100', {
+    method: 'POST',
+    headers: { authorization: `OAuth ${cfg.token}`, 'x-org-id': cfg.org, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!res.ok) throw new Error(`Трекер ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const issues = (await res.json()).map(planIssue);
+  issues.total = Number(res.headers.get('x-total-count')) || issues.length;
+  return issues;
+}
+
+// scope: mine — открытые, где я исполнитель; all — все открытые задачи очередей проекта.
+async function planPayload(project, scope, fresh) {
+  const queues = Object.entries(loadProjectsConfig().queues || {}).filter(([, p]) => p === project).map(([q]) => q);
+  const keys = plan.projects[project] || [];
+  let issues = [], error = null, total = 0;
+  if (queues.length) {
+    const ck = `${project}|${scope}`;
+    const hit = planSearchCache.get(ck);
+    if (!fresh && hit && Date.now() - hit.at < PLAN_TTL_MS) issues = hit.issues;
+    else {
+      try {
+        issues = await trackerSearch({ query: `Queue: ${queues.join(', ')} Resolution: empty()${scope === 'all' ? '' : ' Assignee: me()'} "Sort by": Updated DESC` });
+        planSearchCache.set(ck, { at: Date.now(), issues });
+      } catch (e) { error = e.message; issues = hit?.issues || []; }
+    }
+    total = issues.total || issues.length;
+  }
+  // Задачи плана, которых нет в выборке (закрыты, чужие, из другой очереди), дочитываем по ключам.
+  const missing = keys.filter(k => !issues.some(i => i.key === k));
+  let extra = [];
+  if (missing.length) extra = await trackerSearch({ keys: missing }).catch(e => { error ||= e.message; return []; });
+  const notes = {};
+  for (const n of await taskNotes()) {
+    if (!n.issue || !n.todo.length) continue;
+    notes[n.issue] = { done: n.todo.filter(t => t.done).length, total: n.todo.length, next: n.todo.find(t => !t.done)?.text.slice(0, 200) || null };
+  }
+  return { project, scope, queues, plan: keys, issues: [...issues, ...extra], total, notes, error, at: Date.now() };
+}
+
 // ---------- сборка ответа ----------
 
 // Фоновые сессии (`claude --bg`, запуск задачи из Mini App) отдают не status, а state.
@@ -790,7 +855,7 @@ async function sessionsPayload() {
     // Режим из запроса свежее транскрипта: хук получает его в момент вопроса.
     if (s.requests[0]?.mode) s.permissionMode = s.requests[0].mode;
   }
-  return { at: Date.now(), sessions, projects, pending, sync: syncStatus };
+  return { at: Date.now(), sessions, projects, queues: cfg.queues || {}, pending, sync: syncStatus };
 }
 
 async function sessionDetail(id, since) {
@@ -1109,6 +1174,22 @@ const server = http.createServer(async (req, res) => {
       const key = String(url.searchParams.get('key') || '').toUpperCase();
       if (!/^[A-Z][A-Z0-9]{1,15}-\d{1,6}$/.test(key)) return send(res, 400, { error: 'неверный ключ задачи' });
       try { return send(res, 200, await trackerIssue(key)); } catch (e) { return send(res, 502, { error: e.message }); }
+    }
+    if (url.pathname === '/api/plan' && req.method === 'GET') {
+      const project = String(url.searchParams.get('project') || '');
+      if (!project) return send(res, 400, { error: 'нет проекта' });
+      const scope = url.searchParams.get('scope') === 'all' ? 'all' : 'mine';
+      return send(res, 200, await planPayload(project, scope, url.searchParams.get('fresh') === '1'));
+    }
+    if (req.method === 'POST' && url.pathname === '/api/plan') {
+      if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
+      const b = await readJson(req);
+      const project = String(b.project || '').trim().slice(0, 60);
+      if (!project || !Array.isArray(b.keys)) return send(res, 400, { error: 'нужны project и keys' });
+      const keys = [...new Set(b.keys.map(k => String(k).toUpperCase()).filter(k => /^[A-Z][A-Z0-9]{1,15}-\d{1,6}$/.test(k)))].slice(0, 200);
+      if (keys.length) plan.projects[project] = keys; else delete plan.projects[project];
+      await savePlan();
+      return send(res, 200, { ok: true, plan: keys });
     }
     if (req.method === 'POST' && url.pathname === '/api/requests/decision') {
       if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });

@@ -1,4 +1,15 @@
-import type { ReadingLang, ReadingSettings } from './types'
+import type { HabrFeed, ReadingLang, ReadingSettings } from './types'
+
+/** Темы по умолчанию: разработка, AI и Claude Code. */
+export const DEFAULT_HABR_FEEDS: HabrFeed[] = [
+  { kind: 'hub', id: 'artificial_intelligence' },
+  { kind: 'hub', id: 'programming' },
+  { kind: 'hub', id: 'webdev' },
+  { kind: 'search', q: 'claude code' },
+]
+
+/** Предел лент: каждая — отдельный запрос к Хабру при открытии раздела. */
+export const MAX_HABR_FEEDS = 8
 
 export const DEFAULT_READING_SETTINGS: ReadingSettings = {
   lang: 'ru',
@@ -7,6 +18,10 @@ export const DEFAULT_READING_SETTINGS: ReadingSettings = {
   rsvpChunk: 1,
   silentBpm: 90,
   lastText: { ru: null, en: null },
+  remindEnabled: true,
+  remindTime: '19:00',
+  streakGuard: true,
+  habrFeeds: DEFAULT_HABR_FEEDS,
 }
 
 /** Диапазоны ползунков из ТЗ: значение вне них в настройках — мусор, а не выбор. */
@@ -21,6 +36,28 @@ function clampNumber(value: unknown, min: number, max: number, fallback: number)
   return Math.min(max, Math.max(min, Math.round(value)))
 }
 
+function parseTime(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback
+  const m = /^(\d{1,2}):(\d{2})$/.exec(value)
+  if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return fallback
+  return `${m[1].padStart(2, '0')}:${m[2]}`
+}
+
+function parseFeeds(value: unknown): HabrFeed[] {
+  if (!Array.isArray(value)) return [...DEFAULT_HABR_FEEDS]
+  const feeds: HabrFeed[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const f = item as Record<string, unknown>
+    if (f.kind === 'hub' && typeof f.id === 'string' && /^[a-z0-9_-]{1,64}$/i.test(f.id)) {
+      feeds.push({ kind: 'hub', id: f.id.toLowerCase() })
+    } else if (f.kind === 'search' && typeof f.q === 'string' && f.q.trim()) {
+      feeds.push({ kind: 'search', q: f.q.trim().slice(0, 80) })
+    }
+  }
+  return feeds.slice(0, MAX_HABR_FEEDS)
+}
+
 function textId(value: unknown): string | null {
   return typeof value === 'string' && value ? value : null
 }
@@ -32,7 +69,9 @@ function textId(value: unknown): string | null {
  */
 export function parseReadingSettings(raw: unknown): ReadingSettings {
   const d = DEFAULT_READING_SETTINGS
-  if (!raw || typeof raw !== 'object') return { ...d, lastText: { ...d.lastText } }
+  if (!raw || typeof raw !== 'object') {
+    return { ...d, lastText: { ...d.lastText }, habrFeeds: [...d.habrFeeds] }
+  }
   const r = raw as Record<string, unknown>
   const last = (r.lastText && typeof r.lastText === 'object' ? r.lastText : {}) as Record<
     ReadingLang,
@@ -50,5 +89,9 @@ export function parseReadingSettings(raw: unknown): ReadingSettings {
       d.silentBpm,
     ),
     lastText: { ru: textId(last.ru), en: textId(last.en) },
+    remindEnabled: r.remindEnabled !== false,
+    remindTime: parseTime(r.remindTime, d.remindTime),
+    streakGuard: r.streakGuard !== false,
+    habrFeeds: parseFeeds(r.habrFeeds),
   }
 }

@@ -15,6 +15,10 @@ describe('parseReadingSettings', () => {
       rsvpChunk: 2,
       silentBpm: 120,
       lastText: { ru: 'b2', en: 'e4' },
+      remindEnabled: false,
+      remindTime: '08:30',
+      streakGuard: false,
+      habrFeeds: [{ kind: 'hub', id: 'go' }],
     }
     expect(parseReadingSettings(saved)).toEqual(saved)
   })
@@ -27,6 +31,8 @@ describe('parseReadingSettings', () => {
       rsvpChunk: 7,
       silentBpm: 'быстро',
       lastText: { ru: 42, en: 'e1' },
+      remindTime: '25:00',
+      habrFeeds: [{ kind: 'hub', id: 'bad id!' }, { kind: 'search', q: ' llm ' }, 'мусор'],
     })
     expect(parsed).toEqual({
       lang: 'ru',
@@ -35,6 +41,14 @@ describe('parseReadingSettings', () => {
       rsvpChunk: 1,
       silentBpm: DEFAULT_READING_SETTINGS.silentBpm,
       lastText: { ru: null, en: 'e1' },
+      remindEnabled: true,
+      remindTime: '19:00',
+      streakGuard: true,
+      habrFeeds: [{ kind: 'search', q: 'llm' }],
     })
+  })
+
+  it('время напоминания дополняется нулём', () => {
+    expect(parseReadingSettings({ remindTime: '7:05' }).remindTime).toBe('07:05')
   })
 })

@@ -36,8 +36,18 @@ CREATE TABLE "reading_texts" (
 	"word_count" integer NOT NULL,
 	"source" text DEFAULT 'paste' NOT NULL,
 	"source_url" text,
+	"collection" text,
+	"part" integer,
+	"parts" integer,
 	"glossary" jsonb,
 	"questions" jsonb,
+	"created_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "reading_translations" (
+	"word" text PRIMARY KEY NOT NULL,
+	"base" text NOT NULL,
+	"ru" text NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -49,4 +59,4 @@ CREATE INDEX "reading_cards_user_due_idx" ON "reading_cards" USING btree ("user_
 CREATE INDEX "reading_sessions_user_day_idx" ON "reading_sessions" USING btree ("user_id","day");--> statement-breakpoint
 CREATE INDEX "reading_sessions_user_type_idx" ON "reading_sessions" USING btree ("user_id","type","lang");--> statement-breakpoint
 CREATE INDEX "reading_texts_user_lang_idx" ON "reading_texts" USING btree ("user_id","lang");--> statement-breakpoint
-CREATE UNIQUE INDEX "reading_texts_user_source_url_idx" ON "reading_texts" USING btree ("user_id","source_url") WHERE "reading_texts"."source_url" is not null;
+CREATE UNIQUE INDEX "reading_texts_user_source_url_idx" ON "reading_texts" USING btree ("user_id","source_url","part") WHERE "reading_texts"."source_url" is not null;

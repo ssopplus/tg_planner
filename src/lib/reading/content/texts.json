@@ -114,12 +114,7 @@
         },
         {
           "q": "Что в танце обозначает направление вверх по сотам?",
-          "options": [
-            "Север",
-            "Направление на солнце",
-            "Направление к улью",
-            "Направление ветра"
-          ],
+          "options": ["Север", "Направление на солнце", "Направление к улью", "Направление ветра"],
           "answer": 1
         },
         {
@@ -134,12 +129,7 @@
         },
         {
           "q": "Кто расшифровал язык пчёл?",
-          "options": [
-            "Карл фон Фриш",
-            "Чарльз Дарвин",
-            "Иван Павлов",
-            "Конрад Лоренц"
-          ],
+          "options": ["Карл фон Фриш", "Чарльз Дарвин", "Иван Павлов", "Конрад Лоренц"],
           "answer": 0
         }
       ]
@@ -220,12 +210,7 @@
         },
         {
           "q": "Когда основная навигация для обычных судов?",
-          "options": [
-            "Зимой",
-            "Весной",
-            "В конце лета и осенью",
-            "Круглый год"
-          ],
+          "options": ["Зимой", "Весной", "В конце лета и осенью", "Круглый год"],
           "answer": 2
         },
         {
@@ -344,22 +329,12 @@
       "questions": [
         {
           "q": "How much world trade moves by sea?",
-          "options": [
-            "About 50%",
-            "About 70%",
-            "About 90%",
-            "Almost 100%"
-          ],
+          "options": ["About 50%", "About 70%", "About 90%", "Almost 100%"],
           "answer": 2
         },
         {
           "q": "How big is the crew of a large container ship?",
-          "options": [
-            "5–10 people",
-            "20–25 people",
-            "About 100 people",
-            "More than 200 people"
-          ],
+          "options": ["5–10 people", "20–25 people", "About 100 people", "More than 200 people"],
           "answer": 1
         },
         {
@@ -415,12 +390,7 @@
       "questions": [
         {
           "q": "What clear advantage do children have?",
-          "options": [
-            "Grammar",
-            "Pronunciation",
-            "Vocabulary",
-            "Planning"
-          ],
+          "options": ["Grammar", "Pronunciation", "Vocabulary", "Planning"],
           "answer": 1
         },
         {
@@ -503,12 +473,7 @@
         },
         {
           "q": "How much can frequent switching reduce productivity?",
-          "options": [
-            "Up to 10%",
-            "Up to 20%",
-            "Up to 40%",
-            "Up to 80%"
-          ],
+          "options": ["Up to 10%", "Up to 20%", "Up to 40%", "Up to 80%"],
           "answer": 2
         },
         {

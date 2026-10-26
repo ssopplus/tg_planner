@@ -746,14 +746,25 @@ export const readingTexts = pgTable(
     source: text('source').default('paste').notNull(),
     /** Адрес статьи для текстов по ссылке и с Хабра — по нему не заводим дубль. */
     sourceUrl: text('source_url'),
+    /**
+     * Книга или длинная статья, нарезанная на части по 400–800 слов: общее
+     * название и номер части. Импорт из файла и по ссылке всегда ставит
+     * `part`/`parts` (у короткого текста 1 из 1) — иначе уникальный индекс по
+     * ссылке не ловил бы дубль: NULL в Postgres не равен NULL. У вставленного
+     * текста все три поля пустые.
+     */
+    collection: text('collection'),
+    part: integer('part'),
+    parts: integer('parts'),
     glossary: jsonb('glossary').$type<Record<string, string>>(),
     questions: jsonb('questions').$type<{ q: string; options: string[]; answer: number }[]>(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (table) => [
     index('reading_texts_user_lang_idx').on(table.userId, table.lang),
+    // Ссылка уникальна в пределах части: длинная статья по ссылке режется на несколько.
     uniqueIndex('reading_texts_user_source_url_idx')
-      .on(table.userId, table.sourceUrl)
+      .on(table.userId, table.sourceUrl, table.part)
       .where(sql`${table.sourceUrl} is not null`),
   ],
 )
@@ -823,3 +834,15 @@ export const readingCards = pgTable(
     index('reading_cards_user_due_idx').on(table.userId, table.dueAt),
   ],
 )
+
+/**
+ * Кэш переводов слов через LLM, общий для всех: ключ — словоформа в нижнем
+ * регистре. Контекст предложения влияет на перевод, но повторный запрос того же
+ * слова дешевле переспросить вручную, чем платить за каждый клик.
+ */
+export const readingTranslations = pgTable('reading_translations', {
+  word: text('word').primaryKey(),
+  base: text('base').notNull(),
+  ru: text('ru').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+})

@@ -943,7 +943,7 @@ const SYNC_FULL_MS = 300_000;  // снимок целиком — при изм�
 const SYNC_IDLE_MS = 60_000;   // синк выключен — проверяем, не появился ли sync.json
 const SYNC_RETRY_MS = 30_000;
 const syncStatus = { enabled: false, lastOk: null, lastError: null };
-let syncTimer = null, syncRunning = false, syncLastSent = 0, syncLastFull = 0, syncLastHash = '', planSentHash = '';
+let syncTimer = null, syncRunning = false, syncLastSent = 0, syncLastFull = 0, syncLastHash = '', planSentHash = '', planSentAt = 0;
 const commandResults = []; // итоги команд, уйдут следующим синком
 // Сессии, которые сейчас открыты в Mini App: только их переписка уходит с машины.
 let watched = new Set();
@@ -1119,12 +1119,13 @@ async function syncTick() {
   const hash = createHash('sha1').update(JSON.stringify(snapshot.map(s => ({ ...s, updatedAt: 0 })))).digest('hex');
   const now = Date.now();
   const full = hash !== syncLastHash || now - syncLastFull > SYNC_FULL_MS;
-  // План собирается в фоне (Трекер бывает медленным) и уходит, когда снимок изменился.
+  // План собирается в фоне (Трекер бывает медленным) и уходит, когда снимок изменился, — и повторно раз в
+  // 5 мин: сервер мог его не сохранить (например, пришёл в старую сборку во время деплоя).
   if (!planSnapshotBusy && (planSnapshotVersion !== planVersion || now - planSnapshotAt > PLAN_SNAPSHOT_MS)) {
     refreshPlanSnapshot().then(kickSync);
   }
   const planHash = planSnapshot ? createHash('sha1').update(JSON.stringify(planSnapshot)).digest('hex') : '';
-  const sendPlan = !!planSnapshot && planHash !== planSentHash;
+  const sendPlan = !!planSnapshot && (planHash !== planSentHash || now - planSentAt > SYNC_FULL_MS);
   const transcripts = [];
   for (const id of watched) {
     const items = await transcriptFor(id);
@@ -1166,7 +1167,7 @@ async function syncTick() {
   }
   syncLastSent = now;
   if (full) { syncLastHash = hash; syncLastFull = now; }
-  if (sendPlan) planSentHash = planHash;
+  if (sendPlan) { planSentHash = planHash; planSentAt = now; }
   syncStatus.lastOk = Date.now(); syncStatus.lastError = null;
   for (const t of transcripts) transcriptHash.set(t.sessionId, t.h);
   const { decisions = [], commands = [], watch = [] } = reply;

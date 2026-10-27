@@ -811,11 +811,14 @@ function sortPool(list, f) {
 function poolTools(p, base, d, f) {
   if (!base.length) return '';
   const count = by => base.reduce((m, i) => { const k = by(i); if (k) m.set(k, (m.get(k) || 0) + 1); return m; }, new Map());
-  const statuses = [...count(i => i.status?.display)].sort((a, b) => {
+  // Выбранное значение, которого в списке уже нет (задачи ушли в план), всё равно показываем с нулём —
+  // иначе фильтр действует невидимо и список пустеет без причины.
+  const keep = (m, sel) => { for (const v of sel) if (!m.has(v)) m.set(v, 0); return m; };
+  const statuses = [...keep(count(i => i.status?.display), f.statuses)].sort((a, b) => {
     const t = x => STATUS_RANK[base.find(i => i.status?.display === x[0])?.status?.type] ?? 4;
     return t(a) - t(b) || b[1] - a[1];
   });
-  const types = [...count(i => i.type)];
+  const types = [...keep(count(i => i.type), f.types)];
   const stType = name => base.find(i => i.status?.display === name)?.status?.type || 'new';
   const chip = (attr, val, on, label, cls = '') => `<button class="pf ${on ? 'on' : ''} ${cls}" data-pf="${attr}" data-pf-val="${esc(val)}" data-pf-proj="${esc(p)}">${label}</button>`;
   const withSessionN = base.filter(i => sessionsOf(i.key).length).length, withNoteN = base.filter(i => d.notes[i.key]).length;
@@ -823,8 +826,8 @@ function poolTools(p, base, d, f) {
   return `<div class="pl-tools">
     <div class="pl-trow">${statuses.map(([n, c]) => chip('status', n, f.statuses.includes(n), `<span class="tst t-${esc(stType(n))}">${esc(n)}</span> ${c}`)).join('')}</div>
     <div class="pl-trow">
-      ${types.length > 1 ? types.map(([n, c]) => chip('type', n, f.types.includes(n), `${esc(n)} ${c}`)).join('') + '<span class="sep"></span>' : ''}
-      ${withSessionN ? chip('withSession', '', f.withSession, `с сессией ${withSessionN}`) : ''}${withNoteN ? chip('withNote', '', f.withNote, `с планом ☑ ${withNoteN}`) : ''}
+      ${types.length > 1 || f.types.length ? types.map(([n, c]) => chip('type', n, f.types.includes(n), `${esc(n)} ${c}`)).join('') + '<span class="sep"></span>' : ''}
+      ${withSessionN || f.withSession ? chip('withSession', '', f.withSession, `с сессией ${withSessionN}`) : ''}${withNoteN || f.withNote ? chip('withNote', '', f.withNote, `с планом ☑ ${withNoteN}`) : ''}
       ${any ? `<button class="ghost" data-pf="reset" data-pf-proj="${esc(p)}">сбросить</button>` : ''}
       <span class="spacer"></span>
       <label class="muted">сортировка <select data-pf-sort="${esc(p)}">${PLAN_SORTS.map(([k, l]) => `<option value="${k}" ${f.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
@@ -863,7 +866,7 @@ function planSection(p, q) {
       </div>
       <div class="pl-col"><h3>Задачи проекта${planScope === 'mine' ? ' · мои' : ''} · ${pool.length}${pool.length !== base.length ? ` из ${base.length}` : ''}${esc(more)}</h3>
         ${poolTools(p, base, d, f)}
-        <div class="pl-pool" data-plan-project="${esc(p)}">${pool.map(i => planRowHtml(i, d, { project: p })).join('') || `<div class="pl-hint">${q ? 'Ничего не найдено' : d.error && !d.issues.length ? 'Список не загрузился — Трекер недоступен' : 'Открытых задач нет'}</div>`}</div>
+        <div class="pl-pool" data-plan-project="${esc(p)}">${pool.map(i => planRowHtml(i, d, { project: p })).join('') || `<div class="pl-hint">${q ? 'Ничего не найдено' : base.length ? `Под фильтр не попала ни одна из ${base.length} задач — <button class="ghost" data-pf="reset" data-pf-proj="${esc(p)}">сбросить фильтры</button>` : d.error && !d.issues.length ? 'Список не загрузился — Трекер недоступен' : 'Открытых задач нет'}</div>`}</div>
       </div>
     </div>
   </section>`;

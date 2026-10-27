@@ -332,6 +332,14 @@ button.deny { color: var(--del); }
 .pl-t .txt:hover { color: var(--accent); text-decoration: underline; }
 .pl-meta { font-size: 11.5px; color: var(--muted); margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
 .pl-row .plan .tprog { flex: none; white-space: nowrap; }
+.pl-tools { display: flex; flex-direction: column; gap: 5px; margin-bottom: 8px; }
+.pl-trow { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.pl-trow .spacer { flex: 1; }
+.pl-trow .sep { width: 1px; height: 16px; background: var(--line); margin: 0 4px; }
+.pl-trow select { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 1px 4px; }
+button.pf { font-size: 12px; padding: 1px 8px; color: var(--muted); display: inline-flex; gap: 4px; align-items: center; }
+button.pf .tst { font-size: 11px; }
+button.pf.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .pl-acts { display: flex; gap: 2px; align-items: center; }
 .pl-acts button { padding: 0 6px; font-size: 12px; }
 .chip.sess { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
@@ -731,6 +739,12 @@ let planScope = store.get('planScope', 'mine');
 const planData = {}; // проект -> { at, scope, loading, data, error }
 let planDrag = null; // { key, project, fromPlan } — пока тащу карточку, экран не перерисовываем
 let lastPlanHtml = '';
+// Фильтры и сортировка списка «Задачи проекта» — свои у каждого проекта.
+let planFilters = store.get('planFilters', {});
+const PLAN_SORTS = [['smart', 'В работе сверху'], ['updated', 'Обновлены'], ['created', 'Созданы'], ['status', 'Статус'], ['priority', 'Приоритет'], ['key', 'Номер']];
+const STATUS_RANK = { review: 0, inProgress: 1, paused: 2, new: 3 };
+const pfOf = p => ({ statuses: [], types: [], sort: 'smart', desc: true, withSession: false, withNote: false, ...(planFilters[p] || {}) });
+function setPf(p, patch) { planFilters[p] = { ...pfOf(p), ...patch }; store.set('planFilters', planFilters); render(false); }
 const PLAN_POLL = 60_000;
 const queueProjects = () => [...new Set(Object.values(queues))].sort();
 const sessKeys = s => [s.taskKey, ...(s.tasks || []).map(t => t.issue)].filter(Boolean);
@@ -777,6 +791,48 @@ function planRowHtml(i, d, o) {
   </div>`;
 }
 
+const tsOf = t => (t ? new Date(t).getTime() : 0);
+const keyNum = k => Number(k.split('-')[1]) || 0;
+function sortPool(list, f) {
+  // smart: сначала то, что уже в работе (сессия или статус), дальше — по свежести изменений в Трекере.
+  const smart = i => (sessionsOf(i.key).length ? 0 : ['inProgress', 'review'].includes(i.status?.type) ? 1 : 2);
+  const cmp = {
+    smart: (a, b) => smart(a) - smart(b) || tsOf(b.updatedAt) - tsOf(a.updatedAt),
+    updated: (a, b) => tsOf(a.updatedAt) - tsOf(b.updatedAt),
+    created: (a, b) => tsOf(a.createdAt) - tsOf(b.createdAt),
+    status: (a, b) => (STATUS_RANK[b.status?.type] ?? 4) - (STATUS_RANK[a.status?.type] ?? 4) || String(b.status?.display).localeCompare(String(a.status?.display), 'ru'),
+    priority: (a, b) => (a.priorityOrder ?? 2) - (b.priorityOrder ?? 2),
+    key: (a, b) => keyNum(a.key) - keyNum(b.key),
+  }[f.sort] || (() => 0);
+  // smart задан сразу в нужную сторону, у остальных направление — стрелкой.
+  const dir = f.sort === 'smart' ? 1 : f.desc ? -1 : 1;
+  return list.slice().sort((a, b) => dir * cmp(a, b) || tsOf(b.updatedAt) - tsOf(a.updatedAt));
+}
+function poolTools(p, base, d, f) {
+  if (!base.length) return '';
+  const count = by => base.reduce((m, i) => { const k = by(i); if (k) m.set(k, (m.get(k) || 0) + 1); return m; }, new Map());
+  const statuses = [...count(i => i.status?.display)].sort((a, b) => {
+    const t = x => STATUS_RANK[base.find(i => i.status?.display === x[0])?.status?.type] ?? 4;
+    return t(a) - t(b) || b[1] - a[1];
+  });
+  const types = [...count(i => i.type)];
+  const stType = name => base.find(i => i.status?.display === name)?.status?.type || 'new';
+  const chip = (attr, val, on, label, cls = '') => `<button class="pf ${on ? 'on' : ''} ${cls}" data-pf="${attr}" data-pf-val="${esc(val)}" data-pf-proj="${esc(p)}">${label}</button>`;
+  const withSessionN = base.filter(i => sessionsOf(i.key).length).length, withNoteN = base.filter(i => d.notes[i.key]).length;
+  const any = f.statuses.length || f.types.length || f.withSession || f.withNote;
+  return `<div class="pl-tools">
+    <div class="pl-trow">${statuses.map(([n, c]) => chip('status', n, f.statuses.includes(n), `<span class="tst t-${esc(stType(n))}">${esc(n)}</span> ${c}`)).join('')}</div>
+    <div class="pl-trow">
+      ${types.length > 1 ? types.map(([n, c]) => chip('type', n, f.types.includes(n), `${esc(n)} ${c}`)).join('') + '<span class="sep"></span>' : ''}
+      ${withSessionN ? chip('withSession', '', f.withSession, `с сессией ${withSessionN}`) : ''}${withNoteN ? chip('withNote', '', f.withNote, `с планом ☑ ${withNoteN}`) : ''}
+      ${any ? `<button class="ghost" data-pf="reset" data-pf-proj="${esc(p)}">сбросить</button>` : ''}
+      <span class="spacer"></span>
+      <label class="muted">сортировка <select data-pf-sort="${esc(p)}">${PLAN_SORTS.map(([k, l]) => `<option value="${k}" ${f.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      ${f.sort !== 'smart' ? `<button class="ghost" data-pf="desc" data-pf-proj="${esc(p)}" title="Направление сортировки">${f.desc ? '↓' : '↑'}</button>` : ''}
+    </div>
+  </div>`;
+}
+
 function planSection(p, q) {
   const st = planData[p];
   if (!st || (!st.loading && (st.scope !== planScope || Date.now() - st.at > PLAN_POLL))) loadPlan(p);
@@ -786,15 +842,17 @@ function planSection(p, q) {
   const byKey = new Map(d.issues.map(i => [i.key, i]));
   const inPlan = d.plan.map(k => byKey.get(k) || { key: k, summary: '', status: null });
   const match = i => !q || `${i.key} ${i.summary} ${i.assignee || ''}`.toLowerCase().includes(q);
-  // Сначала то, что уже в работе (сессия или статус), дальше — по свежести изменений в Трекере.
-  const weight = i => (sessionsOf(i.key).length ? 0 : ['inProgress', 'review'].includes(i.status?.type) ? 1 : 2);
-  const pool = d.issues.filter(i => !d.plan.includes(i.key) && !i.resolved && match(i)).sort((a, b) => weight(a) - weight(b));
+  const base = d.issues.filter(i => !d.plan.includes(i.key) && !i.resolved && match(i));
+  const f = pfOf(p);
+  const pool = sortPool(base.filter(i =>
+    (!f.statuses.length || f.statuses.includes(i.status?.display)) && (!f.types.length || f.types.includes(i.type))
+    && (!f.withSession || sessionsOf(i.key).length) && (!f.withNote || d.notes[i.key])), f);
   const closedN = inPlan.filter(i => i.resolved || i.status?.type === 'done').length;
   const workN = inPlan.filter(i => ['inProgress', 'review'].includes(i.status?.type) || sessionsOf(i.key).length).length;
   const stats = d.plan.length ? `<span class="pill busy">${workN} в работе</span> <span class="pill review">${closedN} закрыто</span> <span class="muted">из ${d.plan.length}</span>` : '';
   const clean = closedN ? `<button class="ghost" data-plan-clean="${esc(p)}">убрать закрытые</button>` : '';
-  const shown = d.issues.filter(i => !i.resolved).length;
-  const more = d.total > shown ? ` · первые ${shown} из ${d.total}` : '';
+  // Трекер отдаёт до 100 задач за запрос — предупреждаем, только если выборка в это упёрлась.
+  const more = d.total > 100 ? ` · Трекер отдал 100 из ${d.total}` : '';
   return `<section class="pl-sec">
     ${head(`${stats}${clean}${st.loading ? '<span class="spin"></span>' : ''}`)}
     ${d.error ? `<div class="pl-err">Трекер не ответил (${esc(d.error)}) — показываю, что было загружено раньше, повторю через 10 с или по ↻.</div>` : ''}
@@ -803,7 +861,8 @@ function planSection(p, q) {
         <div class="pl-list" data-plan-project="${esc(p)}">${inPlan.map((i, n) => planRowHtml(i, d, { project: p, inPlan: true, pos: n, n: inPlan.length })).join('')
           || '<div class="pl-hint">Добавь задачи справа кнопкой «+ в план» или перетащи сюда. Порядок меняется перетаскиванием или ↑ ↓.</div>'}</div>
       </div>
-      <div class="pl-col"><h3>Задачи проекта${planScope === 'mine' ? ' · мои' : ''} · ${pool.length}${esc(more)}</h3>
+      <div class="pl-col"><h3>Задачи проекта${planScope === 'mine' ? ' · мои' : ''} · ${pool.length}${pool.length !== base.length ? ` из ${base.length}` : ''}${esc(more)}</h3>
+        ${poolTools(p, base, d, f)}
         <div class="pl-pool" data-plan-project="${esc(p)}">${pool.map(i => planRowHtml(i, d, { project: p })).join('') || `<div class="pl-hint">${q ? 'Ничего не найдено' : d.error && !d.issues.length ? 'Список не загрузился — Трекер недоступен' : 'Открытых задач нет'}</div>`}</div>
       </div>
     </div>
@@ -811,7 +870,7 @@ function planSection(p, q) {
 }
 
 function renderPlan() {
-  if (planDrag) return;
+  if (planDrag || document.activeElement?.matches?.('.planpage select')) return;
   const all = queueProjects();
   const sel = planProjects.filter(p => all.includes(p));
   const q = $('#q').value.trim().toLowerCase();
@@ -830,6 +889,17 @@ document.addEventListener('click', e => {
     const p = pj.dataset.planProj;
     planProjects = planProjects.includes(p) ? planProjects.filter(x => x !== p) : [...planProjects, p];
     store.set('planProjects', planProjects); render(false); return;
+  }
+  const pf = e.target.closest('[data-pf]');
+  if (pf) {
+    const p = pf.dataset.pfProj, f = pfOf(p), v = pf.dataset.pfVal, k = pf.dataset.pf;
+    const toggle = (arr, x) => (arr.includes(x) ? arr.filter(y => y !== x) : [...arr, x]);
+    if (k === 'status') setPf(p, { statuses: toggle(f.statuses, v) });
+    else if (k === 'type') setPf(p, { types: toggle(f.types, v) });
+    else if (k === 'withSession' || k === 'withNote') setPf(p, { [k]: !f[k] });
+    else if (k === 'desc') setPf(p, { desc: !f.desc });
+    else if (k === 'reset') setPf(p, { statuses: [], types: [], withSession: false, withNote: false });
+    return;
   }
   const sc = e.target.closest('[data-plan-scope]');
   if (sc) { planScope = sc.dataset.planScope; store.set('planScope', planScope); render(false); return; }
@@ -853,6 +923,11 @@ document.addEventListener('click', e => {
     return setPlan(p, keys);
   }
   if (e.target.closest('[data-plan-start]')) location.href = `vscode://anthropic.claude-code/open?prompt=${encodeURIComponent(`/start-task ${key}`)}`;
+});
+
+document.addEventListener('change', e => {
+  const p = e.target.dataset?.pfSort; if (!p) return;
+  e.target.blur(); setPf(p, { sort: e.target.value });
 });
 
 // Перетаскивание: внутри плана — порядок, из списка задач в план — вставка на место, из плана

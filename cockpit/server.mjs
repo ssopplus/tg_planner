@@ -741,11 +741,15 @@ async function savePlan() {
   await fsp.rename(PLAN_FILE + '.tmp', PLAN_FILE);
 }
 
+// Ключи приоритетов Трекера по возрастанию важности — для сортировки (названия у очередей бывают свои).
+const PRIORITY_ORDER = { trivial: 0, minor: 1, normal: 2, critical: 3, blocker: 4 };
 const planIssue = i => ({
   key: i.key, summary: i.summary || '',
   status: i.status ? { display: i.status.display, type: /test|review|ready|check/i.test(i.status.key || '') && i.statusType?.key === 'inProgress' ? 'review' : i.statusType?.key || null } : null,
-  resolved: !!i.resolution, priority: i.priority?.display || null, type: i.type?.display || null,
-  assignee: i.assignee?.display || null, deadline: i.deadline || null, updatedAt: i.updatedAt || null,
+  // «Закрыт» без резолюции в Трекере бывает — такие тоже считаем закрытыми.
+  resolved: !!i.resolution || ['done', 'cancelled'].includes(i.statusType?.key), priority: i.priority?.display || null, priorityOrder: PRIORITY_ORDER[i.priority?.key] ?? 2,
+  type: i.type?.display || null, assignee: i.assignee?.display || null, deadline: i.deadline || null,
+  createdAt: i.createdAt || null, updatedAt: i.updatedAt || null,
 });
 
 async function trackerSearch(body) {

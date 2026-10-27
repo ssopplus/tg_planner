@@ -767,7 +767,7 @@ async function trackerSearch(body) {
   return issues;
 }
 
-// scope: mine — открытые, где я исполнитель; all — все открытые задачи очередей проекта.
+// scope: mine — открытые, где я исполнитель или автор без исполнителя (только что заведённые); all — все открытые задачи очередей проекта.
 async function planPayload(project, scope, fresh) {
   const queues = Object.entries(loadProjectsConfig().queues || {}).filter(([, p]) => p === project).map(([q]) => q);
   const keys = plan.projects[project] || [];
@@ -778,7 +778,7 @@ async function planPayload(project, scope, fresh) {
     if (!fresh && hit && Date.now() - hit.at < PLAN_TTL_MS) issues = hit.issues;
     else {
       try {
-        issues = await trackerSearch({ query: `Queue: ${queues.join(', ')} Resolution: empty()${scope === 'all' ? '' : ' Assignee: me()'} "Sort by": Updated DESC` });
+        issues = await trackerSearch({ query: `Queue: ${queues.join(', ')} Resolution: empty()${scope === 'all' ? '' : ' (Assignee: me() OR (Author: me() AND Assignee: empty()))'} "Sort by": Updated DESC` });
         planSearchCache.set(ck, { at: Date.now(), issues });
       } catch (e) { error = e.message; issues = hit?.issues || []; }
     }

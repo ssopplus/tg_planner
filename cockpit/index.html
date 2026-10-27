@@ -517,7 +517,7 @@ function render(force) {
     <span class="seg"><button data-group="project" class="${groupBy === 'project' ? 'on' : ''}">По проектам</button><button data-group="none" class="${groupBy === 'none' ? 'on' : ''}">Все вместе</button></span>
     <label class="muted" style="margin-left:8px"><input type="checkbox" id="showCold" ${showCold ? 'checked' : ''}> простаивающие</label>`
     : r.view === 'plan' ? `
-    <span class="seg"><button data-plan-scope="mine" class="${planScope === 'mine' ? 'on' : ''}" title="Открытые задачи, где я исполнитель">Мои</button><button data-plan-scope="all" class="${planScope === 'all' ? 'on' : ''}" title="Все открытые задачи очередей проекта">Все открытые</button></span>
+    <span class="seg"><button data-plan-scope="mine" class="${planScope === 'mine' ? 'on' : ''}" title="Открытые задачи, где я исполнитель, и заведённые мной без исполнителя">Мои</button><button data-plan-scope="all" class="${planScope === 'all' ? 'on' : ''}" title="Все открытые задачи очередей проекта">Все открытые</button></span>
     <button class="ghost" data-plan-refresh title="Перечитать задачи из Трекера">↻</button>` : '';
   $('#notifyBtn').textContent = notifyOn ? '🔔' : '🔕';
   if (r.view === 'session') return renderSession(r.id, force);

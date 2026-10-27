@@ -7,6 +7,7 @@ import {
   cockpitState,
   cockpitTranscripts,
   type CockpitChatItem,
+  type CockpitPlanSnapshot,
   type CockpitSessionSnapshot,
 } from '@/lib/db/schema'
 import { resolveCockpitUser, type CockpitRequest } from '@/lib/cockpit/requests'
@@ -50,6 +51,8 @@ interface SyncBody {
   commandResults?: { id: string; ok: boolean; error?: string; output?: string }[]
   /** Переписка сессий, которые сейчас смотрят в Mini App (только изменившиеся). */
   transcripts?: { sessionId: string; items: CockpitChatItem[] }[]
+  /** План задач по проектам — только когда изменился. */
+  plan?: CockpitPlanSnapshot
 }
 
 /** Сессию «смотрят», пока Mini App опрашивал её переписку не позже чем столько назад. */
@@ -85,6 +88,29 @@ export async function POST(request: NextRequest) {
       .onConflictDoUpdate({ target: cockpitState.userId, set: { sessions, syncedAt: new Date() } })
   } else {
     await db.update(cockpitState).set({ syncedAt: new Date() }).where(eq(cockpitState.userId, user.id))
+  }
+
+  // --- план ---
+  if (body.plan && Array.isArray(body.plan.projects)) {
+    // Правка из Mini App, которую cockpit ещё не применил, свежее его снимка: иначе порядок
+    // на телефоне откатится до следующего синка.
+    const inFlight = await db
+      .select({ payload: cockpitCommands.payload })
+      .from(cockpitCommands)
+      .where(
+        and(
+          eq(cockpitCommands.userId, user.id),
+          eq(cockpitCommands.kind, 'plan-set'),
+          inArray(cockpitCommands.status, ['pending', 'sent']),
+        ),
+      )
+      .orderBy(cockpitCommands.createdAt)
+    const plan = body.plan
+    for (const { payload } of inFlight) {
+      const p = plan.projects.find((x) => x.project === payload.project)
+      if (p && Array.isArray(payload.keys)) p.plan = payload.keys as string[]
+    }
+    await db.update(cockpitState).set({ plan }).where(eq(cockpitState.userId, user.id))
   }
 
   // --- запросы ---

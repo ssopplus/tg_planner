@@ -1,0 +1,1 @@
+ALTER TABLE "cockpit_state" ADD COLUMN "plan" jsonb;

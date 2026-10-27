@@ -13,6 +13,7 @@ import { askWhichIssue, sendToday } from './handlers/quick-actions'
 import { handlePersonalCommand } from './handlers/personal'
 import { handleMeetingsCommand } from './handlers/meetings'
 import { handleReadCommand, handleReadingDocument } from './handlers/reading'
+import { handlePlanCommand } from './handlers/plan'
 
 const token = process.env.BOT_TOKEN
 if (!token) {
@@ -38,6 +39,7 @@ bot.command('meet', handleMeetingsCommand) // встречи из Яндекс.�
 bot.command('time', askWhichIssue) // списание времени в задачу Трекера
 bot.command('coord', handleCoordCommand) // опрос по координации вручную
 bot.command('read', handleReadCommand) // «Темп чтения»: сводка и повторение слов
+bot.command('plan', handlePlanCommand) // план задач из dev-cockpit
 
 // Callback queries (inline-кнопки)
 bot.on('callback_query:data', handleCallback)

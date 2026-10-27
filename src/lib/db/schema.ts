@@ -578,6 +578,36 @@ export type CockpitTaskSnapshot = {
   log?: { date: string; own: boolean; done?: string; left?: string; blockers?: string } | null
 }
 
+/** Задача Трекера в плане dev-cockpit — то, что нужно строке списка, без описания. */
+export type CockpitPlanIssue = {
+  key: string
+  summary: string
+  status: { display: string; type: string | null } | null
+  resolved: boolean
+  priority: string | null
+  type: string | null
+  assignee: string | null
+  deadline: string | null
+  updatedAt: string | null
+}
+
+/**
+ * План dev-cockpit — очерёдность задач по проектам. `plan` — ключи по порядку,
+ * `issues` — задачи плана и мои открытые задачи очередей проекта (из них план
+ * пополняют). `notes` — прогресс заметок start-task по ключу.
+ */
+export type CockpitPlanSnapshot = {
+  version: number
+  projects: {
+    project: string
+    plan: string[]
+    issues: CockpitPlanIssue[]
+    total: number
+    error: string | null
+  }[]
+  notes: Record<string, { done: number; total: number; next: string | null }>
+}
+
 /**
  * Последний снимок сессий dev-cockpit — одна строка на пользователя.
  *
@@ -591,6 +621,8 @@ export const cockpitState = pgTable('cockpit_state', {
     .primaryKey()
     .references(() => users.id, { onDelete: 'cascade' }),
   sessions: jsonb('sessions').$type<CockpitSessionSnapshot[]>().default([]).notNull(),
+  /** План задач; правки из Mini App ложатся сюда сразу и уходят в cockpit командой plan-set. */
+  plan: jsonb('plan').$type<CockpitPlanSnapshot>(),
   syncedAt: timestamp('synced_at').defaultNow().notNull(),
 })
 
@@ -670,12 +702,13 @@ export const cockpitCommands = pgTable(
     userId: text('user_id')
       .references(() => users.id, { onDelete: 'cascade' })
       .notNull(),
-    /** message — текст в сессию; start-task — `claude --bg "/start-task КЛЮЧ"`. */
+    /** message — текст в сессию; start-task — `claude --bg "/start-task КЛЮЧ"`; plan-set — порядок задач проекта. */
     kind: text('kind').notNull(),
     /** Сессия-адресат для message. */
     sessionId: text('session_id'),
     /**
-     * message: `{ text, images?, imageCount? }`; start-task: `{ issueKey, title }`.
+     * message: `{ text, images?, imageCount? }`; start-task: `{ issueKey, title }`;
+     * plan-set: `{ project, keys }`.
      * `images` — скрины `{ mime, data }` (base64) до доставки: cockpit сохраняет их
      * файлами, после итога синк их вычищает, остаётся только `imageCount`.
      */

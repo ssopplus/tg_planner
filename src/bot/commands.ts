@@ -14,6 +14,7 @@ import type { BotCommand } from 'grammy/types'
 export const BOT_COMMANDS: BotCommand[] = [
   { command: 'today', description: '📅 Что сегодня' },
   { command: 'tasks', description: '🗂 Задачи Трекера' },
+  { command: 'plan', description: '📋 План задач (dev-cockpit)' },
   { command: 'dela', description: '🏠 Личные дела' },
   { command: 'meet', description: '📆 Встречи' },
   { command: 'time', description: '⏱ Списать время' },

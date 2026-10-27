@@ -71,7 +71,9 @@ export function NavBar() {
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--tg-theme-section-bg-color,#fff)] border-t border-border pb-[max(env(safe-area-inset-bottom,0px),0.5rem)]">
       <div className="flex items-center justify-around h-14 max-w-md mx-auto">
         {tabs.map(({ href, label, icon: Icon }) => {
-          const isActive = pathname === href || pathname?.startsWith(href + '/')
+          // «План» cockpit открывается из «Сессий» и живёт под той же вкладкой.
+          const isActive =
+            pathname === href || pathname?.startsWith(href + '/') || (href === '/sessions' && pathname === '/plan')
           return (
             <Link
               key={href}

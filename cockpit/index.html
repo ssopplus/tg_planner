@@ -441,7 +441,7 @@ document.addEventListener('click', e => {
 const plain = text => String(text || '').replace(/```[\s\S]*?```/g, ' [код] ').replace(/[*_`#>|]/g, '').replace(/\s+/g, ' ').trim();
 
 // ---------- состояние ----------
-let sessions = [], projects = [], queues = {}, pending = [], lastOk = 0;
+let sessions = [], projects = [], queues = {}, pending = [], lastOk = 0, planVersionSeen = 0;
 let seen = store.get('seen', {});           // sessionId → lastActivity, которую я уже видел
 let prevStatus = {};
 const notified = new Set();
@@ -482,6 +482,9 @@ async function poll() {
   try {
     const data = await (await fetch('/api/sessions')).json();
     sessions = data.sessions; projects = data.projects; queues = data.queues || {}; pending = data.pending || []; lastOk = Date.now();
+    // План поменяли (здесь или из Mini App) — перечитать вкладку «План», не дожидаясь минутного опроса.
+    if (data.planVersion && planVersionSeen && data.planVersion !== planVersionSeen) for (const st of Object.values(planData)) st.at = 0;
+    planVersionSeen = data.planVersion;
     // Связь с Telegram (tg-planer): пилюля видна, только когда синк включён в data/sync.json.
     const sp = $('#syncPill'), sy = data.sync || {};
     sp.hidden = !sy.enabled;

@@ -740,6 +740,20 @@ async function savePlan() {
   await fsp.writeFile(PLAN_FILE + '.tmp', JSON.stringify(plan, null, 2));
   await fsp.rename(PLAN_FILE + '.tmp', PLAN_FILE);
 }
+// Растёт при каждой правке порядка — по ней UI перечитывает план, а синк отправляет новый снимок.
+let planVersion = Date.now();
+const PLAN_KEY_RE = /^[A-Z][A-Z0-9]{1,15}-\d{1,6}$/;
+// Порядок задач проекта — из UI cockpit или командой из Mini App. Пустой список убирает проект.
+async function setProjectPlan(rawProject, rawKeys) {
+  const project = String(rawProject || '').trim().slice(0, 60);
+  if (!project || !Array.isArray(rawKeys)) throw new Error('нужны project и keys');
+  const keys = [...new Set(rawKeys.map(k => String(k).toUpperCase()).filter(k => PLAN_KEY_RE.test(k)))].slice(0, 200);
+  if (keys.length) plan.projects[project] = keys; else delete plan.projects[project];
+  await savePlan();
+  planVersion = Date.now();
+  kickSync();
+  return keys;
+}
 
 // Ключи приоритетов Трекера по возрастанию важности — для сортировки (названия у очередей бывают свои).
 const PRIORITY_ORDER = { trivial: 0, minor: 1, normal: 2, critical: 3, blocker: 4 };
@@ -794,6 +808,37 @@ async function planPayload(project, scope, fresh) {
     notes[n.issue] = { done: n.todo.filter(t => t.done).length, total: n.todo.length, next: n.todo.find(t => !t.done)?.text.slice(0, 200) || null };
   }
   return { project, scope, queues, plan: keys, issues: [...issues, ...extra], total, notes, error, at: Date.now() };
+}
+
+// Снимок плана для Telegram: по каждому проекту очередей — порядок, задачи плана и мои открытые
+// (из них в Mini App добавляют в план). Собирается раз в 5 мин и сразу после правки порядка;
+// Трекер читается через тот же кэш, что и вкладка «План».
+const PLAN_SNAPSHOT_MS = 300_000;
+let planSnapshot = null, planSnapshotAt = 0, planSnapshotVersion = 0, planSnapshotBusy = false;
+const slimIssue = i => ({
+  key: i.key, summary: i.summary.slice(0, 300), status: i.status, resolved: i.resolved, priority: i.priority,
+  type: i.type, assignee: i.assignee, deadline: i.deadline, updatedAt: i.updatedAt,
+});
+async function refreshPlanSnapshot() {
+  planSnapshotBusy = true;
+  const version = planVersion;
+  try {
+    const names = [...new Set(Object.values(loadProjectsConfig().queues || {}))].sort();
+    const projects = [], notes = {};
+    for (const name of names) {
+      const d = await planPayload(name, 'mine');
+      const issues = d.issues.filter(i => d.plan.includes(i.key) || !i.resolved).map(slimIssue);
+      for (const i of issues) if (d.notes[i.key]) notes[i.key] = d.notes[i.key];
+      projects.push({ project: name, plan: d.plan, issues, total: d.total, error: d.error || null });
+    }
+    planSnapshot = { version, projects, notes };
+    planSnapshotVersion = version;
+  } catch (e) {
+    console.error('[plan-snapshot]', e.message);
+  } finally {
+    planSnapshotAt = Date.now();
+    planSnapshotBusy = false;
+  }
 }
 
 // ---------- сборка ответа ----------
@@ -860,7 +905,7 @@ async function sessionsPayload() {
     // Режим из запроса свежее транскрипта: хук получает его в момент вопроса.
     if (s.requests[0]?.mode) s.permissionMode = s.requests[0].mode;
   }
-  return { at: Date.now(), sessions, projects, queues: cfg.queues || {}, pending, sync: syncStatus };
+  return { at: Date.now(), sessions, projects, queues: cfg.queues || {}, pending, sync: syncStatus, planVersion };
 }
 
 async function sessionDetail(id, since) {
@@ -898,7 +943,7 @@ const SYNC_FULL_MS = 300_000;  // снимок целиком — при изм�
 const SYNC_IDLE_MS = 60_000;   // синк выключен — проверяем, не появился ли sync.json
 const SYNC_RETRY_MS = 30_000;
 const syncStatus = { enabled: false, lastOk: null, lastError: null };
-let syncTimer = null, syncRunning = false, syncLastSent = 0, syncLastFull = 0, syncLastHash = '';
+let syncTimer = null, syncRunning = false, syncLastSent = 0, syncLastFull = 0, syncLastHash = '', planSentHash = '';
 const commandResults = []; // итоги команд, уйдут следующим синком
 // Сессии, которые сейчас открыты в Mini App: только их переписка уходит с машины.
 let watched = new Set();
@@ -1006,6 +1051,11 @@ async function runCommand(c) {
       await moveToVSCode(a);
       return { id: c.id, ok: true, output: 'сессия открыта в VS Code' };
     }
+    if (c.kind === 'plan-set') {
+      const keys = await setProjectPlan(c.payload?.project, c.payload?.keys);
+      hookLog({ event: 'plan-set', project: c.payload?.project, keys: keys.length });
+      return { id: c.id, ok: true, output: `в плане ${keys.length}` };
+    }
     if (c.kind === 'start-task') {
       const key = String(c.payload?.issueKey || '');
       if (!/^[A-Z][A-Z0-9]{1,15}-\d{1,6}$/.test(key)) throw new Error('неверный ключ задачи');
@@ -1069,6 +1119,12 @@ async function syncTick() {
   const hash = createHash('sha1').update(JSON.stringify(snapshot.map(s => ({ ...s, updatedAt: 0 })))).digest('hex');
   const now = Date.now();
   const full = hash !== syncLastHash || now - syncLastFull > SYNC_FULL_MS;
+  // План собирается в фоне (Трекер бывает медленным) и уходит, когда снимок изменился.
+  if (!planSnapshotBusy && (planSnapshotVersion !== planVersion || now - planSnapshotAt > PLAN_SNAPSHOT_MS)) {
+    refreshPlanSnapshot().then(kickSync);
+  }
+  const planHash = planSnapshot ? createHash('sha1').update(JSON.stringify(planSnapshot)).digest('hex') : '';
+  const sendPlan = !!planSnapshot && planHash !== planSentHash;
   const transcripts = [];
   for (const id of watched) {
     const items = await transcriptFor(id);
@@ -1076,10 +1132,11 @@ async function syncTick() {
     const h = createHash('sha1').update(JSON.stringify(items)).digest('hex');
     if (transcriptHash.get(id) !== h) transcripts.push({ sessionId: id, items, h });
   }
-  if (!full && !pending.length && !commandResults.length && !transcripts.length && now - syncLastSent < (watched.size ? SYNC_FAST_MS : SYNC_POLL_MS)) return SYNC_CHECK_MS;
+  if (!full && !sendPlan && !pending.length && !commandResults.length && !transcripts.length && now - syncLastSent < (watched.size ? SYNC_FAST_MS : SYNC_POLL_MS)) return SYNC_CHECK_MS;
   const results = commandResults.splice(0);
   const body = {
     ...(full ? { sessions: snapshot } : {}),
+    ...(sendPlan ? { plan: planSnapshot } : {}),
     commandResults: results,
     transcripts: transcripts.map(({ sessionId, items }) => ({ sessionId, items })),
     pending: pending.map(r => {
@@ -1109,6 +1166,7 @@ async function syncTick() {
   }
   syncLastSent = now;
   if (full) { syncLastHash = hash; syncLastFull = now; }
+  if (sendPlan) planSentHash = planHash;
   syncStatus.lastOk = Date.now(); syncStatus.lastError = null;
   for (const t of transcripts) transcriptHash.set(t.sessionId, t.h);
   const { decisions = [], commands = [], watch = [] } = reply;
@@ -1189,12 +1247,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/plan') {
       if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
       const b = await readJson(req);
-      const project = String(b.project || '').trim().slice(0, 60);
-      if (!project || !Array.isArray(b.keys)) return send(res, 400, { error: 'нужны project и keys' });
-      const keys = [...new Set(b.keys.map(k => String(k).toUpperCase()).filter(k => /^[A-Z][A-Z0-9]{1,15}-\d{1,6}$/.test(k)))].slice(0, 200);
-      if (keys.length) plan.projects[project] = keys; else delete plan.projects[project];
-      await savePlan();
-      return send(res, 200, { ok: true, plan: keys });
+      try { return send(res, 200, { ok: true, plan: await setProjectPlan(b.project, b.keys) }); }
+      catch (e) { return send(res, 400, { error: e.message }); }
     }
     if (req.method === 'POST' && url.pathname === '/api/requests/decision') {
       if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });

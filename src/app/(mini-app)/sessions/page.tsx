@@ -209,11 +209,16 @@ export default function SessionsPage() {
     <div className="flex flex-col gap-3 px-4 pt-4">
       <div className="flex items-center justify-between gap-2">
         <h1 className={`text-xl font-bold ${text}`}>Сессии</h1>
-        {ago !== null ? (
-          <span className={`${chip} ${ago > STALE_SEC ? 'text-red-500' : hint}`}>
-            {ago > STALE_SEC ? 'cockpit не на связи' : `обновлено ${ago < 5 ? 'только что' : `${ago} с назад`}`}
-          </span>
-        ) : null}
+        <span className="flex items-center gap-2">
+          {ago !== null ? (
+            <span className={`${chip} ${ago > STALE_SEC ? 'text-red-500' : hint}`}>
+              {ago > STALE_SEC ? 'cockpit не на связи' : `обновлено ${ago < 5 ? 'только что' : `${ago} с назад`}`}
+            </span>
+          ) : null}
+          <Link href="/plan" className={`${chip} text-[var(--tg-theme-link-color,#007aff)]`}>
+            План
+          </Link>
+        </span>
       </div>
 
       {!data?.syncedAt ? (

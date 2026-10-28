@@ -15,9 +15,20 @@ export interface STTProvider {
   /** Короткое имя для логов: "groq", "assemblyai", "whisper" */
   readonly name: string
 
-  /** Транскрибирует аудиобуфер в текст. Бросает ошибку при неудаче. */
-  transcribe(audioBuffer: Buffer): Promise<string>
+  /**
+   * Транскрибирует аудиобуфер в текст. Бросает ошибку при неудаче.
+   * `file` — тип и имя файла: по расширению Whisper-совместимые API понимают формат.
+   * По умолчанию — голосовое Telegram (`voice.ogg`); запись из Mini App — webm или mp4.
+   */
+  transcribe(audioBuffer: Buffer, file?: AudioFile): Promise<string>
 }
+
+export interface AudioFile {
+  mime: string
+  name: string
+}
+
+export const TELEGRAM_VOICE: AudioFile = { mime: 'audio/ogg', name: 'voice.ogg' }
 
 export class STTUnavailableError extends Error {
   constructor(message: string) {

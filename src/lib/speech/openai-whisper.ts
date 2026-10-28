@@ -1,4 +1,4 @@
-import { STTProvider } from './provider'
+import { STTProvider, TELEGRAM_VOICE, type AudioFile } from './provider'
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1'
 
@@ -14,10 +14,10 @@ export class OpenAIWhisperSTTProvider implements STTProvider {
     private baseUrl = process.env.WHISPER_BASE_URL ?? DEFAULT_BASE_URL,
   ) {}
 
-  async transcribe(audioBuffer: Buffer): Promise<string> {
+  async transcribe(audioBuffer: Buffer, file: AudioFile = TELEGRAM_VOICE): Promise<string> {
     const formData = new FormData()
-    const blob = new Blob([new Uint8Array(audioBuffer)], { type: 'audio/ogg' })
-    formData.append('file', blob, 'voice.ogg')
+    const blob = new Blob([new Uint8Array(audioBuffer)], { type: file.mime })
+    formData.append('file', blob, file.name)
     formData.append('model', 'whisper-1')
     formData.append('language', 'ru')
 

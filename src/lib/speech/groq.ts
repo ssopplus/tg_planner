@@ -1,4 +1,4 @@
-import { STTProvider } from './provider'
+import { STTProvider, TELEGRAM_VOICE, type AudioFile } from './provider'
 
 const GROQ_BASE_URL = 'https://api.groq.com/openai/v1'
 const GROQ_MODEL = 'whisper-large-v3-turbo'
@@ -16,10 +16,10 @@ export class GroqSTTProvider implements STTProvider {
     private baseUrl = process.env.GROQ_BASE_URL ?? GROQ_BASE_URL,
   ) {}
 
-  async transcribe(audioBuffer: Buffer): Promise<string> {
+  async transcribe(audioBuffer: Buffer, file: AudioFile = TELEGRAM_VOICE): Promise<string> {
     const formData = new FormData()
-    const blob = new Blob([new Uint8Array(audioBuffer)], { type: 'audio/ogg' })
-    formData.append('file', blob, 'voice.ogg')
+    const blob = new Blob([new Uint8Array(audioBuffer)], { type: file.mime })
+    formData.append('file', blob, file.name)
     formData.append('model', this.model)
     formData.append('language', 'ru')
     formData.append('response_format', 'json')

@@ -1,10 +1,10 @@
 import { GroqSTTProvider } from './groq'
 import { AssemblyAISTTProvider } from './assemblyai'
 import { OpenAIWhisperSTTProvider } from './openai-whisper'
-import { STTProvider, STTUnavailableError } from './provider'
+import { STTProvider, STTUnavailableError, type AudioFile } from './provider'
 
 export type { STTProvider } from './provider'
-export { STTUnavailableError } from './provider'
+export { STTUnavailableError, type AudioFile } from './provider'
 
 /**
  * Собирает упорядоченный список доступных STT-провайдеров.
@@ -52,7 +52,7 @@ function createProvider(name: string): STTProvider | null {
  * Возвращает текст из первого успешного провайдера.
  * Логирует попытки в stdout: `[stt] <name> → ok <ms>ms` / `[stt] <name> failed: <error>`.
  */
-export async function transcribeAudio(audioBuffer: Buffer): Promise<string> {
+export async function transcribeAudio(audioBuffer: Buffer, file?: AudioFile): Promise<string> {
   const chain = buildSTTChain()
   if (chain.length === 0) {
     throw new STTUnavailableError(
@@ -64,7 +64,7 @@ export async function transcribeAudio(audioBuffer: Buffer): Promise<string> {
   for (const provider of chain) {
     const startedAt = Date.now()
     try {
-      const text = await provider.transcribe(audioBuffer)
+      const text = await provider.transcribe(audioBuffer, file)
       const elapsed = Date.now() - startedAt
       console.log(`[stt] ${provider.name} → ok ${elapsed}ms`)
       return text

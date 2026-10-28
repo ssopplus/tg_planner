@@ -1,7 +1,7 @@
 'use client'
 
-import { useRef, useState } from 'react'
-import { ImagePlus, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ImagePlus, Mic, Square, X } from 'lucide-react'
 import { apiFetch, webAppConfirm } from '@/lib/telegram/webapp'
 import { requestBody } from '@/lib/cockpit/format'
 
@@ -373,7 +373,81 @@ async function compressImage(file: File): Promise<string> {
   return url
 }
 
-/** Текст и скрины в сессию: уходят через cockpit в её межсессионный сокет. */
+/** Длинная запись упирается в лимит тела запроса Vercel (4,5 МБ), да и диктовать столько в сессию незачем. */
+const VOICE_MAX_SEC = 180
+
+/**
+ * Голос в поле ввода: запись в браузере → /api/cockpit/transcribe → текст
+ * дописывается в поле. В сессию сразу не уходит — его можно поправить.
+ * Где микрофон в вебвью Telegram недоступен, кнопки нет.
+ */
+function VoiceButton({ disabled, onText, onError }: { disabled: boolean; onText: (t: string) => void; onError: (e: string) => void }) {
+  const [state, setState] = useState<'idle' | 'rec' | 'busy'>('idle')
+  const [sec, setSec] = useState(0)
+  const [supported, setSupported] = useState(false)
+  const rec = useRef<MediaRecorder | null>(null)
+
+  useEffect(() => {
+    const t = setTimeout(() => setSupported(typeof MediaRecorder !== 'undefined' && !!navigator.mediaDevices?.getUserMedia), 0)
+    return () => clearTimeout(t)
+  }, [])
+
+  useEffect(() => {
+    if (state !== 'rec') return
+    const timer = setInterval(() => setSec((x) => x + 1), 1000)
+    return () => clearInterval(timer)
+  }, [state])
+  useEffect(() => {
+    if (state === 'rec' && sec >= VOICE_MAX_SEC) rec.current?.stop()
+  }, [state, sec])
+
+  const start = async () => {
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    } catch {
+      onError('Нет доступа к микрофону — разреши его Telegram в настройках телефона')
+      return
+    }
+    const mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find((m) => MediaRecorder.isTypeSupported(m))
+    const r = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
+    const parts: Blob[] = []
+    r.ondataavailable = (e) => e.data.size && parts.push(e.data)
+    r.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop())
+      setState('busy')
+      try {
+        const blob = new Blob(parts, { type: (r.mimeType || mime || 'audio/webm').split(';')[0] })
+        const res = await apiFetch('/api/cockpit/transcribe', { method: 'POST', body: blob, headers: { 'content-type': blob.type } })
+        const body = (await res.json().catch(() => ({}))) as { text?: string; error?: string }
+        if (!res.ok) onError(body.error ?? 'Не удалось распознать')
+        else if (body.text) onText(body.text)
+        else onError('Ничего не расслышал')
+      } finally {
+        setState('idle')
+      }
+    }
+    rec.current = r
+    setSec(0)
+    r.start()
+    setState('rec')
+  }
+
+  if (!supported) return null
+  return (
+    <button
+      type="button"
+      disabled={disabled || state === 'busy'}
+      onClick={() => (state === 'rec' ? rec.current?.stop() : start())}
+      className={`${chip} flex items-center gap-1 disabled:opacity-50 ${state === 'rec' ? 'text-red-500' : text}`}
+    >
+      {state === 'rec' ? <Square className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+      {state === 'rec' ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')} · стоп` : state === 'busy' ? 'Распознаю…' : 'Голос'}
+    </button>
+  )
+}
+
+/** Текст, скрины и голос в сессию: уходят через cockpit в её межсессионный сокет. */
 export function Composer({ sessionId, commands, onSent }: { sessionId: string; commands: Command[]; onSent: () => void }) {
   const [value, setValue] = useState('')
   const [images, setImages] = useState<string[]>([])
@@ -472,6 +546,11 @@ export function Composer({ sessionId, commands, onSent }: { sessionId: string; c
           <ImagePlus className="h-3.5 w-3.5" />
           Скрин
         </button>
+        <VoiceButton
+          disabled={busy}
+          onText={(t) => setValue((cur) => (cur.trim() ? `${cur.trimEnd()} ${t}` : t))}
+          onError={setError}
+        />
         <button type="button" disabled={busy} onClick={() => send(ASK_CONFIRM)} className={`${chip} ${text} disabled:opacity-50`}>
           Спросить кнопками
         </button>

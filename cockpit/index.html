@@ -70,6 +70,13 @@ header input[type=search] { width: 240px; }
 @keyframes pulse { 50% { opacity: .35; } }
 .chip { display: inline-block; background: var(--chip); border-radius: 4px; padding: 0 6px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
 .chip.key { color: var(--accent); font-weight: 600; background: var(--accent-soft); }
+.acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.acts button { padding: 1px 8px; font-size: 12px; }
+.acts .nextbtn { color: var(--accent); border-color: var(--accent-soft); }
+.rules .rrow { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); margin-bottom: 6px; }
+.rules .rrow .lbl { font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.rules .rrow .ex { grid-column: 1 / -1; font: 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); white-space: pre-wrap; word-break: break-all; }
+.rules .rrow .btns { display: flex; gap: 6px; align-items: start; }
 /* Режим сессии: Manual — серый, остальные заметнее, чтобы сразу было видно, кто правит без спроса. */
 .chip.mode-acceptEdits { color: var(--busy); background: var(--busy-soft); }
 .chip.mode-plan { color: var(--accent); background: var(--accent-soft); }
@@ -361,6 +368,7 @@ button.pf.on { background: var(--accent-soft); border-color: var(--accent); colo
     <a href="#/board" data-view="board">Доска</a>
     <a href="#/inbox" data-view="inbox">Входящие <span id="inboxBadge"></span></a>
     <a href="#/plan" data-view="plan">План</a>
+    <a href="#/rules" data-view="rules">Правила <span id="rulesBadge"></span></a>
   </nav>
   <span id="stale"></span>
   <div class="spacer"></div>
@@ -522,7 +530,8 @@ function render(force) {
   $('#autoname').disabled = !!namingN || !unnamed;
   $('#boardTools').innerHTML = r.view === 'board' ? `
     <span class="seg"><button data-group="project" class="${groupBy === 'project' ? 'on' : ''}">По проектам</button><button data-group="none" class="${groupBy === 'none' ? 'on' : ''}">Все вместе</button></span>
-    <label class="muted" style="margin-left:8px"><input type="checkbox" id="showCold" ${showCold ? 'checked' : ''}> простаивающие</label>`
+    <label class="muted" style="margin-left:8px"><input type="checkbox" id="showCold" ${showCold ? 'checked' : ''}> простаивающие</label>
+    ${sessions.some(s => s.closable) ? `<button class="ghost" id="closeAll" title="Задача закрыта в Трекере и план заметки выполнен">✕ закрыть готовые (${sessions.filter(s => s.closable).length})</button>` : ''}`
     : r.view === 'plan' ? `
     <span class="seg"><button data-plan-scope="mine" class="${planScope === 'mine' ? 'on' : ''}" title="Открытые задачи, где я исполнитель, и заведённые мной без исполнителя">Мои</button><button data-plan-scope="all" class="${planScope === 'all' ? 'on' : ''}" title="Все открытые задачи очередей проекта">Все открытые</button></span>
     <button class="ghost" data-plan-refresh title="Перечитать задачи из Трекера">↻</button>` : '';
@@ -531,6 +540,10 @@ function render(force) {
   sessView = null;
   if (r.view !== 'plan') lastPlanHtml = '';
   if (r.view === 'plan') return renderPlan();
+  if (r.view !== 'rules') delete $('#app').dataset.rulesHtml;
+  if (Date.now() - rulesAt > (r.view === 'rules' ? 15_000 : 120_000)) loadRules();
+  $('#rulesBadge').innerHTML = rulesData?.suggestions.length ? `<span class="badge">${rulesData.suggestions.length}</span>` : '';
+  if (r.view === 'rules') return renderRules();
   if (r.view === 'inbox') return renderInbox();
   return renderBoard();
 }
@@ -668,6 +681,7 @@ function cardHtml(s, lane) {
     ${taskLine(s)}
     ${summaryHtml(s)}
     ${why}
+    ${nextCloseHtml(s)}
     <div class="prompt">${esc(plain(s.lastPrompt).slice(0, 240))}</div>
     <div class="foot">${modeChip(s.permissionMode)}${s.taskKey && !s.title.includes(s.taskKey) && !s.trackerStatus?.[s.taskKey] ? `<span class="chip key">${esc(s.taskKey)}</span>` : ''}${groupBy === 'none' ? `<span class="chip">${esc(s.project)}</span>` : ''}${s.filesCount ? `<span class="chip">✎ ${s.filesCount}</span>` : ''}${repos}</div>
   </div>`;
@@ -726,7 +740,7 @@ function renderInbox() {
   const row = (s, lane) => `<div class="irow" data-open="${s.sessionId}">
     <span class="dot ${lane}"></span>
     <div><div class="t">${esc(s.title)} <span class="chip">${esc(s.project)}</span> ${modeChip(s.permissionMode)}</div>
-      ${taskLine(s)}${summaryHtml(s)}${planHtml(s)}
+      ${taskLine(s)}${summaryHtml(s)}${planHtml(s)}${nextCloseHtml(s)}
       <div class="ex">${lane === 'waiting' ? `<b style="color:var(--wait)">⏳ ${esc(s.waitingFor || 'ждёт ответа')}.</b> ` : ''}${esc(plain(s.lastAssistant || s.lastPrompt).slice(0, 400))}</div></div>
     <div class="side"><span class="time">${ago(s.lastActivity)}</span>${lane === 'review' ? `<button class="ghost" data-seen="${s.sessionId}">✓ просмотрено</button>` : ''}</div>
   </div>`;
@@ -738,6 +752,57 @@ function renderInbox() {
     <h2>Закончили, не смотрел · ${review.length} ${review.length ? '<button class="ghost" id="seenAll">отметить все</button>' : ''}</h2>${review.map(s => row(s, 'review')).join('') || '<div class="muted">Всё просмотрено</div>'}
   </div>`;
   app.scrollTop = scroll;
+}
+
+// «Дальше по плану» (сессия своё сделала) и «закрыть» (задача закрыта, план выполнен).
+function nextCloseHtml(s) {
+  const next = s.next ? `<button class="nextbtn" data-next="${esc(s.next.key)}" title="Открыть в VS Code вкладку Claude с /start-task ${esc(s.next.key)}${s.next.summary ? `\n${esc(s.next.summary)}` : ''}">▶ дальше по плану: ${esc(s.next.key)}${s.next.summary ? ` · ${esc(s.next.summary.slice(0, 60))}` : ''}</button>` : '';
+  const close = s.closable ? `<button class="ghost" data-close="${s.sessionId}" title="Задача закрыта в Трекере, план заметки выполнен">✕ закрыть сессию</button>` : '';
+  return next || close ? `<div class="acts">${next}${close}</div>` : '';
+}
+
+async function closeSessionUi(ids) {
+  const list = ids.map(id => sessions.find(s => s.sessionId === id)).filter(Boolean);
+  if (!list.length) return;
+  const how = 'Вкладка VS Code покажет отключение, фоновая сессия остановится; переписка сохранится — продолжить можно из истории (claude --resume).';
+  if (!confirm(`${list.length > 1 ? `Закрыть ${list.length} сессии:\n${list.map(s => `· ${s.title}`).join('\n')}` : `Закрыть сессию «${list[0].title}»?`}\n\n${how}`)) return;
+  for (const s of list) {
+    try { await post('/api/sessions/close', { sessionId: s.sessionId }); toast(`Закрыта: ${s.title}`); }
+    catch (e) { toast(`«${s.title}» не закрылась: ${e.message}`); }
+  }
+  poll();
+}
+
+// ---------- правила авторазрешения ----------
+let rulesData = null, rulesAt = 0;
+function loadRules() {
+  rulesAt = Date.now();
+  fetch('/api/rules').then(r => r.json()).then(d => { rulesData = d; render(false); }).catch(() => {});
+}
+async function rulesAction(body) {
+  try { await post('/api/rules', body); rulesAt = 0; loadRules(); }
+  catch (e) { toast('Не вышло: ' + e.message); }
+}
+function renderRules() {
+  const d = rulesData;
+  const app = $('#app');
+  if (!d) { app.innerHTML = '<div class="inbox rules"><div class="muted">Загружаю…</div></div>'; return; }
+  const sessName = id => sessions.find(s => s.sessionId === id)?.title || id?.slice(0, 8) || '';
+  const html = `<div class="inbox rules">
+    <div class="hint">Запросы, которые подходят под правило целиком (каждая часть команды), cockpit разрешает сам, не спрашивая. Предлагаются только команды на чтение: запись в БД, push, rm, произвольные скрипты правилом не становятся. Пока cockpit выключен, правила не действуют.</div>
+    <h2>Подсказки · ${d.suggestions.length}</h2>
+    ${d.suggestions.map((x, i) => `<div class="rrow">
+      <div><span class="lbl">${esc(x.label)}</span> <span class="muted">разрешал ${x.allow}${x.elsewhere ? ` · ещё ${x.elsewhere} ответов в VS Code` : ''}</span></div>
+      <div class="btns"><button class="primary" data-rule-add="${i}">Сделать правилом</button><button class="ghost" data-rule-dismiss="${i}">Не предлагать</button></div>
+      <div class="ex">${x.examples.map(esc).join('\n')}</div></div>`).join('') || '<div class="muted">Пока нечего предложить: подсказка появляется после трёх разрешений одной и той же команды на чтение без отказов.</div>'}
+    <h2>Правила · ${d.rules.length}</h2>
+    ${d.rules.map(r => `<div class="rrow"><div><span class="lbl">${esc(r.tool === 'Bash' ? r.prefix : r.tool === 'WebFetch' ? `WebFetch ${r.domain}` : r.tool)}</span> <span class="muted">${r.hits ? `сработало ${r.hits} раз, последний ${ago(r.lastAt)} назад` : 'ещё не срабатывало'}</span></div>
+      <div class="btns"><button class="ghost" data-rule-remove="${esc(r.id)}">Удалить</button></div></div>`).join('') || '<div class="muted">Правил нет.</div>'}
+    <h2>Разрешено правилами · ${d.recent.length}</h2>
+    ${d.recent.map(x => `<div class="rrow"><div><b>${esc(sessName(x.sessionId))}</b> <span class="muted">${ago(x.at)} назад · ${esc(x.rules.join(', '))}</span></div><div></div><div class="ex">${esc(x.tool === 'Bash' ? x.summary : `${x.tool} ${x.summary}`)}</div></div>`).join('') || '<div class="muted">С запуска cockpit — ни одного.</div>'}
+  </div>`;
+  if (app.dataset.rulesHtml === html) return;
+  app.dataset.rulesHtml = html; const scroll = app.scrollTop; app.innerHTML = html; app.scrollTop = scroll;
 }
 
 // ---------- план ----------
@@ -1053,8 +1118,10 @@ function updateSessionHead() {
       ${s.taskKey ? `<span class="chip key">${esc(s.taskKey)}</span>` : ''}
       <span class="time">активность ${ago(s.lastActivity)} назад</span>
       <span class="spacer"></span>
+      ${s.status === 'idle' && !(s.requests || []).length ? `<button class="ghost" data-close="${s.sessionId}" title="${s.kind === 'background' ? 'Остановить фоновую сессию' : 'Завершить процесс вкладки VS Code'} — переписка сохранится">✕ Закрыть сессию</button>` : ''}
       ${s.kind === 'background' ? '<button id="toVSCode" title="Остановить фоновый процесс и открыть сессию во вкладке Claude в VS Code — переписка сохранится">Перенести в VS Code</button>' : ''}
     </div>
+    ${s.next ? nextCloseHtml({ ...s, closable: false }) : ''}
     ${(s.requests || []).length ? `<div style="margin-top:8px">${s.requests.map(r => requestHtml(r)).join('')}</div>`
       : s.status === 'waiting' ? `<div class="waitbar">⏳ Сессия ждёт: ${esc(s.waitingFor || 'ответа')}. Ответить можно в окне сессии (VS Code / терминал).</div>` : ''}`;
 }
@@ -1339,6 +1406,17 @@ async function openDiff(repo, mode, file) {
 document.addEventListener('click', async e => {
   const dec = e.target.closest('[data-decide]');
   if (dec) { e.preventDefault(); dec.disabled = true; decideRequest(dec.dataset.id, dec.dataset.decide); return; }
+  const nx = e.target.closest('[data-next]');
+  if (nx) { e.stopPropagation(); location.href = `vscode://anthropic.claude-code/open?prompt=${encodeURIComponent(`/start-task ${nx.dataset.next}`)}`; return; }
+  const cl = e.target.closest('[data-close]');
+  if (cl) { e.stopPropagation(); closeSessionUi([cl.dataset.close]); return; }
+  if (e.target.id === 'closeAll') { closeSessionUi(sessions.filter(s => s.closable).map(s => s.sessionId)); return; }
+  const ra = e.target.closest('[data-rule-add]');
+  if (ra) { const x = rulesData?.suggestions[Number(ra.dataset.ruleAdd)]; if (x) rulesAction({ action: 'add', rule: { tool: x.tool, prefix: x.prefix, domain: x.domain } }); return; }
+  const rd = e.target.closest('[data-rule-dismiss]');
+  if (rd) { const x = rulesData?.suggestions[Number(rd.dataset.ruleDismiss)]; if (x) rulesAction({ action: 'dismiss', key: x.key }); return; }
+  const rr = e.target.closest('[data-rule-remove]');
+  if (rr) { if (confirm('Удалить правило? Такие запросы снова будут спрашивать.')) rulesAction({ action: 'remove', id: rr.dataset.ruleRemove }); return; }
   const open = e.target.closest('[data-open]');
   const seenBtn = e.target.closest('[data-seen]');
   if (seenBtn) { e.stopPropagation(); const s = sessions.find(x => x.sessionId === seenBtn.dataset.seen); markSeen(s); render(false); return; }

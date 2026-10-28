@@ -11,6 +11,7 @@ import {
   type CockpitSessionSnapshot,
 } from '@/lib/db/schema'
 import { resolveCockpitUser, type CockpitRequest } from '@/lib/cockpit/requests'
+import { syncNotices } from '@/lib/cockpit/notify'
 
 /**
  * POST /api/cockpit/sync — обмен с локальным dev-cockpit.
@@ -20,8 +21,10 @@ import { resolveCockpitUser, type CockpitRequest } from '@/lib/cockpit/requests'
  * Mini App, и команды («написать в сессию», «запустить задачу»). Входящих
  * соединений на машину нет.
  *
- * В чат бота ничего не пишется: запросов от десятка сессий слишком много,
- * вся работа с ними — в разделе «Сессии» Mini App.
+ * В чат бота запросы по умолчанию не пишутся: от десятка сессий их слишком
+ * много, вся работа с ними — в разделе «Сессии» Mini App. Исключение —
+ * напоминание о запросе, который ждёт дольше 10 мин, пока меня нет за Маком
+ * (`lib/cockpit/notify.ts`).
  *
  * Побеждает первый ответ. Решение отсюда доходит до сессии только через
  * cockpit; если он успел закрыть запрос сам (ответили в VS Code или в его UI),
@@ -53,6 +56,8 @@ interface SyncBody {
   transcripts?: { sessionId: string; items: CockpitChatItem[] }[]
   /** План задач по проектам — только когда изменился. */
   plan?: CockpitPlanSnapshot
+  /** Сколько секунд к Маку не прикасались: напоминание в бот — только когда меня нет за машиной. */
+  idleSec?: number | null
 }
 
 /** Сессию «смотрят», пока Mini App опрашивал её переписку не позже чем столько назад. */
@@ -235,6 +240,11 @@ export async function POST(request: NextRequest) {
         gt(cockpitTranscripts.watchedAt, new Date(Date.now() - WATCH_FRESH_MS)),
       ),
     )
+
+  // --- напоминания в бот ---
+  await syncNotices(user, typeof body.idleSec === 'number' ? body.idleSec : null).catch((e) =>
+    console.error('[cockpit-notify]', e),
+  )
 
   const retention = new Date(Date.now() - RETENTION_MS)
   await db.delete(cockpitRequests).where(lt(cockpitRequests.createdAt, retention))

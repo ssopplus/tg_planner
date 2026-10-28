@@ -9,6 +9,7 @@ import { escapeMarkdown } from '../services/markdown'
 import { ensureInboxBoard } from '@/lib/boards/inbox'
 import { toDayString } from '@/lib/boards/due-dates'
 import { formatMinutes, readWorklogDay, todayInTz } from '@/lib/worklog/service'
+import { cockpitDigestLines } from '@/lib/cockpit/digest'
 import {
   BUTTON_COORDINATION,
   BUTTON_LOG_TIME,
@@ -141,7 +142,11 @@ export async function sendToday(ctx: Context) {
     }
   }
 
-  if (inWork.length === 0 && due.length === 0) {
+  const yesterday = new Date(new Date(`${today}T12:00:00Z`).getTime() - 86_400_000).toISOString().slice(0, 10)
+  const cockpit = await cockpitDigestLines(dbUser.id, [yesterday, today]).catch(() => [])
+  lines.push(...cockpit)
+
+  if (inWork.length === 0 && due.length === 0 && cockpit.length === 0) {
     lines.push('', 'Ни рабочих задач в работе, ни личных дел на сегодня.')
   }
 

@@ -14,6 +14,7 @@ import { handleTaskEditCallback, resolveEditedBoard } from './task-edit'
 import { handlePersonalCallback } from './personal'
 import { handleMeetingsCallback } from './meetings'
 import { handleReadingCallback } from './reading'
+import { handleCockpitCallback } from './cockpit'
 import { escapeMarkdown } from '../services/markdown'
 
 /**
@@ -42,6 +43,9 @@ export async function handleCallback(ctx: Context) {
 
   // Повторение карточек «Темпа чтения» прямо в чате.
   if (await handleReadingCallback(ctx)) return
+
+  // Ответ на запрос сессии Claude Code из напоминания.
+  if (await handleCockpitCallback(ctx)) return
 
   const { dbUser } = ctx as BotContext
   const parts = data.split(':')

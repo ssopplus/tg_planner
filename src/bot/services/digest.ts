@@ -8,6 +8,7 @@ import { miniAppUrl } from '@/lib/telegram/mini-app-url'
 import { startOfToday } from '@/lib/calendar/format'
 import { InlineKeyboard } from 'grammy'
 import { digestLine } from './calendar-notify'
+import { cockpitDigestLines } from '@/lib/cockpit/digest'
 
 /**
  * Утренний дайджест: день в одном сообщении.
@@ -97,7 +98,12 @@ export async function sendMorningDigest(user: typeof users.$inferSelect) {
     }
   }
 
-  if (inWork.length === 0 && personal.length === 0 && meetings.length === 0) {
+  // dev-cockpit: кто ждёт, что сессии записали в ворклог за вчера и сегодня, начало плана.
+  const yesterday = new Date(new Date(`${today}T12:00:00Z`).getTime() - 86_400_000).toISOString().slice(0, 10)
+  const cockpit = await cockpitDigestLines(user.id, [yesterday, today]).catch(() => [])
+  lines.push(...cockpit)
+
+  if (inWork.length === 0 && personal.length === 0 && meetings.length === 0 && cockpit.length === 0) {
     lines.push('', 'Ни встреч, ни задач в работе, ни дел со сроком на сегодня. Свободный день 🎉')
   }
 

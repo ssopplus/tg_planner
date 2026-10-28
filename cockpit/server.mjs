@@ -540,6 +540,181 @@ function requestsPayload() {
   return { pending: list.filter(r => r.status === 'pending').reverse(), recent: list.filter(r => r.status !== 'pending').slice(0, 30) };
 }
 
+// ---------- правила авторазрешения ----------
+// Запрос, который я раз за разом разрешаю (git status, issue_get…), cockpit предлагает сделать правилом.
+// Правила живут в data/rules.json, а не в ~/.claude/settings.json: хук сам отвечает «разрешить», если
+// под правило подходит каждая часть команды. Пока cockpit выключен, правила не действуют.
+// Подсказки — только для чтения: команды из белого списка, MCP-инструменты с get/find/list в имени,
+// WebFetch по домену. Запись в БД, push, rm и любые произвольные скрипты правилом не становятся.
+const RULES_FILE = path.join(HERE, 'data', 'rules.json');
+let rules = { rules: [], dismissed: [] };
+try { rules = { rules: [], dismissed: [], ...JSON.parse(fs.readFileSync(RULES_FILE, 'utf8')) }; } catch {}
+async function saveRules() {
+  await fsp.mkdir(path.dirname(RULES_FILE), { recursive: true });
+  await fsp.writeFile(RULES_FILE + '.tmp', JSON.stringify(rules, null, 2));
+  await fsp.rename(RULES_FILE + '.tmp', RULES_FILE);
+}
+const autoAllowed = []; // последние авторазрешения — для экрана «Правила»
+
+// Подкоманды, которые можно сделать правилом: '' — сама команда, иначе — команда + подкоманда.
+const READONLY = {
+  '': ['ls', 'cat', 'head', 'tail', 'grep', 'rg', 'wc', 'sort', 'uniq', 'jq', 'echo', 'pwd', 'date', 'which', 'file', 'stat',
+    'du', 'df', 'ps', 'lsof', 'tree', 'diff', 'cut', 'tr', 'basename', 'dirname', 'realpath', 'printf', 'true', 'test'],
+  git: ['status', 'log', 'diff', 'show', 'branch', 'fetch', 'remote', 'rev-parse', 'ls-files', 'blame', 'describe', 'cherry',
+    'merge-base', 'reflog', 'shortlog', 'show-ref', 'rev-list', 'ls-remote', 'grep'],
+  gh: ['pr view', 'pr list', 'pr diff', 'pr checks', 'run list', 'run view', 'issue view', 'issue list', 'repo view'],
+  glab: ['mr view', 'mr list', 'mr diff', 'ci list', 'ci view', 'issue view', 'issue list'],
+  kubectl: ['get', 'describe', 'logs', 'top', 'api-resources', 'version', 'config get-contexts', 'config current-context'],
+  docker: ['ps', 'logs', 'images', 'inspect', 'stats'],
+  pnpm: ['tsc', 'lint', 'eslint', 'test', 'typecheck', 'exec tsc', 'exec eslint', 'run lint', 'run typecheck'],
+  npm: ['run lint', 'run typecheck', 'test', 'ls'],
+  npx: ['tsc', 'eslint', 'prettier --check'],
+  vercel: ['ls', 'list', 'inspect', 'logs', 'env ls'],
+  helm: ['list', 'history', 'status', 'get values', 'get manifest', 'template'],
+  launchctl: ['print', 'list'],
+  brew: ['list', 'info'],
+};
+// Флаги с аргументом перед подкомандой: `git -C путь status`, `kubectl --context x get`.
+const FLAG_ARGS = { git: ['-C', '-c'], kubectl: ['-n', '--namespace', '--context', '--kubeconfig'], pnpm: ['-C', '--dir', '--filter'], helm: ['-n', '--namespace', '--kube-context'] };
+const QUIET_FLAGS = ['-s', '--silent', '-y', '--yes', '--no-pager'];
+// Перенаправления, подстановки, heredoc — такую команду правилом не разрешаем никогда.
+const unsafeBash = cmd => /\$\(|`|<|>|\bsudo\b/.test(cmd.replace(/\d?>\s*\/dev\/null|\d?>&\d/g, ''));
+const bashParts = cmd => cmd.split(/&&|\|\||[;|\n]/).map(x => x.trim()).filter(Boolean);
+// Части без действия: переход в каталог и присваивание переменной.
+const neutralPart = p => /^cd(\s|$)/.test(p) || /^[A-Za-z_]\w*=\S*$/.test(p);
+function normalizePart(part) {
+  const t = part.split(/\s+/);
+  while (t.length > 1 && /^[A-Za-z_]\w*=/.test(t[0])) t.shift();
+  const cmd = path.basename(t[0] || '');
+  const out = [cmd];
+  for (let i = 1; i < t.length; i++) {
+    const tok = t[i];
+    if ((FLAG_ARGS[cmd] || []).includes(tok)) { i++; continue; }
+    if ((FLAG_ARGS[cmd] || []).some(f => f.startsWith('--') && tok.startsWith(f + '='))) continue;
+    if (out.length === 1 && QUIET_FLAGS.includes(tok) && cmd !== 'ls' && cmd !== 'grep') continue;
+    out.push(tok);
+  }
+  return out.join(' ');
+}
+const prefixMatch = (part, prefix) => part === prefix || part.startsWith(prefix + ' ');
+// Префикс для подсказки: команда из белого списка (или команда + подкоманда).
+function candidatePrefix(part) {
+  const cmd = part.split(' ')[0];
+  if (READONLY[''].includes(cmd)) return cmd;
+  return (READONLY[cmd] || []).map(sub => `${cmd} ${sub}`).find(pre => prefixMatch(part, pre)) || null;
+}
+const READ_TOOL = /(^|_)(get|find|list|count|search|describe|show|read)(_|$)/;
+const WRITE_TOOL = /(create|update|delete|add|remove|execute|move|close|run|write|set|insert|query$)/;
+const isReadMcp = t => t.startsWith('mcp__') && READ_TOOL.test(t.split('__').pop()) && !WRITE_TOOL.test(t.split('__').pop());
+const hostOf = u => { try { return new URL(u).hostname; } catch { return null; } };
+const ruleKey = c => `${c.tool}|${c.prefix || ''}|${c.domain || ''}`;
+const ruleLabel = c => c.tool === 'Bash' ? c.prefix : c.tool === 'WebFetch' ? `WebFetch ${c.domain}` : c.tool;
+
+// Кандидаты в правила для одного запроса: части Bash, MCP-инструмент на чтение, домен WebFetch.
+// Bash — только если правилами можно покрыть все части: иначе (ssh '…', python3) правило не поможет.
+function candidatesOf(tool, input) {
+  if (tool === 'Bash') {
+    const cmd = String(input.command || '');
+    if (unsafeBash(cmd)) return [];
+    const prefixes = bashParts(cmd).map(normalizePart).filter(p => !neutralPart(p)).map(candidatePrefix);
+    if (!prefixes.length || prefixes.some(x => !x)) return [];
+    return [...new Set(prefixes)].map(prefix => ({ tool, prefix }));
+  }
+  if (tool === 'WebFetch') { const domain = hostOf(input.url); return domain ? [{ tool, domain }] : []; }
+  return isReadMcp(tool) ? [{ tool }] : [];
+}
+
+// Правила, которые разрешают запрос целиком, или null.
+function matchRules(tool, input) {
+  if (tool === 'Bash') {
+    const cmd = String(input.command || '');
+    if (unsafeBash(cmd)) return null;
+    const parts = bashParts(cmd).map(normalizePart).filter(p => !neutralPart(p));
+    if (!parts.length) return null;
+    const used = [];
+    for (const p of parts) {
+      const r = rules.rules.find(x => x.tool === 'Bash' && prefixMatch(p, x.prefix));
+      if (!r) return null;
+      used.push(r);
+    }
+    return [...new Set(used)];
+  }
+  if (tool === 'WebFetch') { const h = hostOf(input.url); const r = rules.rules.find(x => x.tool === 'WebFetch' && x.domain === h); return r ? [r] : null; }
+  const r = rules.rules.find(x => x.tool === tool && !x.prefix && !x.domain);
+  return r ? [r] : null;
+}
+
+// История запросов из лога хуков: вход (до 2000 символов) берётся из события PermissionRequest,
+// исход — по id из request-answered / -answered-elsewhere / -expired.
+let suggestCache = { at: 0, list: [] };
+async function ruleSuggestions() {
+  if (Date.now() - suggestCache.at < 60_000) return suggestCache.list;
+  const lines = [];
+  for (const f of [HOOK_LOG + '.1', HOOK_LOG]) lines.push(...(await fsp.readFile(f, 'utf8').catch(() => '')).split('\n'));
+  const lastInput = new Map(), byId = new Map();
+  for (const l of lines) {
+    let e; try { e = JSON.parse(l); } catch { continue; }
+    if (e.event === 'PermissionRequest' && e.tool !== 'AskUserQuestion') lastInput.set(e.session, { tool: e.tool, input: e.input });
+    else if (e.event === 'request-open') { const x = lastInput.get(e.session); lastInput.delete(e.session); if (x && x.tool === e.tool) byId.set(e.id, { ...x }); }
+    else if (e.event === 'request-answered' && byId.has(e.id)) byId.get(e.id).outcome = e.behavior === 'deny' ? 'deny' : 'allow';
+    else if (e.event === 'request-answered-elsewhere' && byId.has(e.id)) byId.get(e.id).outcome = 'elsewhere';
+  }
+  const have = new Set([...rules.rules.map(ruleKey), ...rules.dismissed]);
+  const stats = new Map();
+  for (const x of byId.values()) {
+    if (!x.outcome) continue;
+    let input = {};
+    try { input = JSON.parse(x.input || '{}'); } catch {
+      // Вход обрезан — команду достаём регуляркой (поле command идёт первым).
+      const m = /^\{"command":"((?:[^"\\]|\\.)*)/.exec(x.input || '');
+      if (m) try { input = { command: JSON.parse(`"${m[1].replace(/\\$/, '')}"`) }; } catch {}
+    }
+    for (const c of candidatesOf(x.tool, input)) {
+      const k = ruleKey(c);
+      if (have.has(k)) continue;
+      const st = stats.get(k) || { ...c, key: k, label: ruleLabel(c), allow: 0, elsewhere: 0, deny: 0, examples: [] };
+      st[x.outcome]++;
+      const ex = x.tool === 'Bash' ? String(input.command || '') : x.tool === 'WebFetch' ? String(input.url || '') : JSON.stringify(input);
+      if (st.examples.length < 3 && !st.examples.includes(ex.slice(0, 200))) st.examples.push(ex.slice(0, 200));
+      stats.set(k, st);
+    }
+  }
+  const list = [...stats.values()].filter(x => !x.deny && x.allow + x.elsewhere >= 3)
+    .sort((a, b) => b.allow + b.elsewhere - (a.allow + a.elsewhere)).slice(0, 30);
+  suggestCache = { at: Date.now(), list };
+  return list;
+}
+
+function autoAllow(b, used, res) {
+  const now = Date.now();
+  for (const r of used) { r.hits = (r.hits || 0) + 1; r.lastAt = now; }
+  saveRules().catch(e => console.error('[rules]', e.message));
+  const summary = mask(shortArg(b.tool_name, b.tool_input || {})).slice(0, 300);
+  autoAllowed.unshift({ at: now, sessionId: b.session_id, tool: b.tool_name, summary, rules: used.map(r => ruleLabel(r)) });
+  autoAllowed.length = Math.min(autoAllowed.length, 50);
+  hookLog({ event: 'request-auto', session: b.session_id, tool: b.tool_name, rules: used.map(r => r.id) });
+  send(res, 200, { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'allow' } } });
+}
+
+async function rulesAction(b) {
+  if (b.action === 'add') {
+    const c = b.rule || {};
+    // Добавить можно только то, что сам cockpit счёл правилом на чтение.
+    const ok = c.tool === 'Bash' ? candidatePrefix(String(c.prefix || '')) === c.prefix
+      : c.tool === 'WebFetch' ? !!hostOf(`https://${c.domain}/`) && /^[\w.-]+$/.test(String(c.domain || ''))
+        : isReadMcp(String(c.tool || ''));
+    if (!ok) throw new Error('такое правило cockpit не создаёт');
+    const rule = { id: `R${Date.now().toString(36)}`, tool: c.tool, ...(c.prefix ? { prefix: c.prefix } : {}), ...(c.domain ? { domain: c.domain } : {}), createdAt: Date.now(), hits: 0 };
+    if (!rules.rules.some(r => ruleKey(r) === ruleKey(rule))) rules.rules.push(rule);
+  } else if (b.action === 'remove') {
+    rules.rules = rules.rules.filter(r => r.id !== b.id);
+  } else if (b.action === 'dismiss') {
+    if (typeof b.key === 'string' && !rules.dismissed.includes(b.key)) rules.dismissed.push(b.key.slice(0, 300));
+  } else throw new Error('неизвестное действие');
+  await saveRules();
+  suggestCache.at = 0;
+}
+
 // ---------- свободный текст в сессию ----------
 // Межсессионный сокет Claude Code: JSON-строка {"type":"user",...} в messagingSocketPath из
 // ~/.claude/sessions/<pid>.json. Формат не задокументирован (взят из подсказки в коде CLI),
@@ -890,6 +1065,64 @@ async function sessionSummary(a, cfg) {
   return s;
 }
 
+// Задача закрыта в Трекере (резолюция или статус «Закрыт»/«Отменено»).
+const issueClosed = st => !!st && (!!st.resolution || ['done', 'cancelled'].includes(st.type));
+const sessionKeys = s => [...new Set([s.taskKey, ...(s.tasks || []).map(t => t.issue)].filter(Boolean))];
+const notePlansDone = s => (s.tasks || []).filter(t => t.total).every(t => t.done === t.total);
+
+// Сессия своё сделала: задачи на ревью или закрыты, либо план заметки выполнен целиком.
+function sessionFinished(s) {
+  const keys = sessionKeys(s);
+  if (!keys.length) return false;
+  const byTracker = keys.every(k => issueClosed(s.trackerStatus?.[k]) || s.trackerStatus?.[k]?.type === 'review');
+  const withPlan = (s.tasks || []).some(t => t.total);
+  return byTracker || (withPlan && notePlansDone(s));
+}
+
+// Можно закрыть: задачи закрыты в Трекере, план заметки выполнен (или его нет), сессия ничего не ждёт.
+function sessionClosable(s) {
+  const keys = sessionKeys(s);
+  return keys.length > 0 && keys.every(k => issueClosed(s.trackerStatus?.[k])) && notePlansDone(s)
+    && s.status === 'idle' && !s.requests?.length;
+}
+
+// Следующая задача из плана проекта: открытая, не текущая и без своей живой сессии.
+function nextFromPlan(s, all) {
+  const keys = plan.projects[s.project] || [];
+  if (!keys.length) return null;
+  const info = new Map((planSnapshot?.projects.find(p => p.project === s.project)?.issues || []).map(i => [i.key, i]));
+  const busy = new Set(all.flatMap(sessionKeys));
+  const key = keys.find(k => !busy.has(k) && !(info.get(k) && (info.get(k).resolved || ['done', 'cancelled'].includes(info.get(k).status?.type))));
+  return key ? { key, summary: info.get(key)?.summary || '' } : null;
+}
+
+// Снимок плана нужен и без синка — для «дальше по плану» в самом cockpit.
+function ensurePlanSnapshot() {
+  if (!planSnapshotBusy && (planSnapshotVersion !== planVersion || Date.now() - planSnapshotAt > PLAN_SNAPSHOT_MS)) {
+    refreshPlanSnapshot().then(() => kickSync());
+  }
+}
+
+// «Закрыть»: фоновую — claude stop (переписка остаётся, `claude attach`), вкладку VS Code — завершить
+// её процесс claude (вкладка покажет отключение, сессию можно продолжить из истории).
+async function closeSession(sessionId) {
+  const a = (await liveAgents()).find(x => x.sessionId === sessionId);
+  if (!a) throw new Error('сессия уже закрыта');
+  const pendingHere = [...requests.values()].some(r => r.sessionId === sessionId && r.status === 'pending');
+  if (pendingHere) throw new Error('у сессии есть запрос без ответа');
+  const st = a.kind === 'background' ? backgroundStatus(a).status : a.status;
+  if (st === 'busy') throw new Error('сессия сейчас работает');
+  if (a.kind === 'background') {
+    const env = { ...process.env };
+    delete env.ANTHROPIC_API_KEY;
+    await pexec(CLAUDE_BIN, ['stop', a.id], { env, timeout: 30_000 });
+  } else if (a.pid) {
+    process.kill(a.pid, 'SIGTERM');
+  } else throw new Error('у сессии нет процесса');
+  agentsCache.at = 0;
+  hookLog({ event: 'session-closed', session: sessionId, kind: a.kind });
+}
+
 async function sessionsPayload() {
   const cfg = loadProjectsConfig();
   const agents = await liveAgents();
@@ -904,6 +1137,12 @@ async function sessionsPayload() {
     s.requests = pending.filter(r => r.sessionId === s.sessionId);
     // Режим из запроса свежее транскрипта: хук получает его в момент вопроса.
     if (s.requests[0]?.mode) s.permissionMode = s.requests[0].mode;
+  }
+  ensurePlanSnapshot();
+  for (const s of sessions) {
+    s.finished = sessionFinished(s);
+    s.next = s.finished ? nextFromPlan(s, sessions) : null;
+    s.closable = sessionClosable(s);
   }
   return { at: Date.now(), sessions, projects, queues: cfg.queues || {}, pending, sync: syncStatus, planVersion };
 }
@@ -1051,6 +1290,10 @@ async function runCommand(c) {
       await moveToVSCode(a);
       return { id: c.id, ok: true, output: 'сессия открыта в VS Code' };
     }
+    if (c.kind === 'close-session') {
+      await closeSession(c.sessionId);
+      return { id: c.id, ok: true, output: 'сессия закрыта' };
+    }
     if (c.kind === 'plan-set') {
       const keys = await setProjectPlan(c.payload?.project, c.payload?.keys);
       hookLog({ event: 'plan-set', project: c.payload?.project, keys: keys.length });
@@ -1089,6 +1332,15 @@ const mask = s => SECRET_RES.reduce((acc, [re, to]) => acc.replace(re, to), Stri
 const maskDeep = v => (typeof v === 'string' ? mask(v) : Array.isArray(v) ? v.map(maskDeep)
   : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, maskDeep(x)])) : v);
 
+// Сколько секунд к Маку не прикасались (клавиатура, мышь) — по нему tg-planer решает, писать ли в бот.
+async function machineIdleSec() {
+  try {
+    const { stdout } = await pexec('ioreg', ['-c', 'IOHIDSystem', '-d', '4'], { timeout: 5000, maxBuffer: 5e6 });
+    const m = /"HIDIdleTime" = (\d+)/.exec(stdout);
+    return m ? Math.round(Number(m[1]) / 1e9) : null;
+  } catch { return null; }
+}
+
 function loadSyncConfig() {
   try {
     const c = JSON.parse(fs.readFileSync(SYNC_FILE, 'utf8'));
@@ -1112,6 +1364,8 @@ async function syncTick() {
     waitingFor: s.waitingFor || null,
     background: s.kind === 'background',
     tasks: taskSnapshot(s, await notesForSession(s.sessionId, s.taskKey)),
+    next: s.next || null,
+    closable: !!s.closable,
     updatedAt: new Date(s.lastActivity || Date.now()).toISOString(),
   })));
   // Снимок — только когда изменился (и раз в 5 мин); между ними лёгкий опрос раз в 10 с, чтобы
@@ -1121,9 +1375,7 @@ async function syncTick() {
   const full = hash !== syncLastHash || now - syncLastFull > SYNC_FULL_MS;
   // План собирается в фоне (Трекер бывает медленным) и уходит, когда снимок изменился, — и повторно раз в
   // 5 мин: сервер мог его не сохранить (например, пришёл в старую сборку во время деплоя).
-  if (!planSnapshotBusy && (planSnapshotVersion !== planVersion || now - planSnapshotAt > PLAN_SNAPSHOT_MS)) {
-    refreshPlanSnapshot().then(kickSync);
-  }
+  ensurePlanSnapshot();
   const planHash = planSnapshot ? createHash('sha1').update(JSON.stringify(planSnapshot)).digest('hex') : '';
   const sendPlan = !!planSnapshot && (planHash !== planSentHash || now - planSentAt > SYNC_FULL_MS);
   const transcripts = [];
@@ -1136,6 +1388,7 @@ async function syncTick() {
   if (!full && !sendPlan && !pending.length && !commandResults.length && !transcripts.length && now - syncLastSent < (watched.size ? SYNC_FAST_MS : SYNC_POLL_MS)) return SYNC_CHECK_MS;
   const results = commandResults.splice(0);
   const body = {
+    idleSec: await machineIdleSec(),
     ...(full ? { sessions: snapshot } : {}),
     ...(sendPlan ? { plan: planSnapshot } : {}),
     commandResults: results,
@@ -1228,12 +1481,27 @@ const server = http.createServer(async (req, res) => {
       await hookLog({
         event: b.hook_event_name, session: b.session_id, tool: b.tool_name,
         notification: b.notification_type, message: b.message, mode: b.permission_mode,
-        input: b.tool_input ? JSON.stringify(b.tool_input).slice(0, 500) : undefined,
+        input: b.tool_input ? JSON.stringify(b.tool_input).slice(0, 2000) : undefined,
       });
       if (b.hook_event_name !== 'PermissionRequest' || !b.session_id) return send(res, 200, {});
+      const used = b.tool_name !== 'AskUserQuestion' && matchRules(b.tool_name, b.tool_input || {});
+      if (used) return autoAllow(b, used, res);
       return holdPermission(b, res);
     }
     if (url.pathname === '/api/requests') return send(res, 200, requestsPayload());
+    if (url.pathname === '/api/rules' && req.method === 'GET') {
+      return send(res, 200, { rules: rules.rules, suggestions: await ruleSuggestions(), recent: autoAllowed });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/rules') {
+      if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
+      try { await rulesAction(await readJson(req)); return send(res, 200, { ok: true, rules: rules.rules }); }
+      catch (e) { return send(res, 400, { error: e.message }); }
+    }
+    if (req.method === 'POST' && url.pathname === '/api/sessions/close') {
+      if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
+      try { await closeSession(String((await readJson(req)).sessionId || '')); return send(res, 200, { ok: true }); }
+      catch (e) { return send(res, 409, { error: e.message }); }
+    }
     if (url.pathname === '/api/issue') {
       const key = String(url.searchParams.get('key') || '').toUpperCase();
       if (!/^[A-Z][A-Z0-9]{1,15}-\d{1,6}$/.test(key)) return send(res, 400, { error: 'неверный ключ задачи' });

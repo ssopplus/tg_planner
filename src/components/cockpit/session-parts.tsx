@@ -29,12 +29,14 @@ export interface Session {
   permissionMode?: string | null
   waitingFor?: string | null
   background?: boolean
+  next?: { key: string; summary: string } | null
+  closable?: boolean
   updatedAt: string
 }
 
 export interface Command {
   id: string
-  kind: 'message' | 'start-task' | 'to-vscode'
+  kind: 'message' | 'start-task' | 'to-vscode' | 'close-session'
   sessionId: string | null
   payload: { text?: string; issueKey?: string; imageCount?: number }
   status: 'pending' | 'sent' | 'done' | 'failed'
@@ -294,6 +296,43 @@ export function MoveToVSCode({ sessionId, commands, onSent }: { sessionId: strin
           вкладке Claude.
         </p>
       )}
+      {error ? <p className="text-[11px] text-red-500">{error}</p> : null}
+    </div>
+  )
+}
+
+/**
+ * Закрыть сессию: cockpit останавливает фоновую (`claude stop`) или завершает
+ * процесс вкладки VS Code. Переписка остаётся — её можно продолжить из истории.
+ */
+export function CloseSession({ sessionId, commands, onSent }: { sessionId: string; commands: Command[]; onSent: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const last = commands.find((c) => c.kind === 'close-session')
+  const inFlight = last && (last.status === 'pending' || last.status === 'sent')
+  const close = async () => {
+    if (!(await webAppConfirm('Закрыть сессию на Маке? Вкладка VS Code покажет отключение, переписка сохранится.'))) return
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await apiFetch('/api/cockpit/commands', { method: 'POST', body: JSON.stringify({ kind: 'close-session', sessionId }) })
+      if (!res.ok) setError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? 'Ошибка')
+      onSent()
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <button type="button" disabled={busy || !!inFlight} onClick={close} className={`${chip} ${text} w-fit disabled:opacity-50`}>
+        ✕ Закрыть сессию
+      </button>
+      {last ? (
+        <p className={`text-[11px] ${last.status === 'failed' ? 'text-red-500' : hint}`}>
+          {last.status === 'done' ? 'Сессия закрыта' : COMMAND_STATUS[last.status]}
+          {last.result?.error ? `: ${last.result.error}` : ''}
+        </p>
+      ) : null}
       {error ? <p className="text-[11px] text-red-500">{error}</p> : null}
     </div>
   )

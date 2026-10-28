@@ -12,6 +12,7 @@ import {
   hint,
   markSeen,
   ModeChip,
+  CloseSession,
   MoveToVSCode,
   RequestCard,
   STATUS,
@@ -22,6 +23,7 @@ import {
   type Request,
   type Session,
 } from '@/components/cockpit/session-parts'
+import { NextFromPlan } from '@/components/cockpit/next-from-plan'
 import type { CockpitChatItem } from '@/lib/db/schema'
 
 interface SessionData {
@@ -150,7 +152,11 @@ export default function SessionPage() {
         </div>
       </div>
 
+      {s?.next ? <NextFromPlan next={s.next} /> : null}
       {s?.background ? <MoveToVSCode sessionId={id} commands={data?.commands ?? []} onSent={load} /> : null}
+      {s && s.status === 'idle' && !data?.requests.length ? (
+        <CloseSession sessionId={id} commands={data?.commands ?? []} onSent={load} />
+      ) : null}
 
       {s?.waitingFor ? (
         <p className="rounded-xl border border-amber-400 p-2.5 text-[13px] leading-snug text-amber-600">⏳ Ждёт {s.waitingFor}</p>

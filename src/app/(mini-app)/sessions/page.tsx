@@ -6,9 +6,11 @@ import { Search } from 'lucide-react'
 import { apiFetch } from '@/lib/telegram/webapp'
 import { EmptyState } from '@/components/ui/empty-state'
 import { TabStrip } from '@/components/ui/tab-strip'
+import { NextFromPlan } from '@/components/cockpit/next-from-plan'
 import {
   card,
   chip,
+  CloseSession,
   Composer,
   hint,
   MoveToVSCode,
@@ -452,6 +454,7 @@ function SessionCard({
         {!compact
           ? tasks.map((t) => <PlanBar key={t.issue ?? t.title} t={t} showKey={tasks.filter((x) => x.todo.length).length > 1} />)
           : null}
+        {s.closable && !open ? <span className="text-[12px] text-green-600">✓ задача закрыта — сессию можно закрыть</span> : null}
         {request ? (
           <span className="truncate text-[12px] font-medium text-amber-600">
             {request.kind === 'question' ? '❓ вопрос' : `🔐 ${request.toolName}`}: {request.summary}
@@ -487,7 +490,9 @@ function SessionCard({
               </button>
             ) : null}
           </div>
+          {s.next ? <NextFromPlan next={s.next} /> : null}
           {s.background ? <MoveToVSCode sessionId={s.id} commands={commands} onSent={onSent} /> : null}
+          {s.closable ? <CloseSession sessionId={s.id} commands={commands} onSent={onSent} /> : null}
           {tasks.map((t) => (
             <TaskDetail key={t.issue ?? t.title} t={t} />
           ))}

@@ -566,6 +566,10 @@ export type CockpitSessionSnapshot = {
   waitingFor?: string | null
   /** Фоновая сессия (`claude --bg`): в VS Code её открывает только «Перенести в VS Code». */
   background?: boolean
+  /** Сессия своё сделала — следующая задача из плана проекта, которую можно взять. */
+  next?: { key: string; summary: string } | null
+  /** Задача закрыта в Трекере, план заметки выполнен, сессия ничего не ждёт — можно закрыть. */
+  closable?: boolean
   updatedAt: string
 }
 
@@ -671,8 +675,9 @@ export const cockpitRequests = pgTable(
     /** Когда cockpit забрал решение — до этого оно ещё не дошло до сессии. */
     deliveredAt: timestamp('delivered_at'),
     /**
-     * Сообщение бота с кнопками. С 21.10.2026 запросы в чат не пишутся — вся
-     * работа в Mini App; колонки остались от первой версии и не заполняются.
+     * Напоминание бота о запросе (`lib/cockpit/notify.ts`): уходит, только если запрос
+     * ждёт дольше 10 мин, а к Маку столько же не прикасались. Когда запрос закрыт,
+     * сообщение удаляется, колонки обнуляются.
      */
     chatId: text('chat_id'),
     messageId: integer('message_id'),

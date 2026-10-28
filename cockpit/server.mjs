@@ -1140,6 +1140,8 @@ async function sessionsPayload() {
   }
   ensurePlanSnapshot();
   for (const s of sessions) {
+    // Все задачи сессии закрыты в Трекере — на доске это колонка «Завершено».
+    s.taskClosed = sessionKeys(s).length > 0 && sessionKeys(s).every(k => issueClosed(s.trackerStatus?.[k]));
     s.finished = sessionFinished(s);
     s.next = s.finished ? nextFromPlan(s, sessions) : null;
     s.closable = sessionClosable(s);

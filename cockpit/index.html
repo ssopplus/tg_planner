@@ -302,6 +302,18 @@ pre.diff .m { color: var(--muted); font-weight: 600; }
 .req .rh a, .req .rh a:visited { color: var(--accent); font-weight: 600; text-decoration: none; }
 .req .rh a:hover { text-decoration: underline; }
 .req pre { margin: 0 0 8px; background: var(--code-bg); border-radius: 6px; padding: 8px 10px; font: 12px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto; }
+.req .ctx { margin: 0 0 6px; padding: 6px 10px; border-left: 2px solid var(--line); color: var(--muted); font-size: 12.5px; white-space: pre-wrap; word-break: break-word; cursor: pointer;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.req .ctx.open { display: block; -webkit-line-clamp: unset; max-height: 320px; overflow: auto; }
+.req .ctxbtn { cursor: help; opacity: .75; font-size: 14px; }
+.req .ctxbtn:hover { opacity: 1; }
+#ctxPop { position: fixed; z-index: 50; width: min(560px, calc(100vw - 32px)); max-height: min(520px, 70vh); overflow: auto; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.35); padding: 10px 12px; font-size: 13px; display: none; }
+#ctxPop .cm { padding: 6px 0; border-bottom: 1px solid var(--line); }
+#ctxPop .cm:last-child { border-bottom: 0; }
+#ctxPop .cm .who { color: var(--muted); font-size: 11.5px; margin-bottom: 2px; }
+#ctxPop .cm.user .who { color: var(--accent); }
+#ctxPop .cm p { margin: 4px 0; }
 .req .q { font-weight: 600; margin: 6px 0 4px; }
 .req .opt { display: flex; gap: 8px; align-items: flex-start; padding: 3px 6px; border-radius: 6px; cursor: pointer; }
 .req .opt:hover { background: var(--accent-soft); }
@@ -626,11 +638,66 @@ function modeSelect(r) {
     <select class="${cur ? 'on' : ''}" data-draft-text="${r.id}|mode"><option value="">режим не менять</option>${opts}</select></label>`;
 }
 
+// Контекст запроса: развёрнутые реплики (переживают перерисовку) и всплывающее окно с хвостом переписки.
+const ctxOpen = new Set();
+const ctxCache = new Map(); // sessionId -> { at, html }
+let ctxFor = null, ctxHideTimer = null;
+function ctxPop() {
+  let el = document.getElementById('ctxPop');
+  if (!el) { el = document.createElement('div'); el.id = 'ctxPop'; document.body.append(el); }
+  return el;
+}
+function placeCtx(el, anchor) {
+  const a = anchor.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight;
+  let left = Math.min(a.left, innerWidth - w - 16), top = a.bottom + 6;
+  if (top + h > innerHeight - 8) top = Math.max(8, a.top - h - 6);
+  el.style.left = Math.max(16, left) + 'px'; el.style.top = top + 'px';
+}
+async function showCtx(anchor) {
+  const id = anchor.dataset.ctx, el = ctxPop();
+  clearTimeout(ctxHideTimer);
+  if (ctxFor === id && el.style.display === 'block') return;
+  ctxFor = id;
+  const hit = ctxCache.get(id);
+  el.innerHTML = hit ? hit.html : '<div class="muted">Загружаю…</div>';
+  el.style.display = 'block'; placeCtx(el, anchor);
+  if (hit && Date.now() - hit.at < 10_000) return;
+  try {
+    const r = await fetch(`/api/context?id=${encodeURIComponent(id)}&n=8`);
+    const d = await r.json();
+    const html = (d.items || []).map(m => `<div class="cm ${m.kind}">
+      <div class="who">${m.kind === 'user' ? (m.via === 'cockpit' ? 'Я · из cockpit' : m.via === 'peer' ? 'Соседняя сессия' : 'Я') : 'Claude'} · ${hhmm(m.ts)}${m.toolsAfter ? ` · дальше ${m.toolsAfter} действ.` : ''}</div>
+      ${m.kind === 'assistant' ? md(m.text) : `<div style="white-space:pre-wrap">${esc(m.text)}</div>`}</div>`).join('') || '<div class="muted">Сообщений нет</div>';
+    ctxCache.set(id, { at: Date.now(), html });
+    if (ctxFor === id) { el.innerHTML = html; el.scrollTop = el.scrollHeight; placeCtx(el, anchor); }
+  } catch { if (ctxFor === id) el.innerHTML = '<div class="muted">Не удалось загрузить</div>'; }
+}
+function hideCtxSoon() {
+  clearTimeout(ctxHideTimer);
+  ctxHideTimer = setTimeout(() => { ctxPop().style.display = 'none'; ctxFor = null; }, 250);
+}
+document.addEventListener('mouseover', e => {
+  const b = e.target.closest?.('[data-ctx]');
+  if (b) return showCtx(b);
+  if (e.target.closest?.('#ctxPop')) return clearTimeout(ctxHideTimer);
+  if (ctxFor) hideCtxSoon();
+});
+document.addEventListener('click', e => {
+  const b = e.target.closest?.('[data-ctx]');
+  if (b) { e.stopPropagation(); return ctxFor === b.dataset.ctx ? hideCtxSoon() : showCtx(b); }
+  const t = e.target.closest?.('[data-ctx-toggle]');
+  if (t) { const id = t.dataset.ctxToggle; ctxOpen.has(id) ? ctxOpen.delete(id) : ctxOpen.add(id); t.classList.toggle('open'); return; }
+  if (ctxFor && !e.target.closest?.('#ctxPop')) hideCtxSoon();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && ctxFor) hideCtxSoon(); });
+
 function requestHtml(r, opts = {}) {
   const s = sessions.find(x => x.sessionId === r.sessionId);
   const head = `<div class="rh">${r.kind === 'question' ? '❓' : '🔐'} <b>${esc(r.kind === 'question' ? 'Claude спрашивает' : r.tool)}</b>
     ${opts.withSession && s ? `<a href="#/session/${esc(r.sessionId)}">${esc(s.title)}</a> <span class="chip">${esc(s.project)}</span>` : ''}
-    <span class="time">${ago(r.createdAt)} назад</span>${modeChip(r.mode)}</div>`;
+    <span class="time">${ago(r.createdAt)} назад</span>${modeChip(r.mode)}
+    ${opts.withSession ? `<span class="ctxbtn" data-ctx="${esc(r.sessionId)}" title="Последние сообщения сессии">💬</span>` : ''}</div>
+    ${opts.withSession && s?.lastAssistant ? `<div class="ctx${ctxOpen.has(r.id) ? ' open' : ''}" data-ctx-toggle="${r.id}" title="Последняя реплика Claude перед запросом — клик разворачивает">${esc(s.lastAssistant)}</div>` : ''}`;
   if (r.kind === 'question') {
     const qs = (r.input.questions || []).map((q, qi) => {
       const picked = drafts[`${r.id}|${qi}`] || [];

@@ -1205,6 +1205,25 @@ async function transcriptFor(sessionId) {
   });
 }
 
+// Последние реплики сессии для всплывающего окна у запроса: только текст, действия Claude между
+// репликами — числом. Пока запрос ждёт ответа, сессия стоит, так что хвост — это контекст вопроса.
+async function recentContext(sessionId, n) {
+  const p = await findTranscript(sessionId);
+  const st = p ? await readTranscript(p) : null;
+  if (!st) return null;
+  const out = [];
+  let tools = 0;
+  for (let i = st.chat.length - 1; i >= 0 && out.length < Math.min(Math.max(n, 1), 20); i--) {
+    const it = st.chat[i];
+    if (it.kind === 'tool') { tools++; continue; }
+    if (it.kind !== 'user' && it.kind !== 'assistant') continue;
+    const t = it.text || '';
+    out.push({ kind: it.kind, ts: it.ts, via: it.via, toolsAfter: tools, text: mask(t.length > 2000 ? t.slice(0, 2000) + '\n…' : t) });
+    tools = 0;
+  }
+  return { items: out.reverse() };
+}
+
 // Каталог, где запускаются новые сессии по задаче: там CLAUDE.md, .mcp.json и vault.
 const TASK_CWD = process.env.COCKPIT_TASK_CWD || path.dirname(VAULT);
 
@@ -1717,6 +1736,10 @@ const server = http.createServer(async (req, res) => {
       const used = b.tool_name !== 'AskUserQuestion' && matchRules(b.tool_name, b.tool_input || {});
       if (used) return autoAllow(b, used, res);
       return holdPermission(b, res);
+    }
+    if (url.pathname === '/api/context') {
+      const c = await recentContext(url.searchParams.get('id'), Number(url.searchParams.get('n') || 8));
+      return c ? send(res, 200, c) : send(res, 404, { error: 'session not found' });
     }
     if (url.pathname === '/api/requests') return send(res, 200, requestsPayload());
     if (url.pathname === '/api/day' && req.method === 'GET') {

@@ -123,8 +123,11 @@ header input[type=search] { width: 240px; }
 .card .foot { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 
 /* ---------- входящие ---------- */
-.inbox { max-width: 980px; margin: 0 auto; padding: 16px; }
+.inbox { max-width: 1560px; margin: 0 auto; padding: 16px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 .inbox h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 18px 0 8px; }
+/* Правая колонка — всё, что ждёт моего действия; держится на экране, пока листаешь левую. */
+.inbox .icol.act { position: sticky; top: 0; max-height: calc(100vh - 70px); overflow-y: auto; }
+.inbox .icol.act.has { border-left: 3px solid var(--wait); padding-left: 14px; }
 .irow { display: grid; grid-template-columns: 14px 1fr auto; gap: 10px; align-items: start; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; }
 .irow:hover { border-color: var(--accent); }
 .irow .dot { margin-top: 6px; }
@@ -361,6 +364,7 @@ button.pf.on { background: var(--accent-soft); border-color: var(--accent); colo
 @media (max-width: 900px) { .pl-grid { grid-template-columns: 1fr; } .pl-col.mine { position: static; max-height: none; } }
 
 @media (max-width: 1100px) { .cols { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sess { grid-template-columns: 1fr; height: auto; } .side { border-left: 0; border-top: 1px solid var(--line); } .chat { overflow: visible; } }
+@media (max-width: 1000px) { .inbox { grid-template-columns: 1fr; } .inbox .icol.act { order: -1; position: static; max-height: none; } }
 @media (max-width: 640px) { .cols, .cols.nocold { grid-template-columns: 1fr; } header { flex-wrap: wrap; } header input[type=search] { width: 100%; order: 9; } }
 </style>
 </head>
@@ -754,14 +758,19 @@ function renderInbox() {
       <div class="ex">${lane === 'waiting' ? `<b style="color:var(--wait)">⏳ ${esc(s.waitingFor || 'ждёт ответа')}.</b> ` : ''}${esc(plain(s.lastAssistant || s.lastPrompt).slice(0, 400))}</div></div>
     <div class="side"><span class="time">${ago(s.lastActivity)}</span>${lane === 'review' ? `<button class="ghost" data-seen="${s.sessionId}">✓ просмотрено</button>` : ''}</div>
   </div>`;
-  const app = $('#app'); const scroll = app.scrollTop;
+  const app = $('#app'); const scroll = app.scrollTop; const actScroll = app.querySelector('.icol.act')?.scrollTop || 0;
+  // Слева — то, что идёт само (работают, закончили); справа — то, что ждёт моего действия.
   app.innerHTML = `<div class="inbox">
-    ${pending.length ? `<h2>Запросы разрешений и вопросы · ${pending.length}</h2>${pending.map(r => requestHtml(r, { withSession: true })).join('')}` : ''}
-    <h2>Ждут моего ответа · ${waiting.length}</h2>${waiting.map(s => row(s, 'waiting')).join('') || '<div class="muted">Никто не ждёт 🎉</div>'}
-    <h2>Работают сейчас · ${busy.length}</h2>${busy.map(s => row(s, 'busy')).join('') || '<div class="muted">—</div>'}
-    <h2>Закончили, не смотрел · ${review.length} ${review.length ? '<button class="ghost" id="seenAll">отметить все</button>' : ''}</h2>${review.map(s => row(s, 'review')).join('') || '<div class="muted">Всё просмотрено</div>'}
+    <div class="icol">
+      <h2>Работают сейчас · ${busy.length}</h2>${busy.map(s => row(s, 'busy')).join('') || '<div class="muted">—</div>'}
+      <h2>Закончили, не смотрел · ${review.length} ${review.length ? '<button class="ghost" id="seenAll">отметить все</button>' : ''}</h2>${review.map(s => row(s, 'review')).join('') || '<div class="muted">Всё просмотрено</div>'}
+    </div>
+    <div class="icol act${pending.length || waiting.length ? ' has' : ''}">
+      ${pending.length ? `<h2>Запросы разрешений и вопросы · ${pending.length}</h2>${pending.map(r => requestHtml(r, { withSession: true })).join('')}` : ''}
+      <h2>Ждут моего ответа · ${waiting.length}</h2>${waiting.map(s => row(s, 'waiting')).join('') || '<div class="muted">Никто не ждёт 🎉</div>'}
+    </div>
   </div>`;
-  app.scrollTop = scroll;
+  app.scrollTop = scroll; app.querySelector('.icol.act').scrollTop = actScroll;
 }
 
 // «Дальше по плану» (сессия своё сделала) и «закрыть» (задача закрыта, план выполнен).

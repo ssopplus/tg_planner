@@ -322,6 +322,32 @@ button.deny { color: var(--del); }
 .composer .sendcol { display: flex; flex-direction: column; gap: 6px; }
 .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 6px 14px; border-radius: 8px; font-size: 12.5px; z-index: 20; }
 
+/* ---------- сутки ---------- */
+.day { max-width: 1560px; margin: 0 auto; padding: 16px; }
+.day-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px; margin-bottom: 14px; }
+.day-head .range { font-size: 18px; font-weight: 700; }
+.day-head .tot b { font-size: 15px; }
+.day-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); gap: 10px; align-items: start; }
+.dcard { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+.dcard.done { border-left: 3px solid #22c55e; }
+.dcard .dt { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.dcard .dt .tkey { font-weight: 700; color: var(--accent); text-decoration: none; }
+.dcard .dt .tkey:hover { text-decoration: underline; }
+.dcard .dt .hrs { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+.dcard .sum { margin: 4px 0 2px; font-weight: 500; }
+.dcard .trs { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.dcard .trs b { color: var(--text); font-weight: 600; }
+.dcard .wl { font-size: 12.5px; margin-top: 6px; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.dcard .wl.open { display: block; }
+.dcard .wl .lbl { color: var(--muted); }
+.dcard details { margin-top: 6px; font-size: 12px; }
+.dcard summary { cursor: pointer; color: var(--muted); }
+.dcard .cm { display: grid; grid-template-columns: auto auto 1fr; gap: 2px 8px; margin-top: 4px; }
+.dcard .cm code { font-size: 11.5px; color: var(--muted); }
+.dcard .sess { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.dcard .sess a { text-decoration: none; }
+.day h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 22px 0 8px; }
+
 /* ---------- план ---------- */
 .planpage { max-width: 1400px; margin: 0 auto; padding: 16px; }
 .pl-projects { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 14px; }
@@ -367,6 +393,7 @@ button.pf.on { background: var(--accent-soft); border-color: var(--accent); colo
 @media (max-width: 900px) { .pl-grid { grid-template-columns: 1fr; } .pl-col.mine { position: static; max-height: none; } }
 
 @media (max-width: 1100px) { .cols { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sess { grid-template-columns: 1fr; height: auto; } .side { border-left: 0; border-top: 1px solid var(--line); } .chat { overflow: visible; } }
+@media (max-width: 1000px) { .day-grid { grid-template-columns: 1fr; } }
 @media (max-width: 1000px) { .inbox { grid-template-columns: 1fr; } .inbox .icol.act { order: -1; position: static; max-height: none; } }
 @media (max-width: 640px) { .cols, .cols.nocold { grid-template-columns: 1fr; } header { flex-wrap: wrap; } header input[type=search] { width: 100%; order: 9; } }
 </style>
@@ -379,6 +406,7 @@ button.pf.on { background: var(--accent-soft); border-color: var(--accent); colo
     <a href="#/inbox" data-view="inbox">Входящие <span id="inboxBadge"></span></a>
     <a href="#/plan" data-view="plan">План</a>
     <a href="#/rules" data-view="rules">Правила <span id="rulesBadge"></span></a>
+    <a href="#/day" data-view="day" title="Что сделано за сутки с 12:00 до 12:00 МСК">Сутки</a>
   </nav>
   <span id="stale"></span>
   <div class="spacer"></div>
@@ -534,6 +562,7 @@ async function poll() {
 function render(force) {
   if (!force && typingInRequest()) return;
   const r = route();
+  if (r.view !== 'day') delete $('#app').dataset.dayHtml;
   document.querySelectorAll('nav a').forEach(a => a.classList.toggle('on', a.dataset.view === r.view));
   const inboxN = sessions.filter(s => laneOf(s) === 'waiting' || toReview(s)).length;
   if (pending.length && notifyOn) for (const r of pending) if (!notified.has(r.id)) { notified.add(r.id); new Notification(`${r.kind === 'question' ? 'Вопрос' : 'Разрешение'}: ${sessions.find(x => x.sessionId === r.sessionId)?.title || ''}`, { body: reqSummary(r).slice(0, 200), tag: r.id }); }
@@ -551,7 +580,10 @@ function render(force) {
     ${sessions.some(s => s.closable) ? `<button class="ghost" id="closeAll" title="Задача закрыта в Трекере и план заметки выполнен">✕ закрыть готовые (${sessions.filter(s => s.closable).length})</button>` : ''}`
     : r.view === 'plan' ? `
     <span class="seg"><button data-plan-scope="mine" class="${planScope === 'mine' ? 'on' : ''}" title="Открытые задачи, где я исполнитель, и заведённые мной без исполнителя">Мои</button><button data-plan-scope="all" class="${planScope === 'all' ? 'on' : ''}" title="Все открытые задачи очередей проекта">Все открытые</button></span>
-    <button class="ghost" data-plan-refresh title="Перечитать задачи из Трекера">↻</button>` : '';
+    <button class="ghost" data-plan-refresh title="Перечитать задачи из Трекера">↻</button>`
+    : r.view === 'day' ? `
+    <span class="seg"><button data-day-shift="-1" title="Предыдущие сутки">‹</button><button data-day-shift="0" title="Текущие сутки">сейчас</button><button data-day-shift="1" title="Следующие сутки">›</button></span>
+    <button class="ghost" data-day-refresh title="Пересчитать сейчас (сам пересчёт идёт раз в час)">↻</button>` : '';
   $('#notifyBtn').textContent = notifyOn ? '🔔' : '🔕';
   if (r.view === 'session') return renderSession(r.id, force);
   sessView = null;
@@ -561,6 +593,7 @@ function render(force) {
   if (Date.now() - rulesAt > (r.view === 'rules' ? 15_000 : 120_000)) loadRules();
   $('#rulesBadge').innerHTML = rulesData?.suggestions.length ? `<span class="badge">${rulesData.suggestions.length}</span>` : '';
   if (r.view === 'rules') return renderRules();
+  if (r.view === 'day') return renderDay(r.id);
   if (r.view === 'inbox') return renderInbox();
   return renderBoard();
 }
@@ -805,6 +838,85 @@ async function rulesAction(body) {
   try { await post('/api/rules', body); rulesAt = 0; loadRules(); }
   catch (e) { toast('Не вышло: ' + e.message); }
 }
+// ---------- сутки 12:00–12:00 МСК ----------
+// Сервер пересчитывает текущие сутки раз в час (↻ — сразу), прошедшие — один раз. Здесь только
+// перечитываем ответ раз в 10 минут, чтобы подхватить часовой пересчёт.
+const dayData = {}; // date|'' -> { at, data, loading, error }
+let currentDay = '';
+const fmtH = ms => { const m = Math.round(ms / 60e3); return m < 60 ? `${m} мин` : `${Math.floor(m / 60)} ч${m % 60 ? ` ${m % 60} мин` : ''}`; };
+const fmtDT = ts => new Date(ts).toLocaleString('ru', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
+const shiftDate = (d, n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86400e3).toISOString().slice(0, 10);
+
+async function loadDay(date, fresh) {
+  const k = date || '';
+  const st = dayData[k] ||= {};
+  if (st.loading) return;
+  st.loading = true; st.error = null;
+  if (route().view === 'day') renderDay(route().id);
+  try {
+    const res = await fetch(`/api/day?${new URLSearchParams({ ...(date ? { date } : {}), ...(fresh ? { fresh: '1' } : {}) })}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    st.data = data; st.at = Date.now();
+    if (!date) currentDay = data.date;
+  } catch (e) { st.error = e.message; st.at = Date.now(); }
+  st.loading = false;
+  if (route().view === 'day') renderDay(route().id);
+}
+
+function renderDay(date) {
+  const st = dayData[date || ''];
+  if (!st || (!st.loading && Date.now() - (st.at || 0) > 600e3)) loadDay(date);
+  const d = st?.data;
+  const app = $('#app');
+  if (!d) {
+    delete app.dataset.dayHtml;
+    app.innerHTML = `<div class="day"><div class="muted">${st?.error ? `Ошибка: ${esc(st.error)}` : '<span class="spin"></span> Считаю сутки: транскрипты сессий, git и Трекер — до 10–20 с…'}</div></div>`;
+    return;
+  }
+  const card = t => {
+    const trs = t.transitions.map(x => `${x.from ? `${esc(x.from)} → ` : ''}<b>${esc(x.to || '')}</b> ${hhmmMsk(x.at)}${x.by ? ` · ${esc(x.by)}` : ''}`).join('<br>');
+    const wl = t.worklog.filter(w => w.done).map(w => `<span class="lbl">Сделано:</span> ${esc(w.done)}`).join('\n\n');
+    const left = t.worklog.filter(w => w.left).at(-1)?.left;
+    return `<div class="dcard${t.done ? ' done' : ''}">
+      <div class="dt"><a class="tkey" href="https://tracker.yandex.ru/${esc(t.key)}" target="_blank" rel="noopener">${esc(t.key)}</a>
+        ${t.status ? `<span class="tst t-${esc(t.status.type || 'new')}">${esc(t.status.display)}</span>` : ''}
+        ${t.project ? `<span class="chip">${esc(t.project)}</span>` : ''}
+        <span class="hrs" title="Замеренное время сессий по задаче за сутки">${t.ms ? fmtH(t.ms) : '—'}</span></div>
+      ${t.summary ? `<div class="sum">${esc(t.summary)}</div>` : ''}
+      ${trs ? `<div class="trs">${trs}</div>` : ''}
+      ${wl ? `<div class="wl" title="Нажми, чтобы развернуть">${wl}</div>` : ''}
+      ${left ? `<div class="wl" title="Нажми, чтобы развернуть"><span class="lbl">Осталось:</span> ${esc(left)}</div>` : ''}
+      ${t.commits.length ? `<details><summary>Коммиты · ${t.commits.length}</summary><div class="cm">${t.commits.map(c => `<code>${esc(c.hash)}</code><span class="muted">${hhmmMsk(c.at)} · ${esc(c.repo)}</span><span>${esc(c.subject)}</span>`).join('')}</div></details>` : ''}
+      ${t.sessions.length ? `<div class="sess">${t.sessions.map(x => `<a class="chip" href="#/session/${esc(x.id)}" title="Открыть сессию">${esc(x.title.slice(0, 40))} · ${fmtH(x.ms)}</a>`).join('')}</div>` : ''}
+    </div>`;
+  };
+  const done = d.tasks.filter(t => t.done), rest = d.tasks.filter(t => !t.done);
+  const other = d.noTask.length || d.orphanCommits.length ? `<h2>Без задачи</h2><div class="day-grid">
+    ${d.noTask.map(x => `<div class="dcard"><div class="dt"><a href="#/session/${esc(x.id)}">${esc(x.title)}</a>${x.project ? `<span class="chip">${esc(x.project)}</span>` : ''}<span class="hrs">${fmtH(x.ms)}</span></div></div>`).join('')}
+    ${d.orphanCommits.length ? `<div class="dcard"><details open><summary>Коммиты без задачи · ${d.orphanCommits.length}</summary><div class="cm">${d.orphanCommits.map(c => `<code>${esc(c.hash)}</code><span class="muted">${hhmmMsk(c.at)} · ${esc(c.repo)}</span><span>${esc(c.subject)}</span>`).join('')}</div></details></div>` : ''}
+  </div>` : '';
+  const html = `<div class="day">
+    <div class="day-head">
+      <span class="range">${fmtDT(d.start)} → ${fmtDT(d.end)} МСК</span>
+      <span class="tot">работа за сутки <b>${fmtH(d.totalMs)}</b>${d.sumMs > d.totalMs + 60e3 ? ` <span class="muted" title="Сессии шли параллельно — сумма по задачам больше календарного времени">· по задачам ${fmtH(d.sumMs)}</span>` : ''}</span>
+      <span class="muted">задач ${d.tasks.length}, доведено ${done.length}</span>
+      <span class="muted">${d.partial ? 'сутки идут · ' : ''}посчитано в ${hhmmMsk(d.computedAt)}${st.loading ? ' · <span class="spin"></span> пересчитываю' : ''}</span>
+    </div>
+    ${done.length ? `<h2>Доведены: тестирование, решено, закрыто · ${done.length}</h2><div class="day-grid">${done.map(card).join('')}</div>` : ''}
+    ${rest.length ? `<h2>В работе · ${rest.length}</h2><div class="day-grid">${rest.map(card).join('')}</div>` : ''}
+    ${!d.tasks.length ? '<div class="muted">За эти сутки сессии по задачам не работали.</div>' : ''}
+    ${other}
+  </div>`;
+  // Опрос перерисовывает экран каждые несколько секунд — без изменений не трогаем DOM, иначе
+  // схлопнутся раскрытые коммиты и ворклог.
+  if (app.dataset.dayHtml === html) return;
+  const scroll = app.scrollTop;
+  app.innerHTML = html; app.dataset.dayHtml = html;
+  app.scrollTop = scroll;
+}
+const hhmmMsk = ts => new Date(ts).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
+
 function renderRules() {
   const d = rulesData;
   const app = $('#app');
@@ -1002,6 +1114,15 @@ document.addEventListener('click', e => {
   }
   const sc = e.target.closest('[data-plan-scope]');
   if (sc) { planScope = sc.dataset.planScope; store.set('planScope', planScope); render(false); return; }
+  const ds = e.target.closest('[data-day-shift]');
+  if (ds) {
+    const n = Number(ds.dataset.dayShift), cur = dayData[route().id || '']?.data?.date || route().id || currentDay;
+    location.hash = n && cur ? `#/day/${shiftDate(cur, n)}` : '#/day';
+    return;
+  }
+  if (e.target.closest('[data-day-refresh]')) { loadDay(route().id, true); return; }
+  const wl = e.target.closest('.dcard .wl');
+  if (wl) { wl.classList.toggle('open'); return; }
   if (e.target.closest('[data-plan-refresh]')) { planProjects.forEach(p => { if (planData[p]) planData[p].loading = false; loadPlan(p, true); }); return; }
   const cl = e.target.closest('[data-plan-clean]');
   if (cl) {

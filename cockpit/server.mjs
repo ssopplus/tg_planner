@@ -1451,6 +1451,218 @@ async function runSync() {
 }
 const kickSync = () => { if (!syncRunning) scheduleSync(300); };
 
+// ---------- сутки: что сделано с 12:00 до 12:00 МСК ----------
+// Задачи, по которым в эти сутки работали сессии: замеренное время (паузы длиннее DAY_IDLE_MS не
+// считаются), «Сделано» из ворклога заметки, коммиты и переходы статуса в Трекере. Только чтение.
+// Текущие сутки пересчитываются раз в час (или кнопкой ↻), прошедшие — один раз после их конца.
+const MSK_MS = 3 * 3600e3;
+const DAY_IDLE_MS = 15 * 60e3;
+const DAY_TTL_MS = 3600e3;
+const DAY_START_HOUR = 12;
+const SESSION_MAP = path.join(os.homedir(), '.claude', 'skills', 'timesheet', 'session-map.txt');
+const DONE_STATUS_RE = /test|review|ready|resolved|closed|done|complete/i;
+const dayCache = new Map(); // date -> { at, data }
+const dayInflight = new Map();
+
+// Сутки с 12:00 МСК даты date до 12:00 следующего дня; без даты — текущие.
+function dayWindow(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) {
+    const msk = new Date(Date.now() + MSK_MS - DAY_START_HOUR * 3600e3);
+    date = msk.toISOString().slice(0, 10);
+  }
+  const start = Date.parse(`${date}T00:00:00Z`) + DAY_START_HOUR * 3600e3 - MSK_MS;
+  return { date, start, end: start + 86400e3 };
+}
+const mskDate = ts => new Date(ts + MSK_MS).toISOString().slice(0, 10);
+
+function sessionMap() {
+  const out = {};
+  try {
+    for (const line of fs.readFileSync(SESSION_MAP, 'utf8').split('\n')) {
+      const m = line.match(/^\s*([0-9a-f]{8})\s*=\s*([A-Z][A-Z0-9]{1,15}-\d{1,6})/);
+      if (m) out[m[1]] = m[2];
+    }
+  } catch {}
+  return out;
+}
+
+// Записи транскрипта внутри окна: время, cwd, ветка и видимый текст (по нему — на какую задачу
+// переключилась сессия). Остальные строки не разбираем, иначе большие транскрипты читаются долго.
+async function windowEntries(file, start, end) {
+  const text = await fsp.readFile(file, 'utf8').catch(() => '');
+  const entries = [];
+  let title = null, firstPrompt = null, branch = null;
+  for (const line of text.split('\n')) {
+    if (!line) continue;
+    if (line.includes('"custom-title"')) { try { title = JSON.parse(line).customTitle || title; } catch {} continue; }
+    const tm = line.match(/"timestamp":"([^"]+)"/);
+    const ts = tm ? Date.parse(tm[1]) : NaN;
+    const inWindow = ts >= start && ts < end;
+    if (!inWindow && firstPrompt) continue;
+    let o;
+    try { o = JSON.parse(line); } catch { continue; }
+    if (o.type !== 'user' && o.type !== 'assistant') continue;
+    if (!firstPrompt && o.type === 'user') { const p = promptText(o); if (p) firstPrompt = p.slice(0, 300); }
+    if (!inWindow) continue;
+    if (o.gitBranch && o.gitBranch !== 'HEAD') branch = o.gitBranch;
+    const said = o.type === 'user' ? promptText(o) || '' : textOf(o.message?.content);
+    entries.push({ ts, cwd: o.cwd || null, text: said.slice(0, 4000) });
+  }
+  entries.sort((a, b) => a.ts - b.ts);
+  return { entries, title, firstPrompt, branch };
+}
+
+// Объединение интервалов: сколько времени за сутки шла хоть какая-то работа.
+function unionMs(intervals) {
+  let total = 0, curS = -1, curE = -1;
+  for (const [s, e] of intervals.sort((a, b) => a[0] - b[0])) {
+    if (s > curE) { if (curE > curS) total += curE - curS; curS = s; curE = e; } else curE = Math.max(curE, e);
+  }
+  return total + Math.max(0, curE - curS);
+}
+
+async function trackerTransitions(key, start, end) {
+  const cfg = loadTrackerConfig();
+  if (!cfg) return [];
+  try {
+    const res = await fetch(`https://api.tracker.yandex.net/v2/issues/${encodeURIComponent(key)}/changelog?field=status&perPage=100`, {
+      headers: { authorization: `OAuth ${cfg.token}`, 'x-org-id': cfg.org }, signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return [];
+    const out = [];
+    for (const c of await res.json()) {
+      const at = Date.parse(c.updatedAt);
+      if (!(at >= start && at < end)) continue;
+      const f = (c.fields || []).find(x => x.field?.id === 'status');
+      if (f) out.push({ at, from: f.from?.display || null, to: f.to?.display || null, toKey: f.to?.key || null, by: c.updatedBy?.display || null });
+    }
+    return out;
+  } catch { return []; }
+}
+
+async function computeDay(date) {
+  const { start, end } = dayWindow(date);
+  const files = [];
+  for (const dir of await fsp.readdir(PROJECTS_DIR).catch(() => [])) {
+    for (const name of await fsp.readdir(path.join(PROJECTS_DIR, dir)).catch(() => [])) {
+      if (!name.endsWith('.jsonl')) continue;
+      const p = path.join(PROJECTS_DIR, dir, name);
+      const st = await fsp.stat(p).catch(() => null);
+      if (st && st.mtimeMs >= start && st.birthtimeMs < end) files.push(p);
+    }
+  }
+  const notes = await taskNotes();
+  const map = sessionMap();
+  const queues = loadProjectsConfig().queues || {};
+  const tasks = new Map(); // key -> агрегат
+  const taskOf = key => {
+    if (!tasks.has(key)) tasks.set(key, { key, ms: 0, sessions: new Map(), commits: [], worklog: [], transitions: [], repos: new Set() });
+    return tasks.get(key);
+  };
+  const noTask = [];
+  const all = [];
+  const repoSessions = new Map(); // repo -> Set ключей задач, по которым там работали
+  for (const file of files) {
+    const sessionId = path.basename(file, '.jsonl'), sid = sessionId.slice(0, 8);
+    const w = await windowEntries(file, start, end);
+    if (w.entries.length < 2) continue;
+    const m = meta.sessions[sessionId] || {};
+    const title = m.name || w.title || w.firstPrompt?.split('\n')[0].slice(0, 80) || sid;
+    // Задачи сессии: ключ в имени или ветке, связка из таймшита, запись в ворклоге заметки.
+    const named = `${title} ${w.branch || ''}`.match(TASK_KEY_RE)?.[0] || map[sid] || null;
+    const keys = new Set([named, ...notes.filter(n => n.issue && n.log.some(e => e.session === sid)).map(n => n.issue)].filter(Boolean));
+    if (!keys.size) { const k = w.firstPrompt?.match(TASK_KEY_RE)?.[0]; if (k) keys.add(k); }
+    const per = new Map(); // key|'' -> ms
+    let cur = named || [...keys][0] || '';
+    for (let i = 0; i < w.entries.length; i++) {
+      const e = w.entries[i];
+      if (keys.size > 1) for (const k of keys) if (e.text.includes(k)) { cur = k; break; }
+      const next = w.entries[i + 1];
+      if (!next) break;
+      const gap = next.ts - e.ts;
+      if (gap > DAY_IDLE_MS) continue;
+      per.set(cur, (per.get(cur) || 0) + gap);
+      all.push([e.ts, next.ts]);
+    }
+    const roots = new Set();
+    for (const cwd of new Set(w.entries.map(e => e.cwd).filter(Boolean))) { const r = await gitRoot(cwd); if (r && r !== VAULT) roots.add(r); }
+    for (const r of roots) { if (!repoSessions.has(r)) repoSessions.set(r, new Set()); for (const k of keys) repoSessions.get(r).add(k); }
+    for (const [k, ms] of per) {
+      if (!ms) continue;
+      if (!k) { if (ms >= 60e3) noTask.push({ id: sessionId, title, ms, project: m.project || '' }); continue; }
+      const t = taskOf(k);
+      t.ms += ms;
+      t.sessions.set(sessionId, { id: sessionId, title, ms: (t.sessions.get(sessionId)?.ms || 0) + ms });
+      for (const r of roots) t.repos.add(r);
+      if (m.project && !t.project) t.project = m.project;
+    }
+    // «Сделано» из ворклога за даты, которые захватывают сутки.
+    const dates = new Set([mskDate(start), mskDate(end - 1)]);
+    for (const n of notes) {
+      if (!n.issue) continue;
+      for (const e of n.log) if (e.session === sid && dates.has(e.date) && (e.done || e.left)) taskOf(n.issue).worklog.push({ date: e.date, session: sid, done: e.done || null, left: e.left || null });
+    }
+  }
+
+  // Коммиты пользователя в репозиториях, где работали сессии. Worktree одной репы видят одни и те же
+  // коммиты (--all), поэтому дубли убираем по хэшу.
+  const seenCommits = new Set();
+  const orphanCommits = [];
+  for (const [repo, keysHere] of repoSessions) {
+    let email = '';
+    try { email = (await git(repo, ['config', 'user.email'])).trim(); } catch {}
+    if (!email) continue;
+    let out = '';
+    try { out = await git(repo, ['log', '--all', `--since=@${Math.floor(start / 1000)}`, `--until=@${Math.floor(end / 1000)}`, `--author=${email}`, '--format=%H%x1f%ct%x1f%s%x1f%D']); } catch { continue; }
+    const repoName = await mainRepoName(repo);
+    const num = path.basename(repo).match(/-(\d+)$/)?.[1];
+    for (const line of out.split('\n').filter(Boolean)) {
+      const [hash, ct, subject, refs] = line.split('\x1f');
+      if (seenCommits.has(hash)) continue;
+      seenCommits.add(hash);
+      const c = { hash: hash.slice(0, 8), at: Number(ct) * 1000, subject, repo: repoName };
+      const key = `${subject} ${refs}`.match(TASK_KEY_RE)?.[0]
+        || (num && [...keysHere].find(k => k.endsWith(`-${num}`)))
+        || (keysHere.size === 1 ? [...keysHere][0] : null);
+      if (key) taskOf(key).commits.push(c); else orphanCommits.push(c);
+    }
+  }
+
+  const list = [...tasks.values()];
+  await Promise.all(list.map(async t => {
+    t.transitions = await trackerTransitions(t.key, start, end);
+    try { const i = await trackerIssue(t.key); t.summary = i.summary; t.status = i.status; } catch { t.summary = null; t.status = null; }
+    t.project ||= queues[t.key.split('-')[0]] || '';
+    t.done = t.transitions.some(x => DONE_STATUS_RE.test(x.toKey || ''));
+  }));
+  const tasksOut = list.map(t => ({
+    key: t.key, summary: t.summary, status: t.status, project: t.project, ms: t.ms, done: t.done,
+    sessions: [...t.sessions.values()].sort((a, b) => b.ms - a.ms),
+    transitions: t.transitions, worklog: t.worklog,
+    commits: t.commits.sort((a, b) => a.at - b.at),
+  })).filter(t => t.ms >= 60e3 || t.commits.length || t.transitions.length)
+    .sort((a, b) => (b.done - a.done) || (b.ms - a.ms));
+  return {
+    date: mskDate(start), start, end, computedAt: Date.now(), partial: Date.now() < end,
+    totalMs: unionMs(all), sumMs: tasksOut.reduce((s, t) => s + t.ms, 0) + noTask.reduce((s, x) => s + x.ms, 0),
+    tasks: tasksOut, noTask: noTask.sort((a, b) => b.ms - a.ms), orphanCommits,
+  };
+}
+
+async function dayPayload(date, fresh) {
+  const w = dayWindow(date);
+  const hit = dayCache.get(w.date);
+  // Прошедшие сутки после пересчёта «по итогам» больше не меняются; текущие — раз в час.
+  const valid = hit && !fresh && (!hit.data.partial || (Date.now() < hit.data.end && Date.now() - hit.at < DAY_TTL_MS));
+  if (valid) return hit.data;
+  if (!dayInflight.has(w.date)) {
+    dayInflight.set(w.date, computeDay(w.date)
+      .then(data => { dayCache.set(w.date, { at: Date.now(), data }); return data; })
+      .finally(() => dayInflight.delete(w.date)));
+  }
+  return dayInflight.get(w.date);
+}
+
 // ---------- HTTP ----------
 
 function send(res, code, body, type = 'application/json; charset=utf-8') {
@@ -1492,6 +1704,9 @@ const server = http.createServer(async (req, res) => {
       return holdPermission(b, res);
     }
     if (url.pathname === '/api/requests') return send(res, 200, requestsPayload());
+    if (url.pathname === '/api/day' && req.method === 'GET') {
+      return send(res, 200, await dayPayload(url.searchParams.get('date'), url.searchParams.has('fresh')));
+    }
     if (url.pathname === '/api/rules' && req.method === 'GET') {
       return send(res, 200, { rules: rules.rules, suggestions: await ruleSuggestions(), recent: autoAllowed });
     }

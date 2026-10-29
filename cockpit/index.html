@@ -902,6 +902,7 @@ function renderDay(date) {
       <span class="range">${fmtDT(d.start)} → ${fmtDT(d.end)} МСК</span>
       <span class="tot">работа за сутки <b>${fmtH(d.totalMs)}</b>${d.sumMs > d.totalMs + 60e3 ? ` <span class="muted" title="Сессии шли параллельно — сумма по задачам больше календарного времени">· по задачам ${fmtH(d.sumMs)}</span>` : ''}</span>
       <span class="muted">задач ${d.tasks.length}, доведено ${done.length}</span>
+      ${d.incomplete ? '<span class="stale" title="Часть задач Трекер не отдал — пересчёт через 5 мин или ↻">Трекер ответил не по всем задачам</span>' : ''}
       <span class="muted">${d.partial ? 'сутки идут · ' : ''}посчитано в ${hhmmMsk(d.computedAt)}${st.loading ? ' · <span class="spin"></span> пересчитываю' : ''}</span>
     </div>
     ${done.length ? `<h2>Доведены: тестирование, решено, закрыто · ${done.length}</h2><div class="day-grid">${done.map(card).join('')}</div>` : ''}

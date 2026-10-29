@@ -1521,14 +1521,16 @@ function unionMs(intervals) {
   return total + Math.max(0, curE - curS);
 }
 
-async function trackerTransitions(key, start, end) {
+// null — Трекер не ответил (лимит, сеть): сутки тогда считаются неполными и пересчитываются скоро.
+async function trackerTransitions(key, start, end, attempt = 0) {
   const cfg = loadTrackerConfig();
   if (!cfg) return [];
   try {
     const res = await fetch(`https://api.tracker.yandex.net/v2/issues/${encodeURIComponent(key)}/changelog?field=status&perPage=100`, {
       headers: { authorization: `OAuth ${cfg.token}`, 'x-org-id': cfg.org }, signal: AbortSignal.timeout(15_000),
     });
-    if (!res.ok) return [];
+    if (res.status === 404 || res.status === 403) return [];
+    if (!res.ok) throw new Error(`Трекер ${res.status}`);
     const out = [];
     for (const c of await res.json()) {
       const at = Date.parse(c.updatedAt);
@@ -1537,7 +1539,11 @@ async function trackerTransitions(key, start, end) {
       if (f) out.push({ at, from: f.from?.display || null, to: f.to?.display || null, toKey: f.to?.key || null, by: c.updatedBy?.display || null });
     }
     return out;
-  } catch { return []; }
+  } catch (e) {
+    if (attempt < 2) { await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); return trackerTransitions(key, start, end, attempt + 1); }
+    console.error('[day] changelog', key, e.message);
+    return null;
+  }
 }
 
 async function computeDay(date) {
@@ -1629,12 +1635,18 @@ async function computeDay(date) {
   }
 
   const list = [...tasks.values()];
-  await Promise.all(list.map(async t => {
-    t.transitions = await trackerTransitions(t.key, start, end);
-    try { const i = await trackerIssue(t.key); t.summary = i.summary; t.status = i.status; } catch { t.summary = null; t.status = null; }
-    t.project ||= queues[t.key.split('-')[0]] || '';
-    t.done = t.transitions.some(x => DONE_STATUS_RE.test(x.toKey || ''));
-  }));
+  // По 4 задачи за раз: на 30+ параллельных запросов Трекер отвечает лимитом.
+  let incomplete = false;
+  for (let i = 0; i < list.length; i += 4) {
+    await Promise.all(list.slice(i, i + 4).map(async t => {
+      const tr = await trackerTransitions(t.key, start, end);
+      if (tr === null) incomplete = true;
+      t.transitions = tr || [];
+      try { const is = await trackerIssue(t.key); t.summary = is.summary; t.status = is.status; } catch (e) { t.summary = null; t.status = null; if (!/не найдена/.test(e.message)) incomplete = true; }
+      t.project ||= queues[t.key.split('-')[0]] || '';
+      t.done = t.transitions.some(x => DONE_STATUS_RE.test(x.toKey || ''));
+    }));
+  }
   const tasksOut = list.map(t => ({
     key: t.key, summary: t.summary, status: t.status, project: t.project, ms: t.ms, done: t.done,
     sessions: [...t.sessions.values()].sort((a, b) => b.ms - a.ms),
@@ -1643,7 +1655,7 @@ async function computeDay(date) {
   })).filter(t => t.ms >= 60e3 || t.commits.length || t.transitions.length)
     .sort((a, b) => (b.done - a.done) || (b.ms - a.ms));
   return {
-    date: mskDate(start), start, end, computedAt: Date.now(), partial: Date.now() < end,
+    date: mskDate(start), start, end, computedAt: Date.now(), partial: Date.now() < end, incomplete,
     totalMs: unionMs(all), sumMs: tasksOut.reduce((s, t) => s + t.ms, 0) + noTask.reduce((s, x) => s + x.ms, 0),
     tasks: tasksOut, noTask: noTask.sort((a, b) => b.ms - a.ms), orphanCommits,
   };
@@ -1653,7 +1665,10 @@ async function dayPayload(date, fresh) {
   const w = dayWindow(date);
   const hit = dayCache.get(w.date);
   // Прошедшие сутки после пересчёта «по итогам» больше не меняются; текущие — раз в час.
-  const valid = hit && !fresh && (!hit.data.partial || (Date.now() < hit.data.end && Date.now() - hit.at < DAY_TTL_MS));
+  // Неполные (Трекер не ответил) — через 5 мин заново.
+  const age = hit ? Date.now() - hit.at : Infinity;
+  const valid = hit && !fresh && (hit.data.incomplete ? age < 300e3
+    : !hit.data.partial || (Date.now() < hit.data.end && age < DAY_TTL_MS));
   if (valid) return hit.data;
   if (!dayInflight.has(w.date)) {
     dayInflight.set(w.date, computeDay(w.date)

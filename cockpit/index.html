@@ -653,6 +653,24 @@ function placeCtx(el, anchor) {
   if (top + h > innerHeight - 8) top = Math.max(8, a.top - h - 6);
   el.style.left = Math.max(16, left) + 'px'; el.style.top = top + 'px';
 }
+// Хвост переписки: /api/context, а если сервер старый (не перезапущен) — из /api/session.
+async function loadCtx(id) {
+  const r = await fetch(`/api/context?id=${encodeURIComponent(id)}&n=8`);
+  if (r.ok) return r.json();
+  const s = await fetch(`/api/session?id=${encodeURIComponent(id)}`);
+  if (!s.ok) throw new Error(`session ${s.status}`);
+  const items = [];
+  let tools = 0;
+  for (const it of ((await s.json()).chat || []).slice().reverse()) {
+    if (items.length >= 8) break;
+    if (it.kind === 'tool') { tools++; continue; }
+    if (it.kind !== 'user' && it.kind !== 'assistant') continue;
+    if (it.kind === 'user' && /^This session is being continued from a previous conversation/.test(it.text || '')) continue; // пересказ после сжатия (старый сервер)
+    items.push({ kind: it.kind, ts: it.ts, via: it.via, toolsAfter: tools, text: String(it.text || '').slice(0, 2000) });
+    tools = 0;
+  }
+  return { items: items.reverse() };
+}
 async function showCtx(anchor) {
   const id = anchor.dataset.ctx, el = ctxPop();
   clearTimeout(ctxHideTimer);
@@ -663,14 +681,13 @@ async function showCtx(anchor) {
   el.style.display = 'block'; placeCtx(el, anchor);
   if (hit && Date.now() - hit.at < 10_000) return;
   try {
-    const r = await fetch(`/api/context?id=${encodeURIComponent(id)}&n=8`);
-    const d = await r.json();
-    const html = (d.items || []).map(m => `<div class="cm ${m.kind}">
+    const d = await loadCtx(id);
+    const html = d.items.map(m => `<div class="cm ${m.kind}">
       <div class="who">${m.kind === 'user' ? (m.via === 'cockpit' ? 'Я · из cockpit' : m.via === 'peer' ? 'Соседняя сессия' : 'Я') : 'Claude'} · ${hhmm(m.ts)}${m.toolsAfter ? ` · дальше ${m.toolsAfter} действ.` : ''}</div>
       ${m.kind === 'assistant' ? md(m.text) : `<div style="white-space:pre-wrap">${esc(m.text)}</div>`}</div>`).join('') || '<div class="muted">Сообщений нет</div>';
     ctxCache.set(id, { at: Date.now(), html });
     if (ctxFor === id) { el.innerHTML = html; el.scrollTop = el.scrollHeight; placeCtx(el, anchor); }
-  } catch { if (ctxFor === id) el.innerHTML = '<div class="muted">Не удалось загрузить</div>'; }
+  } catch (e) { if (ctxFor === id) el.innerHTML = `<div class="muted">Не удалось загрузить: ${esc(e.message)}</div>`; }
 }
 function hideCtxSoon() {
   clearTimeout(ctxHideTimer);

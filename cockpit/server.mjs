@@ -156,7 +156,8 @@ const PEER_HEAD = 'Another Claude session sent a message:';
 const PEER_TAIL = '\n\nThis came from another Claude session';
 const COCKPIT_MARK = '[из dev-cockpit] ';
 function peerMessage(o) {
-  if (o.isSidechain || (o.origin?.kind !== 'peer' && o.turnOrigin !== 'peer')) return null;
+  // Пересказ после сжатия контекста тоже несёт turnOrigin 'peer', если ход начала соседняя сессия.
+  if (o.isSidechain || o.isCompactSummary || (o.origin?.kind !== 'peer' && o.turnOrigin !== 'peer')) return null;
   let text = textOf(o.message?.content).trim();
   if (text.startsWith(PEER_HEAD)) text = text.slice(PEER_HEAD.length);
   const tail = text.indexOf(PEER_TAIL);

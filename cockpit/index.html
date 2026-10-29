@@ -298,6 +298,9 @@ pre.diff .m { color: var(--muted); font-weight: 600; }
 .req { background: var(--panel); border: 1px solid color-mix(in srgb, var(--wait) 55%, var(--line)); border-left: 3px solid var(--wait); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
 .req .rh { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
 .req .rh b { font-size: 13.5px; }
+/* Сессия в шапке запроса: не системный фиолетовый «посещённой» ссылки, а акцент, как ключи задач. */
+.req .rh a, .req .rh a:visited { color: var(--accent); font-weight: 600; text-decoration: none; }
+.req .rh a:hover { text-decoration: underline; }
 .req pre { margin: 0 0 8px; background: var(--code-bg); border-radius: 6px; padding: 8px 10px; font: 12px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto; }
 .req .q { font-weight: 600; margin: 6px 0 4px; }
 .req .opt { display: flex; gap: 8px; align-items: flex-start; padding: 3px 6px; border-radius: 6px; cursor: pointer; }

@@ -1335,9 +1335,10 @@ const maskDeep = v => (typeof v === 'string' ? mask(v) : Array.isArray(v) ? v.ma
   : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, maskDeep(x)])) : v);
 
 // Сколько секунд к Маку не прикасались (клавиатура, мышь) — по нему tg-planer решает, писать ли в бот.
+// Путь полный: в PATH у launchd нет /usr/sbin, и без него idleSec всегда null — напоминания не уходят.
 async function machineIdleSec() {
   try {
-    const { stdout } = await pexec('ioreg', ['-c', 'IOHIDSystem', '-d', '4'], { timeout: 5000, maxBuffer: 5e6 });
+    const { stdout } = await pexec('/usr/sbin/ioreg', ['-c', 'IOHIDSystem', '-d', '4'], { timeout: 5000, maxBuffer: 5e6 });
     const m = /"HIDIdleTime" = (\d+)/.exec(stdout);
     return m ? Math.round(Number(m[1]) / 1e9) : null;
   } catch { return null; }

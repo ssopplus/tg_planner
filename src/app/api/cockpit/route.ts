@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { and, desc, eq, gt } from 'drizzle-orm'
+import { and, desc, eq, gt, or } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { cockpitCommands, cockpitRequests, cockpitState } from '@/lib/db/schema'
 import { authorizeMiniApp } from '@/lib/telegram/auth'
@@ -7,7 +7,8 @@ import { commandPayloadPublic } from '@/lib/cockpit/requests'
 
 /**
  * GET /api/cockpit — экран «Сессии»: последний снимок dev-cockpit, ожидающие
- * запросы целиком и закрытые за последний час, команды за час. `?count` — только
+ * запросы любой давности и закрытые за последний час, команды за час. Хук держит
+ * запрос до суток — ответить на него можно и утром. `?count` — только
  * число ожидающих запросов.
  */
 export async function GET(request: NextRequest) {
@@ -40,7 +41,12 @@ export async function GET(request: NextRequest) {
       createdAt: cockpitRequests.createdAt,
     })
     .from(cockpitRequests)
-    .where(and(eq(cockpitRequests.userId, user.id), gt(cockpitRequests.createdAt, new Date(Date.now() - 3600e3))))
+    .where(
+      and(
+        eq(cockpitRequests.userId, user.id),
+        or(eq(cockpitRequests.status, 'pending'), gt(cockpitRequests.createdAt, new Date(Date.now() - 3600e3))),
+      ),
+    )
     .orderBy(desc(cockpitRequests.createdAt))
     .limit(50)
 

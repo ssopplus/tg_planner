@@ -866,7 +866,8 @@ async function loadDay(date, fresh) {
 
 function renderDay(date) {
   const st = dayData[date || ''];
-  if (!st || (!st.loading && Date.now() - (st.at || 0) > 600e3)) loadDay(date);
+  // Ошибку (например, cockpit ещё не перезапущен со свежим сервером) повторяем через 15 с, ответ — через 10 мин.
+  if (!st || (!st.loading && Date.now() - (st.at || 0) > (st.error ? 15e3 : 600e3))) loadDay(date);
   const d = st?.data;
   const app = $('#app');
   if (!d) {

@@ -1251,6 +1251,47 @@ function taskSnapshot(s, notes) {
 // Вкладка Claude в VS Code с подставленным `/start-task КЛЮЧ` (uri-хендлер расширения: /open?prompt=&session=).
 const vscodeTaskUri = key => `vscode://anthropic.claude-code/open?prompt=${encodeURIComponent(`/start-task ${key}`)}`;
 
+// Расширение только вставляет запрос в поле ввода, отправить его некому. Поэтому после открытия вкладки
+// жмём Enter через System Events (нужен доступ «Универсальный доступ» для node) и проверяем, что
+// появился транскрипт с `/start-task КЛЮЧ`. Не появился — честно говорим «отправь сам».
+async function openTaskInVSCode(key) {
+  const t0 = Date.now();
+  await pexec('open', [vscodeTaskUri(key)], { timeout: 15_000 });
+  await new Promise(r => setTimeout(r, 2500));
+  try {
+    await pexec('osascript', ['-e', 'tell application "Visual Studio Code" to activate', '-e', 'delay 0.4',
+      '-e', 'tell application "System Events" to tell process "Code" to key code 36'], { timeout: 10_000 });
+  } catch (e) {
+    hookLog({ event: 'task-opened-vscode', issue: key, submitted: false, error: e.message.slice(0, 300) });
+    return { submitted: false, note: /assistive|1719|1002|not allowed/i.test(e.message)
+      ? 'вкладка открыта, но Enter нажать не дали: разреши node в «Универсальном доступе» — пока отправь Enter сам'
+      : 'вкладка открыта, Enter не нажался — отправь сам' };
+  }
+  for (let i = 0; i < 15; i++) {
+    if (await taskTranscriptSince(key, t0)) {
+      hookLog({ event: 'task-opened-vscode', issue: key, submitted: true });
+      return { submitted: true, note: `сессия /start-task ${key} запущена в VS Code` };
+    }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  hookLog({ event: 'task-opened-vscode', issue: key, submitted: false, error: 'no transcript' });
+  return { submitted: false, note: 'вкладка открыта, но сессия не стартовала — проверь, отправлен ли запрос' };
+}
+
+async function taskTranscriptSince(key, t0) {
+  for (const dir of await fsp.readdir(PROJECTS_DIR).catch(() => [])) {
+    for (const name of await fsp.readdir(path.join(PROJECTS_DIR, dir)).catch(() => [])) {
+      if (!name.endsWith('.jsonl')) continue;
+      const p = path.join(PROJECTS_DIR, dir, name);
+      const st = await fsp.stat(p).catch(() => null);
+      if (!st || st.birthtimeMs < t0 - 1000) continue;
+      const head = await fsp.readFile(p, 'utf8').then(s => s.slice(0, 50_000)).catch(() => '');
+      if (head.includes('start-task') && head.includes(key)) return true;
+    }
+  }
+  return false;
+}
+
 // Перенос фоновой сессии в VS Code. Пока её держит процесс `claude --bg`, расширение её не откроет
 // («That session is running in the background»). Останавливаем фоновый процесс — переписка остаётся —
 // и открываем сессию во вкладке Claude через uri-хендлер расширения.
@@ -1325,10 +1366,8 @@ async function runCommand(c) {
       const key = String(c.payload?.issueKey || '');
       if (!/^[A-Z][A-Z0-9]{1,15}-\d{1,6}$/.test(key)) throw new Error('неверный ключ задачи');
       if (c.payload?.where === 'vscode') {
-        // Расширение Claude открывает вкладку с подставленным текстом, но не отправляет его.
-        await pexec('open', [vscodeTaskUri(key)], { timeout: 15_000 });
-        hookLog({ event: 'task-opened-vscode', issue: key });
-        return { id: c.id, ok: true, output: 'вкладка Claude открыта в VS Code — отправь /start-task там Enter' };
+        const r = await openTaskInVSCode(key);
+        return { id: c.id, ok: true, output: r.note };
       }
       const env = { ...process.env };
       delete env.ANTHROPIC_API_KEY; // иначе фоновая сессия уйдёт в оплату по API, а не по подписке
@@ -1792,6 +1831,12 @@ const server = http.createServer(async (req, res) => {
       if (!a) return send(res, 404, { error: 'session not found' });
       await sendToSession(a, text);
       return send(res, 200, { ok: true });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/open-task') {
+      if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
+      const key = String((await readJson(req)).key || '');
+      if (!/^[A-Z][A-Z0-9]{1,15}-\d{1,6}$/.test(key)) return send(res, 400, { error: 'неверный ключ задачи' });
+      return send(res, 200, await openTaskInVSCode(key));
     }
     if (req.method === 'POST' && url.pathname === '/api/to-vscode') {
       if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });

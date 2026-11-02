@@ -332,7 +332,7 @@ button.deny { color: var(--del); }
 .composer textarea:focus { outline: none; border-color: var(--accent); }
 .composer .hint { grid-column: 1 / -1; margin: 0; font-size: 11.5px; }
 .composer .sendcol { display: flex; flex-direction: column; gap: 6px; }
-.toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 6px 14px; border-radius: 8px; font-size: 12.5px; z-index: 20; }
+.toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); max-width: min(560px, calc(100vw - 32px)); background: var(--text); color: var(--bg); padding: 6px 14px; border-radius: 8px; font-size: 12.5px; z-index: 60; }
 
 /* ---------- сутки ---------- */
 .day { max-width: 1560px; margin: 0 auto; padding: 16px; }
@@ -424,7 +424,7 @@ button.pf.on { background: var(--accent-soft); border-color: var(--accent); colo
   <div class="spacer"></div>
   <span id="boardTools"></span>
   <input type="search" id="q" placeholder="Поиск: задача, имя, текст…">
-  <button id="openTask" title="Открыть в VS Code новую вкладку Claude с /start-task КЛЮЧ — отправить Enter там">▶ Задача в VS Code</button>
+  <button id="openTask" title="Открыть в VS Code новую вкладку Claude с /start-task КЛЮЧ и отправить запрос">▶ Задача в VS Code</button>
   <button id="autoname" title="Придумать имена сессиям без имени (Haiku через claude -p)">✨ Имена</button>
   <span id="syncPill" class="ghost" hidden></span>
   <button id="notifyBtn" class="ghost" title="Уведомления, когда сессия ждёт ответа">🔕</button>
@@ -451,9 +451,14 @@ function ago(ts) {
 }
 const hhmm = ts => ts ? new Date(ts).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) : '';
 const dayTime = ts => ts ? new Date(ts).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+// Один тост на экран: новое сообщение заменяет старое, а не ложится поверх. Длинное держится дольше.
+let toastTimer;
 function toast(text) {
-  const t = document.createElement('div'); t.className = 'toast'; t.textContent = text;
-  document.body.append(t); setTimeout(() => t.remove(), 1800);
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; document.body.append(t); }
+  t.textContent = String(text ?? '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.remove(), Math.min(8000, Math.max(2000, t.textContent.length * 60)));
 }
 async function copy(text, label) {
   try { await navigator.clipboard.writeText(text); toast(`Скопировано: ${label || text}`); } catch { prompt('Скопируй:', text); }
@@ -1228,7 +1233,7 @@ document.addEventListener('click', e => {
     [keys[i], keys[j]] = [keys[j], keys[i]];
     return setPlan(p, keys);
   }
-  if (e.target.closest('[data-plan-start]')) location.href = `vscode://anthropic.claude-code/open?prompt=${encodeURIComponent(`/start-task ${key}`)}`;
+  if (e.target.closest('[data-plan-start]')) openTask(key);
 });
 
 document.addEventListener('change', e => {
@@ -1636,7 +1641,7 @@ document.addEventListener('click', async e => {
   const dec = e.target.closest('[data-decide]');
   if (dec) { e.preventDefault(); dec.disabled = true; decideRequest(dec.dataset.id, dec.dataset.decide); return; }
   const nx = e.target.closest('[data-next]');
-  if (nx) { e.stopPropagation(); location.href = `vscode://anthropic.claude-code/open?prompt=${encodeURIComponent(`/start-task ${nx.dataset.next}`)}`; return; }
+  if (nx) { e.stopPropagation(); openTask(nx.dataset.next); return; }
   const cl = e.target.closest('[data-close]');
   if (cl) { e.stopPropagation(); closeSessionUi([cl.dataset.close]); return; }
   if (e.target.id === 'closeAll') { closeSessionUi(sessions.filter(s => s.closable).map(s => s.sessionId)); return; }
@@ -1686,9 +1691,14 @@ $('#openTask').addEventListener('click', () => {
   const key = (prompt('Ключ задачи Трекера, например POLAERP-194') || '').trim().toUpperCase();
   if (!key) return;
   if (!/^[A-Z][A-Z0-9]{1,15}-\d{1,6}$/.test(key)) return toast('Неверный ключ задачи');
-  // Расширение Claude подставит текст во вкладку, отправить — Enter в VS Code.
-  location.href = `vscode://anthropic.claude-code/open?prompt=${encodeURIComponent(`/start-task ${key}`)}`;
+  openTask(key);
 });
+// Новая вкладка Claude в VS Code с /start-task: сервер открывает её, сам жмёт Enter и ждёт транскрипт.
+async function openTask(key) {
+  toast(`Открываю ${key} в VS Code…`);
+  try { const r = await post('/api/open-task', { key }); toast(r.note); }
+  catch (err) { toast('Не вышло: ' + err.message); }
+}
 document.addEventListener('input', e => {
   const k = e.target.dataset?.draftText; if (!k) return;
   drafts[k] = e.target.value;

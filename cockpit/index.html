@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>dev-cockpit</title>
+<link rel="icon" id="favicon" type="image/svg+xml">
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 <style>
@@ -255,7 +256,10 @@ details.issue .idesc { max-height: 60vh; overflow: auto; border-top: 1px solid v
 .tst.t-done { background: color-mix(in srgb, #22c55e 18%, transparent); color: #22c55e; }
 .tst.t-cancelled { text-decoration: line-through; }
 .tkey { color: var(--accent); font-weight: 600; }
-.tprog { color: var(--muted); font-variant-numeric: tabular-nums; }
+.tprog { color: var(--muted); font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 5px; }
+.tbar { display: inline-block; width: 64px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.tbar i { display: block; height: 100%; background: var(--accent); }
+.tbar.full i { background: var(--busy); }
 h3 { font-size: 11.5px; margin: 16px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 h3:first-child { margin-top: 0; }
 .repo { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
@@ -451,6 +455,19 @@ function ago(ts) {
 }
 const hhmm = ts => ts ? new Date(ts).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) : '';
 const dayTime = ts => ts ? new Date(ts).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+// Иконка вкладки: циферблат-«приборка»; красная точка — какая-то сессия ждёт ответа.
+let faviconWait = null;
+function setFavicon(wait) {
+  if (wait === faviconWait) return;
+  faviconWait = wait;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#15191E"/>`
+    + `<path d="M13 44a19 19 0 0 1 38 0" fill="none" stroke="#3A424B" stroke-width="7" stroke-linecap="round"/>`
+    + `<path d="M13 44a19 19 0 0 1 28.5-16.5" fill="none" stroke="#E39A2D" stroke-width="7" stroke-linecap="round"/>`
+    + `<path d="M32 44 43 30" stroke="#EEEAE0" stroke-width="5" stroke-linecap="round"/><circle cx="32" cy="44" r="5.5" fill="#EEEAE0"/>`
+    + (wait ? `<circle cx="51" cy="13" r="11" fill="#E5484D" stroke="#15191E" stroke-width="3"/>` : '') + `</svg>`;
+  $('#favicon').href = 'data:image/svg+xml,' + encodeURIComponent(svg);
+}
+
 // Один тост на экран: новое сообщение заменяет старое, а не ложится поверх. Длинное держится дольше.
 let toastTimer;
 function toast(text) {
@@ -586,6 +603,7 @@ function render(force) {
   const waitN = sessions.filter(s => s.status === 'waiting').length;
   $('#inboxBadge').innerHTML = inboxN ? `<span class="badge">${inboxN}</span>` : '';
   document.title = (waitN ? `(${waitN}) ` : '') + 'dev-cockpit';
+  setFavicon(waitN > 0);
   $('#stale').innerHTML = lastOk && Date.now() - lastOk > 15000 ? '<span class="stale">нет связи с сервером</span>' : '';
   const unnamed = sessions.filter(s => s.nameSource === 'derived').length;
   const namingN = sessions.filter(s => s.naming).length;
@@ -785,7 +803,7 @@ function taskLine(s) {
     const showKey = keys.length > 1 || !s.title.includes(k);
     const tip = [st ? `${k}: ${st.display}${st.resolution ? ` (${st.resolution})` : ''}` : k,
       t?.total ? `план: сделано ${t.done} из ${t.total}` : '', t?.left ? `Осталось: ${t.left}` : ''].filter(Boolean).join('\n');
-    return `<span class="titem" title="${esc(tip)}">${st ? `<span class="tst t-${esc(st.type || 'new')}">${esc(st.display)}</span>` : ''}${showKey ? `<span class="tkey">${esc(k)}</span>` : ''}${t?.total ? `<span class="tprog">${t.done === t.total ? '✅' : '☑'} ${t.done}/${t.total}</span>` : ''}</span>`;
+    return `<span class="titem" title="${esc(tip)}">${st ? `<span class="tst t-${esc(st.type || 'new')}">${esc(st.display)}</span>` : ''}${showKey ? `<span class="tkey">${esc(k)}</span>` : ''}${t?.total ? `<span class="tprog"><span class="tbar${t.done === t.total ? ' full' : ''}"><i style="width:${Math.round(100 * t.done / t.total)}%"></i></span>${t.done}/${t.total}</span>` : ''}</span>`;
   }).join('');
   return items ? `<div class="tline">${items}</div>` : '';
 }

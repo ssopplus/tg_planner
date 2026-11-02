@@ -842,14 +842,14 @@ function renderBoard() {
   const app = $('#app'); const scroll = app.scrollTop;
   if (!sessions.length) { app.innerHTML = '<div class="empty">Загрузка…</div>'; return; }
   if (groupBy === 'none') {
-    app.innerHTML = `<div class="board">${boardRequests()}${colsHtml(list)}</div>`;
+    app.innerHTML = `<div class="board">${colsHtml(list)}</div>`;
   } else {
     const groups = {};
     for (const s of list) (groups[s.project] ||= []).push(s);
     // Сверху — проекты, где что-то ждёт меня или идёт работа, дальше по свежести.
     const weight = g => (g.some(s => s.status === 'waiting') ? 2 : 0) + (g.some(s => s.status === 'busy') ? 1 : 0);
     const names = Object.keys(groups).sort((a, b) => weight(groups[b]) - weight(groups[a]) || Math.max(...groups[b].map(s => s.lastActivity || 0)) - Math.max(...groups[a].map(s => s.lastActivity || 0)));
-    app.innerHTML = `<div class="board">${boardRequests()}${names.map(p => {
+    app.innerHTML = `<div class="board">${names.map(p => {
       const g = groups[p];
       const cnt = k => g.filter(s => laneOf(s) === k).length;
       const stats = [['waiting', 'ждёт'], ['busy', 'работает'], ['review', 'посмотреть']].filter(([k]) => cnt(k)).map(([k, t]) => `<span class="pill ${k}">${cnt(k)} ${t}</span>`).join(' ');
@@ -863,11 +863,6 @@ function renderBoard() {
     }).join('') || '<div class="empty">Ничего не найдено</div>'}</div>`;
   }
   app.scrollTop = scroll;
-}
-
-function boardRequests() {
-  if (!pending.length) return '';
-  return `<section class="lane" style="background:var(--wait-soft)"><div class="lanehead"><h2>Ждут решения · ${pending.length}</h2></div>${pending.map(r => requestHtml(r, { withSession: true })).join('')}</section>`;
 }
 
 // ---------- входящие ----------

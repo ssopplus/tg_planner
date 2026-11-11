@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { checkBearer } from '@/lib/telegram/secret'
 import { eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { users, coordinationPolls } from '@/lib/db/schema'
@@ -38,7 +39,7 @@ const CUTOFF_TIME = '23:00'
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!checkBearer(authHeader, process.env.CRON_SECRET)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

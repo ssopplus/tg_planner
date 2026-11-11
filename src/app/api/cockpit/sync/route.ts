@@ -12,6 +12,7 @@ import {
 } from '@/lib/db/schema'
 import { resolveCockpitUser, type CockpitRequest } from '@/lib/cockpit/requests'
 import { syncNotices } from '@/lib/cockpit/notify'
+import { checkBearer } from '@/lib/telegram/secret'
 
 /**
  * POST /api/cockpit/sync — обмен с локальным dev-cockpit.
@@ -73,7 +74,7 @@ const RETENTION_MS = 7 * 24 * 3600e3
 export async function POST(request: NextRequest) {
   const secret = process.env.COCKPIT_SECRET
   if (!secret) return NextResponse.json({ error: 'COCKPIT_SECRET не задан' }, { status: 503 })
-  if (request.headers.get('authorization') !== `Bearer ${secret}`) {
+  if (!checkBearer(request.headers.get('authorization'), secret)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

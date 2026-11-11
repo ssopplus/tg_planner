@@ -2,15 +2,28 @@ import crypto from 'crypto'
 import { db } from '@/lib/db'
 import { users } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'
+import { safeEqual } from './secret'
 
 /**
- * Валидация Telegram WebApp initData через HMAC.
+ * Сколько живёт initData. Telegram подписывает строку при открытии Mini App и не
+ * обновляет, пока оно открыто, поэтому срок — сутки, а не час: иначе приложение,
+ * оставленное открытым, начнёт получать 401. Без срока перехваченной строкой можно
+ * было пользоваться вечно.
+ */
+const INIT_DATA_MAX_AGE_SEC = 24 * 3600
+
+/**
+ * Валидация Telegram WebApp initData через HMAC и срок `auth_date`.
  * @see https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
  */
-export function validateInitData(initData: string, botToken: string): boolean {
+export function validateInitData(initData: string, botToken: string, nowSec = Math.floor(Date.now() / 1000)): boolean {
   const params = new URLSearchParams(initData)
   const hash = params.get('hash')
   if (!hash) return false
+
+  const authDate = Number(params.get('auth_date'))
+  // Небольшой запас в будущее — на расхождение часов.
+  if (!Number.isFinite(authDate) || authDate <= 0 || nowSec - authDate > INIT_DATA_MAX_AGE_SEC || authDate - nowSec > 300) return false
 
   params.delete('hash')
   const entries = Array.from(params.entries())
@@ -20,7 +33,7 @@ export function validateInitData(initData: string, botToken: string): boolean {
   const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest()
   const hmac = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex')
 
-  return hmac === hash
+  return safeEqual(hmac, hash)
 }
 
 /**

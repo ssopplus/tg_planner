@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { checkBearer } from '@/lib/telegram/secret'
 import { db } from '@/lib/db'
 import { tasks } from '@/lib/db/schema'
 import { and, eq, lte, sql } from 'drizzle-orm'
@@ -10,7 +11,7 @@ import { and, eq, lte, sql } from 'drizzle-orm'
  */
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!checkBearer(authHeader, process.env.CRON_SECRET)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

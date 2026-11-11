@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { checkBearer } from '@/lib/telegram/secret'
 import { purgeExpiredPendingTasks } from '@/bot/services/pending-store'
 
 /**
@@ -7,7 +8,7 @@ import { purgeExpiredPendingTasks } from '@/bot/services/pending-store'
  */
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!checkBearer(authHeader, process.env.CRON_SECRET)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

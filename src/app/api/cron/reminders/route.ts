@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { checkBearer } from '@/lib/telegram/secret'
 import { db } from '@/lib/db'
 import { reminders, tasks, users } from '@/lib/db/schema'
 import { eq, and, lte } from 'drizzle-orm'
@@ -14,7 +15,7 @@ import { getNextOccurrence } from '@/lib/reminders/rrule-parser'
 export async function GET(request: Request) {
   // Проверка Vercel Cron секрета
   const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!checkBearer(authHeader, process.env.CRON_SECRET)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

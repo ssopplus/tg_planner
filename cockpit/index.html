@@ -11,23 +11,32 @@
 :root {
   --bg: #f4f5f7; --panel: #ffffff; --panel2: #fafbfc; --line: #e2e5ea; --text: #1b1f24; --muted: #69717d;
   --accent: #3b6fd8; --accent-soft: #e8effc;
+  --mq: #7b4fd6; --mq-soft: #f3eefc;
   --wait: #d97a1e; --wait-soft: #fdf1e4; --busy: #2b9a58; --busy-soft: #e5f5ec;
   --review: #3b6fd8; --review-soft: #e8effc; --idle: #9aa3ae; --idle-soft: #f0f1f3;
   --add-bg: #e6f6ea; --add: #1a7f37; --del-bg: #fdecec; --del: #c0362c; --hunk: #eef2fb;
   --chip: #eef0f3; --code-bg: #f3f4f6; --user-bg: #f0f4fd;
   --shadow: 0 1px 2px rgba(16, 24, 40, .06);
+  --scroll: #c9ced6; --scroll-hover: #a9b0ba;
+  color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #0f1216; --panel: #171b20; --panel2: #1b2026; --line: #2a3038; --text: #e3e7ec; --muted: #8b95a1;
     --accent: #6d9bff; --accent-soft: #1c2738;
+    --mq: #b08cff; --mq-soft: #241c38;
     --wait: #f0a050; --wait-soft: #2e2216; --busy: #4cc27e; --busy-soft: #142a1d;
     --review: #6d9bff; --review-soft: #1a2436; --idle: #6b7380; --idle-soft: #1d2127;
     --add-bg: #12301d; --add: #6fdc8c; --del-bg: #3a1716; --del: #ff8a80; --hunk: #1c2433;
     --chip: #232a33; --code-bg: #20262e; --user-bg: #19212e;
     --shadow: none;
+    --scroll: #343b45; --scroll-hover: #4a525e;
+    color-scheme: dark;
   }
 }
+/* Тонкие скроллбары в цвет темы: без этого macOS с «всегда показывать полосы» рисует светлый трек
+   во всю высоту, а внутренние колонки (входящие, переписка) выглядят как обведённые рамкой. */
+* { scrollbar-width: thin; scrollbar-color: var(--scroll) transparent; }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; flex-direction: column; }
@@ -120,6 +129,18 @@ header input[type=search] { width: 240px; }
 .card .title.derived { color: var(--muted); font-style: italic; font-weight: 500; }
 .card .why { font-size: 12px; margin-top: 2px; }
 .card .why.waiting { color: var(--wait); }
+.card .why.stuck { color: #d4483b; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#nudgeBtn.warn { color: #d4483b; border-color: #d4483b; }
+#nudgePanel { position: fixed; z-index: 55; top: 56px; right: 16px; width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 80px); overflow: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,.35); padding: 12px 14px; }
+#nudgePanel .np-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+#nudgePanel .np-head b { flex: 1; }
+#nudgePanel h4 { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+#nudgePanel label { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; cursor: pointer; }
+#nudgePanel label .t { font-weight: 500; }
+#nudgePanel label .r { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+#nudgePanel .np-foot { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+#nudgePanel .np-foot .muted { font-size: 12px; flex-basis: 100%; }
 .card .prompt { color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 3px; font-size: 12.5px; }
 .card .foot { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 
@@ -127,7 +148,7 @@ header input[type=search] { width: 240px; }
 .inbox { max-width: 1560px; margin: 0 auto; padding: 16px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 .inbox h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 18px 0 8px; }
 /* Правая колонка — всё, что ждёт моего действия; держится на экране, пока листаешь левую. */
-.inbox .icol.act { position: sticky; top: 0; max-height: calc(100vh - 70px); overflow-y: auto; }
+.inbox .icol.act { position: sticky; top: 0; max-height: calc(100vh - 70px); overflow-y: auto; padding-right: 6px; scrollbar-gutter: stable; }
 .inbox .icol.act.has { border-left: 3px solid var(--wait); padding-left: 14px; }
 .irow { display: grid; grid-template-columns: 14px 1fr auto; gap: 10px; align-items: start; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; }
 .irow:hover { border-color: var(--accent); }
@@ -164,6 +185,14 @@ header input[type=search] { width: 240px; }
 .msg { margin-bottom: 14px; }
 .msg .who { font-size: 12px; color: var(--muted); margin-bottom: 3px; display: flex; gap: 6px; align-items: center; }
 .msg .who b { color: var(--text); }
+.msg.queued .body { border-style: dashed; opacity: .85; }
+.msg .who .qtag { color: var(--wait); }
+.msg .who .atag { color: var(--muted); font-style: italic; }
+.qbar { display: none; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; padding: 6px 10px; border-radius: 6px; font-size: 12.5px;
+  background: color-mix(in srgb, var(--wait) 12%, transparent); border: 1px solid color-mix(in srgb, var(--wait) 45%, var(--line)); }
+.qbar.on { display: flex; }
+.qbar .t { flex: 1; min-width: 200px; }
+.qbar button { padding: 3px 10px; font-size: 12.5px; }
 .msg.user .body { background: var(--user-bg); border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); border-radius: 10px; padding: 8px 12px; }
 .msg.assistant .body { padding: 0 2px; }
 .waitbar { margin: 8px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--wait-soft); color: var(--wait); font-weight: 500; }
@@ -319,6 +348,20 @@ pre.diff .m { color: var(--muted); font-weight: 600; }
 #ctxPop .cm.user .who { color: var(--accent); }
 #ctxPop .cm p { margin: 4px 0; }
 .req .q { font-weight: 600; margin: 6px 0 4px; }
+.req .fold { margin-left: auto; padding: 2px 8px; font-size: 12px; }
+.req .rsum { display: none; color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.req.folded .rbody, .req.folded .ctx { display: none; }
+.req.folded .rsum { display: block; }
+.req.folded .rh { margin-bottom: 2px; }
+.req .snz { display: none; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; padding: 8px 10px; border-radius: 6px; background: var(--accent-soft); font-size: 12.5px; }
+.req.snoozing .snz { display: flex; }
+.req .snz input[type=text] { width: 150px; flex: none; min-width: 0; }
+.req .snz button { padding: 2px 8px; font-size: 12px; }
+.snzlist { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.snzrow { display: flex; gap: 8px; align-items: center; font-size: 12.5px; padding: 6px 10px; border: 1px dashed var(--line); border-radius: 6px; }
+.snzrow .sm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.snzrow button { padding: 2px 8px; font-size: 12px; }
+.card .why.snoozed { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .req .opt { display: flex; gap: 8px; align-items: flex-start; padding: 3px 6px; border-radius: 6px; cursor: pointer; }
 .req .opt:hover { background: var(--accent-soft); }
 .req .opt .d { color: var(--muted); font-size: 12px; }
@@ -329,6 +372,30 @@ pre.diff .m { color: var(--muted); font-weight: 600; }
 button.allow { background: var(--busy); border-color: var(--busy); color: #fff; }
 button.deny { color: var(--del); }
 .reqs-top { padding: 10px 20px 0; max-height: 50vh; overflow: auto; }
+/* Вопросы менеджерам: текст для пересылки в Telegram — своя вкладка, не смешивается с запросами сессий */
+.chip.mqchip { color: var(--mq); border-color: color-mix(in srgb, var(--mq) 50%, var(--line)); text-decoration: none; }
+.badge.mq { background: var(--mq); }
+.mqpage { max-width: 980px; margin: 0 auto; padding: 16px; }
+.mqgroup { margin-bottom: 22px; }
+.mqghead { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.mqghead h2 { margin: 0; flex: 1; font-size: 15px; }
+.mqcard { background: var(--panel); border: 1px solid color-mix(in srgb, var(--mq) 55%, var(--line)); border-left: 3px solid var(--mq); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.mqcard .rh { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+.mqcard .rh b { color: var(--mq); }
+.mqcard pre { white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 13px; background: var(--mq-soft); border-radius: 6px; padding: 8px 10px; margin: 0 0 8px; max-height: 260px; overflow: auto; }
+.mqcard .acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.mqform { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; padding: 8px 10px; border-radius: 6px; background: var(--mq-soft); }
+.mqform textarea { flex: 1 1 100%; min-height: 70px; font: inherit; font-size: 13px; }
+.mqhist { margin-top: 20px; }
+.mqhist summary { cursor: pointer; font-weight: 600; color: var(--muted); margin-bottom: 8px; }
+.mqrow { border-left: 3px solid var(--line); padding: 6px 10px; margin-bottom: 6px; background: var(--panel); border-radius: 6px; }
+.mqrow .line { display: flex; gap: 6px; font-size: 13px; min-width: 0; }
+.mqrow .line .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.mqrow .meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.mqrow .meta .spacer { flex: 1; }
+.mqrow .ok { color: var(--busy); }
+.mqform label { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
+.mqcard.copied .copybtn { opacity: .7; }
 .card .why.req-line { color: var(--wait); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer { flex: none; border-top: 1px solid var(--line); background: var(--panel); padding: 10px 20px 12px; }
 .composer .inner { max-width: 900px; margin: 0 auto; display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
@@ -336,6 +403,14 @@ button.deny { color: var(--del); }
 .composer textarea:focus { outline: none; border-color: var(--accent); }
 .composer .hint { grid-column: 1 / -1; margin: 0; font-size: 11.5px; }
 .composer .sendcol { display: flex; flex-direction: column; gap: 6px; }
+.composer .atts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+.composer .atts:empty { display: none; }
+.composer .att { display: flex; align-items: center; gap: 6px; max-width: 260px; padding: 3px 4px 3px 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 12px; }
+.composer .att img { width: 40px; height: 40px; object-fit: cover; border-radius: 5px; }
+.composer .att .ico { width: 40px; height: 40px; display: grid; place-items: center; font-size: 18px; }
+.composer .att .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer .att button { padding: 0 6px; border: 0; background: none; color: var(--muted); }
+.composer.drop { outline: 2px dashed var(--accent); outline-offset: -6px; }
 .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); max-width: min(560px, calc(100vw - 32px)); background: var(--text); color: var(--bg); padding: 6px 14px; border-radius: 8px; font-size: 12.5px; z-index: 60; }
 
 /* ---------- сутки ---------- */
@@ -363,6 +438,19 @@ button.deny { color: var(--del); }
 .dcard .sess { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .dcard .sess a { text-decoration: none; }
 .day h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 22px 0 8px; }
+
+/* ---------- отчёт ---------- */
+.report { max-width: 980px; margin: 0 auto; padding: 16px; }
+.rp-form { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+.rp-form label { display: flex; gap: 6px; align-items: center; }
+.rp-form select, .rp-form input[type=datetime-local] { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+.rp-form .presets { display: flex; gap: 4px; }
+.rp-form .go { display: flex; gap: 8px; margin-left: auto; }
+.rp-hint { font-size: 12px; color: var(--muted); margin: 8px 2px 0; }
+.rp-out { margin-top: 14px; }
+.rp-out pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; white-space: pre-wrap; word-break: break-word; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: calc(100vh - 260px); overflow: auto; margin: 8px 0 0; }
+.rp-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.rp-warn { font-size: 12px; color: var(--muted); margin-top: 8px; }
 
 /* ---------- план ---------- */
 .planpage { max-width: 1400px; margin: 0 auto; padding: 16px; }
@@ -420,15 +508,18 @@ button.pf.on { background: var(--accent-soft); border-color: var(--accent); colo
   <nav>
     <a href="#/board" data-view="board">Доска</a>
     <a href="#/inbox" data-view="inbox">Входящие <span id="inboxBadge"></span></a>
+    <a href="#/managers" data-view="managers" title="Вопросы и тексты менеджерам, которые сессии подготовили для пересылки в Telegram">Менеджерам <span id="mqBadge"></span></a>
     <a href="#/plan" data-view="plan">План</a>
     <a href="#/rules" data-view="rules">Правила <span id="rulesBadge"></span></a>
-    <a href="#/day" data-view="day" title="Что сделано за сутки с 12:00 до 12:00 МСК">Сутки</a>
+    <a href="#/day" data-view="day" title="Что сделано за сутки с 03:00 до 03:00 МСК">Сутки</a>
+    <a href="#/report" data-view="report" title="Отчёт «что сделано» по проекту за период — текстом для Telegram">Отчёт</a>
   </nav>
   <span id="stale"></span>
   <div class="spacer"></div>
   <span id="boardTools"></span>
   <input type="search" id="q" placeholder="Поиск: задача, имя, текст…">
   <button id="openTask" title="Открыть в VS Code новую вкладку Claude с /start-task КЛЮЧ и отправить запрос">▶ Задача в VS Code</button>
+  <button id="nudgeBtn" title="Проверка связи: оборвавшиеся, молчащие и простаивающие сессии — спросить статус или попросить продолжить">🩺 Проверить</button>
   <button id="autoname" title="Придумать имена сессиям без имени (Haiku через claude -p)">✨ Имена</button>
   <span id="syncPill" class="ghost" hidden></span>
   <button id="notifyBtn" class="ghost" title="Уведомления, когда сессия ждёт ответа">🔕</button>
@@ -455,6 +546,59 @@ function ago(ts) {
 }
 const hhmm = ts => ts ? new Date(ts).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' }) : '';
 const dayTime = ts => ts ? new Date(ts).toLocaleString('ru', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+// ---------- проверка связи ----------
+// Кому имеет смысл написать: оборвавшиеся ошибкой API, молчащие «в работе» и простаивающие с незакрытой
+// задачей. Сессии с запросом без ответа пропускаем — там ждут меня, а не связь.
+function nudgeGroups() {
+  const live = sessions.filter(s => !s.requests?.length && s.status !== 'waiting');
+  const idle = s => !s.stuck && s.status !== 'busy' && !s.finished && !s.taskClosed;
+  return [
+    ['Оборвались с ошибкой', live.filter(s => s.stuck?.kind === 'error'), true, s => s.stuck.text],
+    ['Молчат «в работе» дольше 10 мин', live.filter(s => s.stuck?.kind === 'silent'), true, s => `последнее действие ${ago(s.stuck.at)} назад`],
+    ['Простаивают с незакрытой задачей', live.filter(s => idle(s) && s.taskKey), true, s => `${s.taskKey} · ${ago(s.lastActivity)}`],
+    ['Простаивают без задачи', live.filter(s => idle(s) && !s.taskKey), false, s => ago(s.lastActivity)],
+  ].filter(g => g[1].length);
+}
+// Неподключённые вкладки Claude после перезапуска VS Code — сервер читает сохранённое состояние окон
+// VS Code: спрашиваем при загрузке страницы, раз в 5 минут и при открытии панели.
+let revivable = [];
+const tabPlace = r => `${r.groups > 1 ? `группа ${r.group}, ` : ''}вкладка ${r.index}`;
+async function loadRevivable() {
+  try { revivable = (await (await fetch('/api/revivable')).json()).sessions || []; } catch { revivable = []; }
+  render();
+}
+async function openNudge() {
+  $('#nudgePanel')?.remove();
+  await loadRevivable();
+  const groups = nudgeGroups();
+  const live = new Set(sessions.map(s => s.sessionId));
+  const rv = revivable.filter(r => !live.has(r.sessionId));
+  const revHtml = rv.length ? `<h4>Вкладки VS Code без сессии · ${rv.length}</h4>${rv.map(r =>
+    `<label><span class="t">${esc(r.title)}</span><span class="r">${esc(tabPlace(r))}${new Set(rv.map(x => x.workspace)).size > 1 ? ` · ${esc(r.workspace)}` : ''}</span></label>`).join('')}
+    <div class="np-foot"><span class="muted">После перезапуска VS Code сессия подключается, когда её вкладку показали: кликни по каждой. Порядок вкладок — на момент последнего сохранения окна VS Code.</span></div>` : '';
+  const body = (groups.length || rv.length) ? revHtml + (groups.length ? groups.map(([title, list, on, why]) => `<h4>${esc(title)} · ${list.length}</h4>${list.map(s =>
+    `<label><input type="checkbox" data-np value="${esc(s.sessionId)}" ${on ? 'checked' : ''}><span class="t">${esc(s.title)}</span><span class="r">${esc(why(s))}</span></label>`).join('')}`).join('')
+    : '') : '<div class="muted">Оборвавшихся, простаивающих и не поднявшихся сессий нет.</div>';
+  document.body.insertAdjacentHTML('beforeend', `<div id="nudgePanel"><div class="np-head"><b>Проверка связи</b><button class="ghost" data-np-close>✕</button></div>${body}
+    ${groups.length ? `<div class="np-foot"><button data-np-mode="status">Спросить статус</button><button data-np-mode="continue">Продолжить работу</button>
+    <span class="muted">Уйдёт в выбранные сессии репликой «[из dev-cockpit]». «Статус» — коротко рассказать, где стоим; «Продолжить» — работать дальше с места обрыва.</span></div>` : ''}</div>`);
+}
+document.addEventListener('click', async e => {
+  if (e.target.id === 'nudgeBtn') return $('#nudgePanel') ? $('#nudgePanel').remove() : openNudge();
+  if (e.target.closest('[data-np-close]')) return $('#nudgePanel')?.remove();
+  const m = e.target.closest('[data-np-mode]'); if (!m) return;
+  const ids = [...document.querySelectorAll('#nudgePanel [data-np]:checked')].map(x => x.value);
+  if (!ids.length) return toast('Не выбрано ни одной сессии');
+  m.disabled = true;
+  try {
+    const { results } = await post('/api/nudge', { sessionIds: ids, mode: m.dataset.npMode });
+    const bad = results.filter(r => !r.ok);
+    toast(`Отправлено: ${results.length - bad.length}${bad.length ? ` · не ушло: ${bad.map(r => `${sessions.find(s => s.sessionId === r.id)?.title || r.id.slice(0, 8)} (${r.error})`).join(', ')}` : ''}`);
+    $('#nudgePanel')?.remove(); poll();
+  } catch (err) { toast('Не вышло: ' + err.message); m.disabled = false; }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#nudgePanel')?.remove(); });
+
 // Иконка вкладки: циферблат-«приборка»; красная точка — какая-то сессия ждёт ответа.
 let faviconWait = null;
 function setFavicon(wait) {
@@ -525,10 +669,11 @@ document.addEventListener('click', e => {
 const plain = text => String(text || '').replace(/```[\s\S]*?```/g, ' [код] ').replace(/[*_`#>|]/g, '').replace(/\s+/g, ' ').trim();
 
 // ---------- состояние ----------
-let sessions = [], projects = [], queues = {}, pending = [], lastOk = 0, planVersionSeen = 0;
+let sessions = [], projects = [], queues = {}, pending = [], snoozes = [], lastOk = 0, planVersionSeen = 0;
 let seen = store.get('seen', {});           // sessionId → lastActivity, которую я уже видел
 let prevStatus = {};
 const notified = new Set();
+const mqNotified = new Set(); // первый опрос только запоминает уже висящие вопросы, уведомляет о новых
 let groupBy = store.get('groupBy', 'project');
 let showCold = store.get('showCold', true);
 let collapsed = store.get('collapsed', {});
@@ -572,7 +717,7 @@ window.addEventListener('hashchange', () => render(true));
 async function poll() {
   try {
     const data = await (await fetch('/api/sessions')).json();
-    sessions = data.sessions; projects = data.projects; queues = data.queues || {}; pending = data.pending || []; lastOk = Date.now();
+    sessions = data.sessions; projects = data.projects; queues = data.queues || {}; pending = data.pending || []; snoozes = data.snoozes || []; lastOk = Date.now();
     // План поменяли (здесь или из Mini App) — перечитать вкладку «План», не дожидаясь минутного опроса.
     if (data.planVersion && planVersionSeen && data.planVersion !== planVersionSeen) for (const st of Object.values(planData)) st.at = 0;
     planVersionSeen = data.planVersion;
@@ -586,7 +731,13 @@ async function poll() {
         new Notification(`Ждёт ответа: ${s.title}`, { body: s.waitingFor || '', tag: s.sessionId });
       }
       prevStatus[s.sessionId] = s.status;
+      for (const q of s.managerQuestions || []) {
+        if (mqNotified.has(q.id)) continue;
+        if (mqNotified.size && notifyOn) new Notification(`Вопрос для: ${q.to}`, { body: `${s.title}\n${mqFirstLine(q)}`.slice(0, 200), tag: 'mq' + q.id });
+        mqNotified.add(q.id);
+      }
     }
+    mqNotified.add('');
     // Новые сессии считаем просмотренными, чтобы при первом запуске всё не оказалось «на проверку».
     if (!store.get('seenInit', false)) { for (const s of sessions) seen[s.sessionId] = s.lastActivity || 0; store.set('seen', seen); store.set('seenInit', true); }
   } catch (e) { console.error(e); }
@@ -602,17 +753,25 @@ function render(force) {
   if (pending.length && notifyOn) for (const r of pending) if (!notified.has(r.id)) { notified.add(r.id); new Notification(`${r.kind === 'question' ? 'Вопрос' : 'Разрешение'}: ${sessions.find(x => x.sessionId === r.sessionId)?.title || ''}`, { body: reqSummary(r).slice(0, 200), tag: r.id }); }
   const waitN = sessions.filter(s => s.status === 'waiting').length;
   $('#inboxBadge').innerHTML = inboxN ? `<span class="badge">${inboxN}</span>` : '';
+  const mqN = mqAll(sessions).length;
+  $('#mqBadge').innerHTML = mqN ? `<span class="badge mq">${mqN}</span>` : '';
   document.title = (waitN ? `(${waitN}) ` : '') + 'dev-cockpit';
   setFavicon(waitN > 0);
   $('#stale').innerHTML = lastOk && Date.now() - lastOk > 15000 ? '<span class="stale">нет связи с сервером</span>' : '';
   const unnamed = sessions.filter(s => s.nameSource === 'derived').length;
   const namingN = sessions.filter(s => s.naming).length;
+  const liveIds = new Set(sessions.map(s => s.sessionId));
+  const stuckN = sessions.filter(s => s.stuck).length + revivable.filter(r => !liveIds.has(r.sessionId)).length;
+  $('#nudgeBtn').textContent = `🩺 Проверить${stuckN ? ` (${stuckN})` : ''}`;
+  $('#nudgeBtn').classList.toggle('warn', !!stuckN);
   $('#autoname').innerHTML = namingN ? `<span class="spin"></span> ${namingN}` : `✨ Имена${unnamed ? ` (${unnamed})` : ''}`;
   $('#autoname').disabled = !!namingN || !unnamed;
   $('#boardTools').innerHTML = r.view === 'board' ? `
     <span class="seg"><button data-group="project" class="${groupBy === 'project' ? 'on' : ''}">По проектам</button><button data-group="none" class="${groupBy === 'none' ? 'on' : ''}">Все вместе</button></span>
     <label class="muted" style="margin-left:8px"><input type="checkbox" id="showCold" ${showCold ? 'checked' : ''}> простаивающие</label>
     ${sessions.some(s => s.closable) ? `<button class="ghost" id="closeAll" title="Задача закрыта в Трекере и план заметки выполнен">✕ закрыть готовые (${sessions.filter(s => s.closable).length})</button>` : ''}`
+    : r.view === 'managers' ? `
+    <span class="seg"><button data-mq-group="project" class="${mqGroupBy === 'project' ? 'on' : ''}">По проектам</button><button data-mq-group="who" class="${mqGroupBy === 'who' ? 'on' : ''}">По адресатам</button></span>`
     : r.view === 'plan' ? `
     <span class="seg"><button data-plan-scope="mine" class="${planScope === 'mine' ? 'on' : ''}" title="Открытые задачи, где я исполнитель, и заведённые мной без исполнителя">Мои</button><button data-plan-scope="all" class="${planScope === 'all' ? 'on' : ''}" title="Все открытые задачи очередей проекта">Все открытые</button></span>
     <button class="ghost" data-plan-refresh title="Перечитать задачи из Трекера">↻</button>`
@@ -629,7 +788,10 @@ function render(force) {
   $('#rulesBadge').innerHTML = rulesData?.suggestions.length ? `<span class="badge">${rulesData.suggestions.length}</span>` : '';
   if (r.view === 'rules') return renderRules();
   if (r.view === 'day') return renderDay(r.id);
+  if (r.view === 'report') return renderReport();
+  if (r.view !== 'managers') lastMqHtml = '';
   if (r.view === 'inbox') return renderInbox();
+  if (r.view === 'managers') return renderManagers();
   return renderBoard();
 }
 
@@ -639,6 +801,103 @@ function filtered() {
   return sessions.filter(s => [s.title, s.taskKey, s.project, s.gitBranch, s.lastPrompt, s.claudeName].join(' ').toLowerCase().includes(q));
 }
 const byActivity = (a, b) => (b.lastActivity || 0) - (a.lastActivity || 0);
+
+// ---------- отчёт «что сделано» ----------
+// Форма рисуется один раз (чтобы опрос раз в 3 с не сбивал ввод), дальше обновляется только блок результата.
+const pad2 = n => String(n).padStart(2, '0');
+const localDT = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+const dayAt = (shift, h = 10) => { const d = new Date(); d.setDate(d.getDate() + shift); d.setHours(h, 0, 0, 0); return localDT(d); };
+const rp = {
+  projects: null,
+  project: store.get('reportProject', 'REVENUERADAR'),
+  from: store.get('reportFrom', '') || dayAt(-1),
+  mine: store.get('reportMine', true),
+  job: null, error: null, starting: false,
+};
+async function loadReportProjects() {
+  try { rp.projects = (await (await fetch('/api/report')).json()).projects || []; }
+  catch (e) { rp.error = e.message; rp.projects = []; }
+  if (route().view === 'report') renderReport(true);
+}
+async function startReport(mode) {
+  rp.starting = true; rp.error = null; rp.job = null; renderReportOut();
+  try {
+    rp.job = await post('/api/report', { project: rp.project, from: new Date(rp.from).toISOString(), mine: rp.mine, mode });
+    pollReport(rp.job.id);
+  } catch (e) { rp.error = e.message; }
+  rp.starting = false; renderReportOut();
+}
+async function pollReport(id) {
+  while (rp.job?.id === id && rp.job.status === 'running') {
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const r = await fetch(`/api/report?id=${encodeURIComponent(id)}`);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || r.status);
+      if (rp.job?.id === id) rp.job = j;
+    } catch (e) { if (rp.job?.id === id) { rp.job = { ...rp.job, status: 'error', error: e.message }; } }
+    renderReportOut();
+  }
+}
+function renderReport(force) {
+  const app = $('#app');
+  if (!rp.projects) { if (rp.projects === null) { rp.projects = undefined; loadReportProjects(); } }
+  if (!force && app.querySelector('.report')) return renderReportOut();
+  const opts = (rp.projects || []).map(p => `<option value="${esc(p.id)}" ${p.id === rp.project ? 'selected' : ''}>${esc(p.label)}</option>`).join('');
+  app.innerHTML = `<div class="report">
+    <div class="rp-form">
+      <label>Проект <select id="rpProject">${opts || '<option>…</option>'}</select></label>
+      <label>с <input type="datetime-local" id="rpFrom" value="${esc(rp.from)}"></label>
+      <span class="presets">
+        <button class="ghost" data-rp-from="${dayAt(0)}">сегодня 10:00</button>
+        <button class="ghost" data-rp-from="${dayAt(-1)}">вчера 10:00</button>
+        <button class="ghost" data-rp-from="${dayAt(-7)}">неделя</button>
+      </span>
+      <label title="Релизы — только мои коммиты; работа — мои сессии Claude Code"><input type="checkbox" id="rpMine" ${rp.mine ? 'checked' : ''}> только мои</label>
+      <span class="go">
+        <button data-rp-go="data" title="Скрипты prod-releases и task-audit: релизы, статусы, сессии. ~10–60 с, без LLM">Собрать без LLM</button>
+        <button data-rp-go="llm" title="Фоновая сессия Claude прогонит те же скрипты, прочитает сессии и напишет связный текст. 3–5 мин, лимит Max">🤖 С LLM — фоновая сессия</button>
+      </span>
+    </div>
+    <div class="rp-hint">По текущий момент, время МСК. Без LLM — сводка по данным: релизы, статусы, где шла работа. С LLM — пересказ того, что сделано и что дальше; отчёт придёт в чат новой сессии, его можно уточнять.</div>
+    <div class="rp-out" id="rpOut"></div>
+  </div>`;
+  renderReportOut();
+}
+function renderReportOut() {
+  const out = $('#rpOut');
+  if (!out) return;
+  const j = rp.job;
+  let html = '';
+  if (rp.error) html = `<div class="muted">Ошибка: ${esc(rp.error)}</div>`;
+  else if (rp.starting) html = `<div class="muted"><span class="spin"></span> Запускаю…</div>`;
+  else if (j?.status === 'running') html = `<div class="muted"><span class="spin"></span> ${esc(j.stage || 'Собираю…')} · ${Math.round((Date.now() - j.startedAt) / 1000)} с</div>`;
+  else if (j?.status === 'error') html = `<div class="muted">Ошибка: ${esc(j.error)}</div>`;
+  else if (j?.status === 'done' && j.mode === 'llm') {
+    html = `<div class="rp-bar">✅ Запущена фоновая сессия <b>${esc(j.name)}</b>. Она появится на <a href="#/board">доске</a> через несколько секунд; отчёт придёт в её чат, там же можно попросить поправить.</div>${j.output ? `<div class="rp-warn">${esc(j.output)}</div>` : ''}`;
+  } else if (j?.status === 'done') {
+    html = `<div class="rp-bar"><button data-rp-copy>📋 Скопировать</button><span class="muted">собрано за ${Math.round((j.finishedAt - j.startedAt) / 1000)} с</span></div>
+      <pre id="rpText">${esc(j.text)}</pre>
+      ${j.warnings?.length ? `<div class="rp-warn">${j.warnings.map(w => `⚠️ ${esc(w)}`).join('<br>')}</div>` : ''}`;
+  }
+  if (out.dataset.html !== html) { out.dataset.html = html; out.innerHTML = html; }
+}
+document.addEventListener('change', e => {
+  if (e.target.id === 'rpProject') { rp.project = e.target.value; store.set('reportProject', rp.project); }
+  if (e.target.id === 'rpMine') { rp.mine = e.target.checked; store.set('reportMine', rp.mine); }
+  if (e.target.id === 'rpFrom') { rp.from = e.target.value; store.set('reportFrom', rp.from); }
+});
+document.addEventListener('click', e => {
+  const pf = e.target.closest('[data-rp-from]');
+  if (pf) { rp.from = pf.dataset.rpFrom; store.set('reportFrom', rp.from); const i = $('#rpFrom'); if (i) i.value = rp.from; return; }
+  const go = e.target.closest('[data-rp-go]');
+  if (go) {
+    if (!rp.from || !Number.isFinite(Date.parse(rp.from))) return toast('Укажи начало периода');
+    if (rp.job?.status === 'running') return toast('Отчёт ещё собирается');
+    return startReport(go.dataset.rpGo);
+  }
+  if (e.target.closest('[data-rp-copy]') && rp.job?.text) copy(rp.job.text, 'отчёт');
+});
 
 // ---------- запросы сессий ----------
 // Набранное в формах запросов живёт здесь, чтобы не терялось при перерисовке раз в 3 с.
@@ -731,12 +990,109 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && ctxFor) hideCtxSoon(); });
 
+// Свёрнутые карточки запросов: id живут, пока висит запрос, — перерисовка по опросу их не разворачивает.
+const reqFolded = new Set();
+document.addEventListener('click', e => {
+  const b = e.target.closest?.('[data-fold]'); if (!b) return;
+  const id = b.dataset.fold, on = !reqFolded.has(id);
+  on ? reqFolded.add(id) : reqFolded.delete(id);
+  b.closest('.req')?.classList.toggle('folded', on);
+  b.textContent = on ? '▸ Развернуть' : '▾ Свернуть';
+});
+// «Отложить»: сессия получает «отложено до HH:MM» и освобождается, в срок cockpit напомнит ей задать
+// вопрос снова. Своё время — минуты («45»), часы («1.5ч») или час дня («17:30», если прошло — завтра).
+const snoozeOpen = new Set();
+const SNOOZE_PRESETS = [[15, '15 мин'], [30, '30 мин'], [60, '1 ч'], [120, '2 ч'], [240, '4 ч']];
+function snoozeDue(v) {
+  v = String(v || '').trim().toLowerCase().replace(/^в\s*/, '');
+  let m;
+  if ((m = v.match(/^(\d{1,2})[:.](\d{2})$/)) && +m[1] < 24 && +m[2] < 60) {
+    const d = new Date(); d.setHours(+m[1], +m[2], 0, 0);
+    if (+d <= Date.now() + 30_000) d.setDate(d.getDate() + 1);
+    return +d;
+  }
+  if ((m = v.match(/^(\d+(?:[.,]\d+)?)\s*(?:ч|h|час\S*)$/))) return Date.now() + parseFloat(m[1].replace(',', '.')) * 3600e3;
+  if ((m = v.match(/^(\d+)\s*(?:м|m|мин\S*)?$/))) return Date.now() + Number(m[1]) * 60e3;
+  return null;
+}
+const tomorrowAt = h => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(h, 0, 0, 0); return +d; };
+const whenLabel = ts => new Date(ts).toDateString() === new Date().toDateString() ? hhmm(ts)
+  : `${new Date(ts).toLocaleDateString('ru', { day: '2-digit', month: '2-digit' })} ${hhmm(ts)}`;
+function snoozeBox(r) {
+  return `<div class="snz"><span>Вернуть с вопросом через</span>
+    ${SNOOZE_PRESETS.map(([m, l]) => `<button data-snooze-at="${r.id}" data-min="${m}">${l}</button>`).join('')}
+    <button data-snooze-at="${r.id}" data-tomorrow="10">завтра 10:00</button>
+    <input type="text" placeholder="своё: 45, 1.5ч, 17:30" data-draft-text="${r.id}|snooze" value="${esc(drafts[`${r.id}|snooze`] || '')}">
+    <button class="primary" data-snooze-at="${r.id}" data-custom="1">Отложить</button></div>`;
+}
+const snoozeBtn = r => `<button data-snooze-toggle="${r.id}" title="Отложить: сессия освободится, а в выбранное время задаст вопрос снова">⏰ Отложить</button>`;
+async function snoozeRequest(id, dueAt) {
+  if (!dueAt || dueAt - Date.now() < 55_000) return toast('Время — не раньше чем через минуту');
+  try {
+    const res = await post('/api/requests/snooze', { id, dueAt });
+    toast(`Отложено до ${res.until} МСК — напомню сессии`);
+    snoozeOpen.delete(id);
+    for (const k of Object.keys(drafts)) if (k.startsWith(id + '|')) delete drafts[k];
+  } catch (e) { toast('Не отложил: ' + e.message); }
+  poll();
+}
+function snoozesHtml(list, withSession) {
+  if (!list?.length) return '';
+  return `<div class="snzlist">${list.map(z => {
+    const s = withSession ? sessions.find(x => x.sessionId === z.sessionId) : null;
+    const state = z.status === 'waiting' ? `⏰ до <b>${whenLabel(z.dueAt)}</b>`
+      : z.status === 'sent' ? `↩ напомнил в ${hhmm(z.doneAt)}` : `⚠ не напомнил: ${esc(z.error || '')}`;
+    return `<div class="snzrow">${state}${s ? ` <a href="#/session/${esc(z.sessionId)}">${esc(s.title)}</a>` : ''}
+      <span class="sm" title="${esc(z.summary)}">${z.kind === 'question' ? '❓' : '🔐 ' + esc(z.tool) + ':'} ${esc(z.summary)}</span>
+      ${z.status === 'waiting' ? `<button data-snz="now" data-id="${z.id}" title="Напомнить сессии прямо сейчас">Вернуть сейчас</button>` : ''}
+      <button class="ghost" data-snz="cancel" data-id="${z.id}" title="${z.status === 'waiting' ? 'Не напоминать — сессия сама вопрос не повторит' : 'Убрать из списка'}">✕</button></div>`;
+  }).join('')}</div>`;
+}
+document.addEventListener('click', async e => {
+  const t = e.target.closest?.('[data-snooze-toggle]');
+  if (t) {
+    const id = t.dataset.snoozeToggle, on = !snoozeOpen.has(id);
+    on ? snoozeOpen.add(id) : snoozeOpen.delete(id);
+    const card = t.closest('.req'); card?.classList.toggle('snoozing', on);
+    if (on) card?.querySelector('.snz input')?.focus();
+    return;
+  }
+  const a = e.target.closest?.('[data-snooze-at]');
+  if (a) {
+    const id = a.dataset.snoozeAt;
+    const due = a.dataset.min ? Date.now() + a.dataset.min * 60e3 : a.dataset.tomorrow ? tomorrowAt(+a.dataset.tomorrow)
+      : snoozeDue(a.closest('.snz')?.querySelector('input')?.value);
+    if (!due) return toast('Не понял время: 45 (минут), 1.5ч или 17:30');
+    a.disabled = true; await snoozeRequest(id, due); a.disabled = false;
+    return;
+  }
+  const z = e.target.closest?.('[data-snz]');
+  if (z) {
+    if (z.dataset.snz === 'cancel' && !confirm('Убрать? Сессия сама вопрос не повторит.')) return;
+    try { await post('/api/snoozes', { id: z.dataset.id, action: z.dataset.snz }); toast(z.dataset.snz === 'now' ? 'Напоминание отправлено' : 'Убрано'); }
+    catch (err) { toast('Не вышло: ' + err.message); }
+    poll();
+  }
+});
+document.addEventListener('input', e => {
+  const k = e.target.dataset?.mqKey; if (k) mqKeyDraft[k] = e.target.value;
+  const at = e.target.dataset?.mqAnswerText; if (at) mqAnswerDraft[at] = e.target.value;
+  const sm = e.target.dataset?.mqSummon; if (sm) mqSummon[sm] = e.target.checked;
+});
+document.addEventListener('keydown', e => {
+  const inp = e.target.closest?.('.snz input');
+  if (inp && e.key === 'Enter' && !e.isComposing) { e.preventDefault(); inp.closest('.snz').querySelector('[data-custom]')?.click(); }
+});
+
 function requestHtml(r, opts = {}) {
   const s = sessions.find(x => x.sessionId === r.sessionId);
+  const open = `<div class="req${reqFolded.has(r.id) ? ' folded' : ''}${snoozeOpen.has(r.id) ? ' snoozing' : ''}" data-req="${r.id}">`;
+  const sum = `<div class="rsum" title="${esc(reqSummary(r))}">${esc(reqSummary(r))}</div><div class="rbody">`;
   const head = `<div class="rh">${r.kind === 'question' ? '❓' : '🔐'} <b>${esc(r.kind === 'question' ? 'Claude спрашивает' : r.tool)}</b>
     ${opts.withSession && s ? `<a href="#/session/${esc(r.sessionId)}">${esc(s.title)}</a> <span class="chip">${esc(s.project)}</span>` : ''}
     <span class="time">${ago(r.createdAt)} назад</span>${modeChip(r.mode)}
-    ${opts.withSession ? `<span class="ctxbtn" data-ctx="${esc(r.sessionId)}" title="Последние сообщения сессии">💬</span>` : ''}</div>
+    ${opts.withSession ? `<span class="ctxbtn" data-ctx="${esc(r.sessionId)}" title="Последние сообщения сессии">💬</span>` : ''}
+    <button class="ghost fold" data-fold="${r.id}" title="Свернуть карточку, чтобы видеть переписку; ответить можно, развернув обратно">${reqFolded.has(r.id) ? '▸ Развернуть' : '▾ Свернуть'}</button></div>
     ${opts.withSession && s?.lastAssistant ? `<div class="ctx${ctxOpen.has(r.id) ? ' open' : ''}" data-ctx-toggle="${r.id}" title="Последняя реплика Claude перед запросом — клик разворачивает">${esc(s.lastAssistant)}</div>` : ''}`;
   if (r.kind === 'question') {
     const qs = (r.input.questions || []).map((q, qi) => {
@@ -747,21 +1103,22 @@ function requestHtml(r, opts = {}) {
           <span><b>${esc(o.label)}</b>${o.description ? `<div class="d">${esc(o.description)}</div>` : ''}</span></label>`).join('')}
         <input type="text" placeholder="Свой вариант" data-draft-text="${r.id}|other|${qi}" value="${esc(drafts[`${r.id}|other|${qi}`] || '')}" style="width:100%;margin-top:4px">`;
     }).join('');
-    return `<div class="req" data-req="${r.id}">${head}${qs}
-      <div class="acts"><button class="allow" data-decide="answer" data-id="${r.id}">Ответить</button>${modeSelect(r)}
-      <span class="muted" style="font-size:12px">или ответь в окне сессии — сработает первый ответ</span></div></div>`;
+    return `${open}${head}${sum}${qs}
+      <div class="acts"><button class="allow" data-decide="answer" data-id="${r.id}">Ответить</button>${modeSelect(r)}${snoozeBtn(r)}
+      <span class="muted" style="font-size:12px">или ответь в окне сессии — сработает первый ответ</span></div>${snoozeBox(r)}</div></div>`;
   }
   const body = r.tool === 'Bash' && r.input.command
     ? `${r.input.description ? `<div class="muted" style="margin-bottom:4px">${esc(r.input.description)}</div>` : ''}<pre>${esc(r.input.command)}</pre>`
     : `<pre>${esc(JSON.stringify(r.input, null, 2))}</pre>`;
-  return `<div class="req" data-req="${r.id}">${head}${body}
+  return `${open}${head}${sum}${body}
     <div class="acts">
       <button class="allow" data-decide="allow" data-id="${r.id}">Разрешить</button>
       ${Array.isArray(r.suggestions) && r.suggestions.length ? `<button data-decide="always" data-id="${r.id}" title="${esc(JSON.stringify(r.suggestions))}">Разрешить всегда</button>` : ''}
       ${modeSelect(r)}
       <input type="text" placeholder="Причина отказа (необязательно)" data-draft-text="${r.id}|reason" value="${esc(drafts[`${r.id}|reason`] || '')}">
       <button class="deny" data-decide="deny" data-id="${r.id}">Отклонить</button>
-    </div></div>`;
+      ${snoozeBtn(r)}
+    </div>${snoozeBox(r)}</div></div>`;
 }
 
 async function decideRequest(id, kind) {
@@ -789,7 +1146,7 @@ async function decideRequest(id, kind) {
   poll();
 }
 // Пока пользователь печатает в форме запроса, экран не перерисовываем — иначе пропадёт фокус.
-const typingInRequest = () => !!document.activeElement?.closest?.('.req') && (document.activeElement.type === 'text' || document.activeElement.tagName === 'SELECT');
+const typingInRequest = () => !!document.activeElement?.closest?.('.req, .mqcard, .mqrow') && (document.activeElement.type === 'text' || ['SELECT', 'TEXTAREA'].includes(document.activeElement.tagName));
 
 // ---------- доска ----------
 // Строка задач сессии: статус в Трекере и план из заметки start-task («☑ 8/9», в подсказке — что
@@ -832,7 +1189,9 @@ function cardHtml(s, lane) {
   const repos = (s.repos || []).filter(r => !r.endsWith('/Документация')).slice(0, 3).map(r => `<span class="chip">${esc(r.split('/').pop())}</span>`).join('');
   const rq = s.requests?.[0];
   const why = rq ? `<div class="why req-line">${rq.kind === 'question' ? '❓' : '🔐'} ${esc(rq.kind === 'question' ? 'вопрос' : rq.tool)}: ${esc(reqSummary(rq).slice(0, 120))}</div>`
-    : s.status === 'waiting' ? `<div class="why waiting">⏳ ${esc(s.waitingFor || 'ждёт ответа')}</div>` : '';
+    : s.stuck ? `<div class="why stuck" title="${esc(s.stuck.text || '')}">⚠ ${s.stuck.kind === 'error' ? `оборвалась: ${esc(s.stuck.text.slice(0, 120))}` : `молчит ${esc(ago(s.stuck.at))} в работе`}</div>`
+    : s.status === 'waiting' ? `<div class="why waiting">⏳ ${esc(s.waitingFor || 'ждёт ответа')}</div>`
+    : (sz => sz ? `<div class="why snoozed" title="${esc(sz.summary)}">⏰ вернётся с вопросом в ${whenLabel(sz.dueAt)}</div>` : '')((s.snoozes || []).filter(z => z.status === 'waiting').sort((a, b) => a.dueAt - b.dueAt)[0]);
   return `<div class="card ${lane}" data-open="${s.sessionId}">
     <div class="row"><span class="dot ${lane}"></span><span class="title ${s.nameSource === 'derived' ? 'derived' : ''}">${s.naming ? '<span class="spin"></span> ' : ''}${esc(s.title)}</span><span class="time">${ago(s.lastActivity)}</span></div>
     ${taskLine(s)}
@@ -840,8 +1199,87 @@ function cardHtml(s, lane) {
     ${why}
     ${nextCloseHtml(s)}
     <div class="prompt">${esc(plain(s.lastPrompt).slice(0, 240))}</div>
-    <div class="foot">${modeChip(s.permissionMode)}${s.taskKey && !s.title.includes(s.taskKey) && !s.trackerStatus?.[s.taskKey] ? `<span class="chip key">${esc(s.taskKey)}</span>` : ''}${groupBy === 'none' ? `<span class="chip">${esc(s.project)}</span>` : ''}${s.filesCount ? `<span class="chip">✎ ${s.filesCount}</span>` : ''}${repos}</div>
+    <div class="foot">${s.managerQuestions?.length ? `<a class="chip mqchip" href="#/managers" title="Вопросы менеджерам из этой сессии — переслать">✉ ${s.managerQuestions.length}</a>` : ''}${modeChip(s.permissionMode)}${s.taskKey && !s.title.includes(s.taskKey) && !s.trackerStatus?.[s.taskKey] ? `<span class="chip key">${esc(s.taskKey)}</span>` : ''}${groupBy === 'none' ? `<span class="chip">${esc(s.project)}</span>` : ''}${s.filesCount ? `<span class="chip">✎ ${s.filesCount}</span>` : ''}${repos}</div>
   </div>`;
+}
+
+// ---------- вопросы менеджерам ----------
+const mqCopied = new Set(store.get('mqCopied', []));
+const mqFirstLine = q => q.text.split('\n').map(l => l.trim()).find(Boolean) || '';
+const mqFind = (sid, id) => (s => s?.managerQuestions?.find(q => q.id === id) || s?.managerSent?.find(q => q.id === id))(sessions.find(x => x.sessionId === sid))
+  || (sessView?.data?.sessionId === sid ? sessView.data.managerQuestions?.find(q => q.id === id) : null);
+const mqAll = list => list.flatMap(s => (s.managerQuestions || []).map(q => ({ s, q }))).sort((a, b) => (b.q.ts || 0) - (a.q.ts || 0));
+// Открытые формы «в задачу» и черновики ключа: экран перерисовывается опросом, ввод не должен теряться.
+const mqCommentOpen = new Set(), mqKeyEdit = new Set(), mqKeyDraft = {}, mqSummon = {}, mqAnswerOpen = new Set(), mqAnswerDraft = {};
+let mqGroupBy = store.get('mqGroup', 'project');
+const mqButtons = (s, q) => `<button class="allow copybtn" data-mq-copy="${esc(s.sessionId)}|${q.id}" title="Скопировать текст для Telegram">📋 Копировать</button>`
+  + `<button data-mq-comment-toggle="${q.id}" title="Отправить вопрос комментарием в задачу Трекера">💬 В задачу</button>`
+  + `<button class="ghost" data-mq-done="${esc(s.sessionId)}|${q.id}" title="Отправил — убрать из списка. Если сессия повторит вопрос, он вернётся">✓ Отправил</button>`
+  + mqAnswerBtn(q);
+const mqAnswerBtn = q => `<button class="ghost" data-mq-answer-toggle="${q.id}" title="Вставить ответ менеджера — он уйдёт в сессию, которая готовила вопрос">✍ Ответ → в сессию</button>`;
+const mqAnswerForm = (s, q) => !mqAnswerOpen.has(q.id) ? '' : `<div class="mqform">
+  <textarea rows="4" data-mq-answer-text="${q.id}" placeholder="Ответ менеджера — как есть, из Telegram или Трекера">${esc(mqAnswerDraft[q.id] || '')}</textarea>
+  <button class="allow" data-mq-answer="${esc(s.sessionId)}|${q.id}">↩ Отправить в сессию</button>
+  <button class="ghost" data-mq-answer-toggle="${q.id}">Отмена</button>
+  <span class="muted" style="font-size:12px">сессия получит ответ с началом вопроса; вопрос уйдёт в «Отправлено» с пометкой «ответ передан»</span></div>`;
+const mqCommentForm = (s, q) => !mqCommentOpen.has(q.id) ? '' : `<div class="mqform">
+  ${q.key && !mqKeyEdit.has(q.id)
+    ? `<span>Задача <b>${esc(mqKeyDraft[q.id] ?? q.key)}</b></span><input type="hidden" data-mq-key="${q.id}" value="${esc(mqKeyDraft[q.id] ?? q.key)}"><button class="ghost" data-mq-key-edit="${q.id}" title="Отправить в другую задачу">✎ изменить</button>`
+    : `<label>Задача <input type="text" size="22" data-mq-key="${q.id}" value="${esc(mqKeyDraft[q.id] ?? q.key ?? '')}" placeholder="POLAERP-123"></label>`}
+  <label title="Автор задачи получит уведомление «Вас призвали»"><input type="checkbox" data-mq-summon="${q.id}" ${mqSummon[q.id] !== false ? 'checked' : ''}> призвать автора задачи</label>
+  <button class="allow" data-mq-comment="${esc(s.sessionId)}|${q.id}">Отправить комментарий</button>
+  <button class="ghost" data-mq-comment-toggle="${q.id}">Отмена</button>
+  <span class="muted" style="font-size:12px">текст уйдёт как есть; вопрос отметится отправленным</span></div>`;
+function mqCardHtml(s, q, withSession = true) {
+  return `<div class="mqcard${mqCopied.has(q.id) ? ' copied' : ''}">
+    <div class="rh">✉ <b>Для: ${esc(q.to)}</b>
+      ${withSession ? `<a href="#/session/${esc(s.sessionId)}">${esc(s.title)}</a> <span class="chip">${esc(s.project)}</span>` : ''}
+      <span class="time">${q.ts ? ago(q.ts) + ' назад' : ''}</span>${mqCopied.has(q.id) ? '<span class="muted" style="font-size:12px">скопировано</span>' : ''}</div>
+    <pre>${esc(q.text)}</pre>
+    <div class="acts">${mqButtons(s, q)}</div>${mqCommentForm(s, q)}${mqAnswerForm(s, q)}</div>`;
+}
+// Адресат без пояснений в скобках и после запятой: «Всеволод Баль (Telegram)» → «Всеволод Баль».
+const mqWho = to => to.replace(/\(.*$/, '').split(/[,;]/)[0].replace(/[.:]+$/, '').trim() || to;
+let lastMqHtml = '';
+function mqHistoryHtml(list) {
+  const sent = list.flatMap(s => (s.managerSent || []).map(q => ({ s, q }))).sort((a, b) => (b.q.doneAt || 0) - (a.q.doneAt || 0)).slice(0, 40);
+  if (!sent.length) return '';
+  const open = store.get('mqHistOpen', false);
+  return `<details class="mqhist" id="mqHist" ${open ? 'open' : ''}><summary>Отправлено · ${sent.length}</summary>${sent.map(({ s, q }) => `<div class="mqrow">
+    <div class="line">✓ <b>Для: ${esc(mqWho(q.to))}</b> <span class="t" title="${esc(q.text)}">${esc(mqFirstLine(q))}</span></div>
+    <div class="meta"><a href="#/session/${esc(s.sessionId)}">${esc(s.title)}</a> · ${q.doneAt ? ago(q.doneAt) + ' назад' : ''} ·
+      ${q.comment ? `комментарием в <a href="https://tracker.yandex.ru/${esc(q.comment.key)}" target="_blank" rel="noopener">${esc(q.comment.key)}</a>${q.comment.summoned ? ' (автор призван)' : ''}` : 'в Telegram'}
+      ${q.answeredAt ? ` · <span class="ok">ответ передан ${ago(q.answeredAt)} назад</span>` : ''}
+      <span class="spacer"></span>${mqAnswerBtn(q)}<button class="ghost" data-mq-undo="${esc(s.sessionId)}|${q.id}" title="Вернуть в неотправленные">↩ Вернуть</button></div>
+    ${mqAnswerForm(s, q)}</div>`).join('')}</details>`;
+}
+function renderManagers() {
+  const list = filtered();
+  const items = mqAll(list);
+  const groups = new Map();
+  for (const x of items) {
+    const name = mqGroupBy === 'who' ? mqWho(x.q.to) : x.s.project || 'Без проекта';
+    const k = name.toLowerCase();
+    if (!groups.has(k)) groups.set(k, { name, list: [] });
+    groups.get(k).list.push(x);
+  }
+  const ids = g => esc(g.list.map(x => x.s.sessionId + '|' + x.q.id).join(','));
+  const body = !items.length
+    ? '<div class="empty">Неотправленных вопросов менеджерам нет 🎉<div class="muted" style="font-size:13px;margin-top:6px">Сессии оформляют их строкой «Для: кому» и блоком ```text — они появятся здесь.</div></div>'
+    : [...groups.values()].map(g => `<section class="mqgroup">
+        <div class="mqghead"><h2>${esc(g.name)} · ${g.list.length}</h2>
+          ${g.list.length > 1 ? `<button data-mq-copy-group="${ids(g)}" title="Все вопросы группы одним текстом — через разделитель">📋 Скопировать все</button>
+          <button class="ghost" data-mq-done-group="${ids(g)}">✓ Отправил все</button>` : ''}</div>
+        ${g.list.map(x => mqCardHtml(x.s, x.q)).join('')}</section>`).join('');
+  const html = `<div class="mqpage">${body}${mqHistoryHtml(list)}</div>`;
+  if (html === lastMqHtml) return;
+  lastMqHtml = html;
+  $('#app').innerHTML = html;
+}
+async function mqDone(sid, id) {
+  try { await post('/api/manager-question', { sessionId: sid, id, done: true }); toast('Отмечено: отправлено'); }
+  catch (e) { toast('Не отметил: ' + e.message); }
+  poll();
 }
 
 function colsHtml(list) {
@@ -906,6 +1344,7 @@ function renderInbox() {
     <div class="icol act${pending.length || waiting.length ? ' has' : ''}">
       ${pending.length ? `<h2>Запросы разрешений и вопросы · ${pending.length}</h2>${pending.map(r => requestHtml(r, { withSession: true })).join('')}` : ''}
       <h2>Ждут моего ответа · ${waiting.length}</h2>${waiting.map(s => row(s, 'waiting')).join('') || '<div class="muted">Никто не ждёт 🎉</div>'}
+      ${snoozes.length ? `<h2>Отложено · ${snoozes.filter(z => z.status === 'waiting').length}</h2>${snoozesHtml([...snoozes].sort((a, b) => a.dueAt - b.dueAt), true)}` : ''}
     </div>
   </div>`;
   app.scrollTop = scroll; app.querySelector('.icol.act').scrollTop = actScroll;
@@ -921,7 +1360,7 @@ function nextCloseHtml(s) {
 async function closeSessionUi(ids) {
   const list = ids.map(id => sessions.find(s => s.sessionId === id)).filter(Boolean);
   if (!list.length) return;
-  const how = 'Вкладка VS Code покажет отключение, фоновая сессия остановится; переписка сохранится — продолжить можно из истории (claude --resume).';
+  const how = 'Вкладка Claude в VS Code закроется (cockpit переключится на неё и нажмёт Cmd+W), фоновая сессия остановится; переписка сохранится — продолжить можно из истории (claude --resume).';
   if (!confirm(`${list.length > 1 ? `Закрыть ${list.length} сессии:\n${list.map(s => `· ${s.title}`).join('\n')}` : `Закрыть сессию «${list[0].title}»?`}\n\n${how}`)) return;
   for (const s of list) {
     try { await post('/api/sessions/close', { sessionId: s.sessionId }); toast(`Закрыта: ${s.title}`); }
@@ -940,7 +1379,7 @@ async function rulesAction(body) {
   try { await post('/api/rules', body); rulesAt = 0; loadRules(); }
   catch (e) { toast('Не вышло: ' + e.message); }
 }
-// ---------- сутки 12:00–12:00 МСК ----------
+// ---------- сутки 03:00–03:00 МСК ----------
 // Сервер пересчитывает текущие сутки раз в час (↻ — сразу), прошедшие — один раз. Здесь только
 // перечитываем ответ раз в 10 минут, чтобы подхватить часовой пересчёт.
 const dayData = {}; // date|'' -> { at, data, loading, error }
@@ -1327,8 +1766,11 @@ function layoutSession() {
   $('#app').innerHTML = `<div class="sess" id="sessRoot">
     <div class="sess-main"><div class="sess-head" id="sessHead"></div><div class="chat" id="chat"><div class="chat-inner" id="chatInner"></div></div>
       <div class="composer"><div class="inner">
-        <textarea id="msgInput" rows="2" placeholder="Написать в сессию… (Enter — отправить, ⌘+Enter — новая строка)"></textarea>
+        <div class="qbar" id="msgQueueBar"></div>
+        <div class="atts" id="msgAtts"></div>
+        <textarea id="msgInput" rows="2" placeholder="Написать в сессию… (Enter — отправить, ⌘+Enter — новая строка, ⌘+V — вставить скрин)"></textarea>
         <div class="sendcol"><button class="primary" id="msgSend">Отправить</button>
+          <button id="msgAttach" title="Приложить файлы — или вставь скрин ⌘+V, или перетащи файлы сюда">📎 Файл</button><input type="file" id="msgFile" multiple hidden>
           <button id="askConfirm" title="Попросить сессию задать вопрос, которого она ждёт, карточкой с вариантами">Спросить кнопками</button></div>
         <div class="hint muted">Сообщение уйдёт через межсессионный сокет с пометкой «[из dev-cockpit]»: Claude увидит его как реплику соседней сессии, а не как твою команду, и «да» отсюда за подтверждение не примет. Если сессия ждёт твоего «да» — жми «Спросить кнопками»: она задаст вопрос карточкой, и ответ в карточке засчитается как твой.</div>
       </div></div></div>
@@ -1350,11 +1792,61 @@ function layoutSession() {
     } else sendMessage();
   });
   $('#msgSend').addEventListener('click', () => sendMessage());
+  sessView.files ||= []; // при перерисовке экрана вложения не теряем
+  renderAtts();
+  $('#msgAttach').addEventListener('click', () => $('#msgFile').click());
+  $('#msgFile').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
+  input.addEventListener('paste', e => {
+    const files = [...(e.clipboardData?.files || [])];
+    if (!files.length) return;
+    e.preventDefault(); addFiles(files);
+  });
+  const comp = $('.composer');
+  comp.addEventListener('dragover', e => { if (![...e.dataTransfer.types].includes('Files')) return; e.preventDefault(); comp.classList.add('drop'); });
+  comp.addEventListener('dragleave', e => { if (!comp.contains(e.relatedTarget)) comp.classList.remove('drop'); });
+  comp.addEventListener('drop', e => { comp.classList.remove('drop'); if (!e.dataTransfer.files.length) return; e.preventDefault(); addFiles(e.dataTransfer.files); });
+  $('#msgAtts').addEventListener('click', e => {
+    const b = e.target.closest('[data-att-rm]'); if (!b) return;
+    const [f] = sessView.files.splice(+b.dataset.attRm, 1);
+    if (f?.url) URL.revokeObjectURL(f.url);
+    renderAtts();
+  });
   $('#askConfirm').addEventListener('click', () => sendMessage(ASK_CONFIRM));
+  $('#msgQueueBar').addEventListener('click', e => { if (e.target.closest('[data-answer-text]')) answerWithText(); });
   $('#chat').addEventListener('scroll', e => { const c = e.target; sessView.stick = c.scrollHeight - c.scrollTop - c.clientHeight < 80; });
 }
 
+// Сессия ждёт ответа на запрос: сообщение через сокет встанет в её очередь и дойдёт только после
+// ответа. Предлагаем отправить текст самим ответом — тогда он дойдёт сразу и засчитается как мой.
+function updateQueueBar() {
+  const bar = $('#msgQueueBar'); if (!bar || !sessView?.data) return;
+  const r = (sessView.data.requests || [])[0];
+  const html = !r ? '' : `<span class="t">⏳ Сессия ждёт ${r.kind === 'question' ? 'ответа на вопрос' : `разрешения на ${esc(r.tool)}`}: обычное сообщение встанет в очередь и Claude прочтёт его только после ответа.</span>
+    <button data-answer-text title="${r.kind === 'question' ? 'Текст из поля уйдёт ответом на вопрос — как «Свой вариант», засчитается как твой ответ' : 'Запрос будет отклонён, а текст из поля Claude получит как причину — сразу'}">${r.kind === 'question' ? '↩ Ответить на вопрос этим текстом' : '↩ Отклонить и передать этот текст'}</button>`;
+  if (bar.dataset.html !== html) { bar.dataset.html = html; bar.innerHTML = html; bar.classList.toggle('on', !!r); }
+}
+async function answerWithText() {
+  const r = (sessView?.data?.requests || [])[0]; if (!r) return;
+  const input = $('#msgInput'); const text = input.value.trim();
+  const atts = sessView.files || [];
+  if (!text) { toast('Напиши текст ответа в поле'); input.focus(); return; }
+  const body = r.kind === 'question'
+    ? { id: r.id, behavior: 'allow', answers: Object.fromEntries((r.input.questions || []).map(q => [q.question, text])) }
+    : { id: r.id, behavior: 'deny', message: text };
+  try {
+    body.files = await Promise.all(atts.map(async f => ({ name: f.name, mime: f.file.type, data: await fileB64(f.file) })));
+    const res = await post('/api/requests/decision', body);
+    if (body.files.length && res.files !== body.files.length) throw new Error('сервер не принял вложения — перезапусти cockpit');
+    input.value = ''; delete drafts[`msg|${sessView.id}`];
+    atts.forEach(f => f.url && URL.revokeObjectURL(f.url)); sessView.files = []; renderAtts();
+    for (const k of Object.keys(drafts)) if (k.startsWith(r.id + '|')) delete drafts[k];
+    toast(r.kind === 'question' ? 'Ответ отправлен' : 'Отклонено, текст передан'); sessView.stick = true;
+  } catch (e) { toast('Не отправилось: ' + e.message); }
+  poll(); renderSession(sessView.id, false);
+}
+
 function updateSessionHead() {
+  updateQueueBar();
   const s = sessView.data; const lane = laneOf(s);
   if (sessView.editing || typingInRequest()) return;
   $('#sessHead').innerHTML = `
@@ -1370,7 +1862,9 @@ function updateSessionHead() {
     </div>
     ${s.next ? nextCloseHtml({ ...s, closable: false }) : ''}
     ${(s.requests || []).length ? `<div style="margin-top:8px">${s.requests.map(r => requestHtml(r)).join('')}</div>`
-      : s.status === 'waiting' ? `<div class="waitbar">⏳ Сессия ждёт: ${esc(s.waitingFor || 'ответа')}. Ответить можно в окне сессии (VS Code / терминал).</div>` : ''}`;
+      : s.status === 'waiting' ? `<div class="waitbar">⏳ Сессия ждёт: ${esc(s.waitingFor || 'ответа')}. Ответить можно в окне сессии (VS Code / терминал).</div>` : ''}
+    ${(s.managerQuestions || []).length ? `<div style="margin-top:8px">${[...s.managerQuestions].reverse().map(q => mqCardHtml(s, q, false)).join('')}</div>` : ''}
+    ${snoozesHtml(s.snoozes)}`;
 }
 
 // Реплика соседней сессии подтверждением не считается, а ответ на AskUserQuestion — да:
@@ -1379,14 +1873,51 @@ const ASK_CONFIRM = 'Если ты ждёшь моего подтвержден�
   + '(например «Да, выполняй» / «Нет») и в вопросе коротко назови, что именно сделаешь. Я отвечу в карточке. '
   + 'Если ничего не ждёшь — просто продолжай.';
 
+// Вложения: скрины из буфера, перетащенные и выбранные файлы. Сервер сохраняет их в data/uploads
+// и дописывает к сообщению пути — сессия откроет файлы через Read.
+const ATT_MAX = 25 << 20, ATT_TOTAL_MAX = 30 << 20, ATT_COUNT_MAX = 10;
+const fmtSize = n => n < 1024 ? `${n} Б` : n < 1 << 20 ? `${Math.round(n / 1024)} КБ` : `${(n / (1 << 20)).toFixed(1)} МБ`;
+function addFiles(list) {
+  for (const file of list) {
+    if (sessView.files.length >= ATT_COUNT_MAX) { toast(`Не больше ${ATT_COUNT_MAX} вложений`); break; }
+    if (file.size > ATT_MAX) { toast(`${file.name} больше ${fmtSize(ATT_MAX)}`); continue; }
+    if (sessView.files.reduce((n, f) => n + f.file.size, 0) + file.size > ATT_TOTAL_MAX) { toast(`Вместе вложения больше ${fmtSize(ATT_TOTAL_MAX)}`); break; }
+    // Скрин из буфера приходит как image.png — даём имя со временем, чтобы различать.
+    const name = /^image\.\w+$/.test(file.name) ? `скрин-${new Date().toTimeString().slice(0, 8).replace(/:/g, '')}.${file.name.split('.').pop()}` : file.name;
+    sessView.files.push({ file, name, url: file.type.startsWith('image/') ? URL.createObjectURL(file) : null });
+  }
+  renderAtts();
+}
+function renderAtts() {
+  const box = $('#msgAtts'); if (!box) return;
+  box.innerHTML = sessView.files.map((f, i) => `<span class="att" title="${esc(f.name)} · ${fmtSize(f.file.size)}">
+    ${f.url ? `<img src="${f.url}" alt="">` : '<span class="ico">📄</span>'}<span class="nm">${esc(f.name)}</span>
+    <button data-att-rm="${i}" title="Убрать">✕</button></span>`).join('');
+}
+const fileB64 = file => new Promise((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(String(r.result).split(',')[1] || '');
+  r.onerror = () => reject(r.error);
+  r.readAsDataURL(file);
+});
+
 async function sendMessage(preset) {
   const input = $('#msgInput'); const btn = $('#msgSend');
-  const text = preset || input.value.trim(); if (!text || !sessView) return;
+  const atts = preset ? [] : sessView?.files || [];
+  const text = preset || input.value.trim(); if ((!text && !atts.length) || !sessView) return;
   btn.disabled = true;
   try {
-    await post('/api/message', { sessionId: sessView.id, text });
-    if (!preset) { input.value = ''; delete drafts[`msg|${sessView.id}`]; }
-    toast('Отправлено в сессию'); sessView.stick = true;
+    const files = await Promise.all(atts.map(async f => ({ name: f.name, mime: f.file.type, data: await fileB64(f.file) })));
+    const res = await post('/api/message', { sessionId: sessView.id, text, files });
+    // Старый сервер (до перезапуска cockpit) поле files молча пропускает.
+    if (files.length && res.files !== files.length) throw new Error('сервер не принял вложения — перезапусти cockpit');
+    if (!preset) {
+      input.value = ''; delete drafts[`msg|${sessView.id}`];
+      atts.forEach(f => f.url && URL.revokeObjectURL(f.url)); sessView.files = []; renderAtts();
+    }
+    const waiting = (sessView.data?.requests || []).length;
+    toast((atts.length ? `Отправлено в сессию, вложений: ${atts.length}` : 'Отправлено в сессию') + (waiting ? ' · встанет в очередь до ответа на запрос' : '')); sessView.stick = true;
+    setTimeout(() => sessView && renderSession(sessView.id, false), 400);
   } catch (e) { toast('Не отправилось: ' + e.message); }
   btn.disabled = false; input.focus();
 }
@@ -1440,7 +1971,8 @@ function askHtml(t) {
 
 function updateChat() {
   const v = sessView; const items = [...v.chat.values()].sort((a, b) => a.seq - b.seq);
-  const sig = `${v.seq}:${items.length}:${items.filter(i => i.kind === 'tool' && i.result !== undefined).length}`;
+  const queued = v.data?.queued || [];
+  const sig = `${v.seq}:${items.length}:${items.filter(i => i.kind === 'tool' && i.result !== undefined).length}:${queued.map(q => q.ts).join(',')}:${(v.data?.requests || []).length}`;
   if (sig === v.sig) return;
   v.sig = sig;
   v.open = new Set([...document.querySelectorAll('#chatInner details[open]')].map(d => d.dataset.key));
@@ -1452,11 +1984,14 @@ function updateChat() {
     if (it.kind === 'tool') { group.push(it); continue; }
     flush();
     html += it.kind === 'user'
-      ? `<div class="msg user"><div class="who"><b>${it.via === 'cockpit' ? 'Вы · из cockpit' : it.via === 'peer' ? 'Соседняя сессия' : 'Вы'}</b><span class="time">${dayTime(it.ts)}</span></div><div class="body md">${md(it.text)}</div></div>`
+      ? `<div class="msg user"><div class="who"><b>${it.via === 'cockpit' ? 'Вы · из cockpit' : it.via === 'peer' ? 'Соседняя сессия' : 'Вы'}</b><span class="time">${dayTime(it.sentAt || it.ts)}</span>${it.absorbed ? `<span class="atag" title="Сообщение ждало в очереди и дошло до Claude вместе с результатом действия, а не отдельным ходом">дошло в ${hhmm(it.ts)} вместе с ответом</span>` : ''}</div><div class="body md">${md(it.text)}</div></div>`
       : `<div class="msg assistant"><div class="who"><b>Claude</b><span class="time">${hhmm(it.ts)}</span><button class="ghost copy-msg" data-copy="msg" title="Скопировать сообщение текстом">копировать</button></div><div class="body md">${md(it.text)}</div></div>`;
   }
   flush();
-  if (!items.length) html += '<div class="empty">В транскрипте пока нет сообщений</div>';
+  const waitReq = (v.data?.requests || []).length;
+  for (const q of queued) html += `<div class="msg user queued"><div class="who"><b>Вы · из cockpit</b><span class="time">${dayTime(q.ts)}</span>
+    <span class="qtag">⏳ в очереди — Claude прочтёт ${waitReq ? 'после ответа на запрос выше' : 'после текущего шага'}</span></div><div class="body md">${md(q.text)}</div></div>`;
+  if (!items.length && !queued.length) html += '<div class="empty">В транскрипте пока нет сообщений</div>';
   const chat = $('#chat'); const prev = chat.scrollTop;
   $('#chatInner').innerHTML = html;
   chat.scrollTop = v.stick ? chat.scrollHeight : prev;
@@ -1546,6 +2081,8 @@ function issueHtml(key) {
     <div class="imeta"><a href="https://tracker.yandex.ru/${esc(key)}" target="_blank" rel="noopener">Открыть в Трекере ↗</a></div>
   </details>`;
 }
+// Раскрытие истории «Отправлено» переживает перерисовку вкладки.
+document.addEventListener('toggle', e => { if (e.target.id === 'mqHist') store.set('mqHistOpen', e.target.open); }, true);
 document.addEventListener('toggle', e => {
   const k = e.target.dataset?.issue; if (!k) return;
   if (e.target.open) issueOpen.add(k); else issueOpen.delete(k);
@@ -1664,6 +2201,85 @@ document.addEventListener('click', async e => {
   if (rd) { const x = rulesData?.suggestions[Number(rd.dataset.ruleDismiss)]; if (x) rulesAction({ action: 'dismiss', key: x.key }); return; }
   const rr = e.target.closest('[data-rule-remove]');
   if (rr) { if (confirm('Удалить правило? Такие запросы снова будут спрашивать.')) rulesAction({ action: 'remove', id: rr.dataset.ruleRemove }); return; }
+  const mqc = e.target.closest('[data-mq-copy]');
+  if (mqc) {
+    e.stopPropagation();
+    const [sid, id] = mqc.dataset.mqCopy.split('|'); const q = mqFind(sid, id);
+    if (q) { await copyText(q.text); mqCopied.add(id); store.set('mqCopied', [...mqCopied].slice(-200)); render(false); }
+    return;
+  }
+  if (e.target.closest('.mqchip')) { e.preventDefault(); e.stopPropagation(); location.hash = '#/managers'; return; }
+  const mqt = e.target.closest('[data-mq-comment-toggle]');
+  if (mqt) {
+    e.stopPropagation(); const id = mqt.dataset.mqCommentToggle;
+    mqCommentOpen.has(id) ? mqCommentOpen.delete(id) : mqCommentOpen.add(id);
+    lastMqHtml = ''; render(true);
+    if (mqCommentOpen.has(id)) document.querySelector(`[data-mq-key="${id}"]`)?.focus();
+    return;
+  }
+  const mqcm = e.target.closest('[data-mq-comment]');
+  if (mqcm) {
+    e.stopPropagation();
+    const [sid, id] = mqcm.dataset.mqComment.split('|');
+    const key = (document.querySelector(`[data-mq-key="${id}"]`)?.value || '').trim().toUpperCase();
+    if (!/^[A-Z][A-Z0-9]{1,15}-\d{1,6}$/.test(key)) return toast('Укажи ключ задачи, например POLAERP-123');
+    const summonAuthor = !!document.querySelector(`[data-mq-summon="${id}"]`)?.checked;
+    mqcm.disabled = true; mqcm.textContent = 'Отправляю…';
+    try {
+      await post('/api/manager-question/comment', { sessionId: sid, id, key, summonAuthor });
+      toast(`Комментарий в ${key} отправлен${summonAuthor ? ', автор призван' : ''}`);
+      mqCommentOpen.delete(id); mqKeyEdit.delete(id); delete mqKeyDraft[id];
+    } catch (err) { toast('Не отправил: ' + err.message); mqcm.disabled = false; mqcm.textContent = 'Отправить комментарий'; return; }
+    lastMqHtml = ''; poll(); return;
+  }
+  const mqgb = e.target.closest('[data-mq-group]');
+  if (mqgb) { mqGroupBy = mqgb.dataset.mqGroup; store.set('mqGroup', mqGroupBy); lastMqHtml = ''; render(true); return; }
+  const mqke = e.target.closest('[data-mq-key-edit]');
+  if (mqke) {
+    e.stopPropagation(); const id = mqke.dataset.mqKeyEdit; mqKeyEdit.add(id); lastMqHtml = ''; render(true);
+    const inp = document.querySelector(`input[type=text][data-mq-key="${id}"]`); inp?.focus(); inp?.select(); return;
+  }
+  const mqat = e.target.closest('[data-mq-answer-toggle]');
+  if (mqat) {
+    e.stopPropagation(); const id = mqat.dataset.mqAnswerToggle;
+    mqAnswerOpen.has(id) ? mqAnswerOpen.delete(id) : mqAnswerOpen.add(id);
+    lastMqHtml = ''; render(true);
+    if (mqAnswerOpen.has(id)) document.querySelector(`[data-mq-answer-text="${id}"]`)?.focus();
+    return;
+  }
+  const mqa = e.target.closest('[data-mq-answer]');
+  if (mqa) {
+    e.stopPropagation();
+    const [sid, id] = mqa.dataset.mqAnswer.split('|');
+    const text = (document.querySelector(`[data-mq-answer-text="${id}"]`)?.value || '').trim();
+    if (!text) return toast('Вставь ответ менеджера');
+    mqa.disabled = true;
+    try { await post('/api/manager-question/answer', { sessionId: sid, id, text }); toast('Ответ передан в сессию'); mqAnswerOpen.delete(id); delete mqAnswerDraft[id]; }
+    catch (err) { toast('Не передал: ' + err.message); mqa.disabled = false; return; }
+    lastMqHtml = ''; poll(); return;
+  }
+  const mqu = e.target.closest('[data-mq-undo]');
+  if (mqu) {
+    const [sid, id] = mqu.dataset.mqUndo.split('|');
+    try { await post('/api/manager-question', { sessionId: sid, id, done: false }); toast('Вернул в неотправленные'); } catch (err) { toast('Не вышло: ' + err.message); }
+    lastMqHtml = ''; poll(); return;
+  }
+  const mqg = e.target.closest('[data-mq-copy-group]');
+  if (mqg) {
+    const pairs = mqg.dataset.mqCopyGroup.split(',').map(p => p.split('|'));
+    const qs = pairs.map(([sid, id]) => mqFind(sid, id)).filter(Boolean);
+    await copyText(qs.map(q => q.text).join('\n\n———\n\n'));
+    for (const [, id] of pairs) mqCopied.add(id);
+    store.set('mqCopied', [...mqCopied].slice(-200)); render(false); return;
+  }
+  const mqdg = e.target.closest('[data-mq-done-group]');
+  if (mqdg) {
+    mqdg.disabled = true;
+    for (const [sid, id] of mqdg.dataset.mqDoneGroup.split(',').map(p => p.split('|'))) await post('/api/manager-question', { sessionId: sid, id, done: true }).catch(() => {});
+    toast('Отмечено: отправлено'); poll(); return;
+  }
+  const mqd = e.target.closest('[data-mq-done]');
+  if (mqd) { e.stopPropagation(); mqd.disabled = true; const [sid, id] = mqd.dataset.mqDone.split('|'); await mqDone(sid, id); return; }
   const open = e.target.closest('[data-open]');
   const seenBtn = e.target.closest('[data-seen]');
   if (seenBtn) { e.stopPropagation(); const s = sessions.find(x => x.sessionId === seenBtn.dataset.seen); markSeen(s); render(false); return; }
@@ -1747,6 +2363,8 @@ $('#notifyBtn').onclick = async () => {
 
 poll();
 setInterval(poll, 3000);
+loadRevivable();
+setInterval(loadRevivable, 5 * 60_000);
 </script>
 </body>
 </html>

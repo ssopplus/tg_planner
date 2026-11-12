@@ -16,6 +16,7 @@ import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { REPORT_PROJECTS, startReport, reportJob } from './report.mjs';
 
 const pexec = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -48,6 +49,9 @@ async function saveMeta() {
   await fsp.rename(tmp, META_FILE);
 }
 const metaOf = id => (meta.sessions[id] ||= {});
+// С какого момента ищем вопросы менеджерам: более ранние блоки в переписке считаются отправленными.
+// Момент включения зафиксирован: вопросы, поднятые сессиями после него и до перезапуска cockpit, тоже попадут.
+meta.mqSince ||= Date.parse('2026-11-12T12:28:00Z');
 
 // ---------- живые сессии ----------
 
@@ -83,8 +87,27 @@ function newState() {
     title: null, agentName: null, firstPrompt: null, lastPrompt: null, lastAssistant: null,
     lastActivity: null, firstActivity: null, gitBranch: null, cwd: null, model: null,
     toolCounts: {}, files: new Map(), dirs: new Map(), events: [], prompts: 0, recentPrompts: [],
-    chat: [], seq: 0, toolsById: new Map(),
+    chat: [], seq: 0, toolsById: new Map(), apiError: null, queue: [],
+    mq: new Map(),
   };
+}
+
+// Вопросы менеджерам: сессия готовит текст для пересылки в Telegram — строка «Для: <кому>» и сразу
+// за ней блок ```text (формат из правила памяти feedback-manager-questions-telegram-format).
+// Отпечаток — по тексту: тот же вопрос, повторённый сессией, не задваивается.
+const MQ_LANGS = /^(|text|txt|plain|plaintext)$/i;
+function managerBlocks(text) {
+  if (!text || !text.includes('```')) return [];
+  const out = [];
+  for (const m of text.matchAll(/```([\w-]*)[ \t]*\n([\s\S]*?)\n[ \t]*```/g)) {
+    if (!MQ_LANGS.test(m[1])) continue;
+    const before = text.slice(0, m.index).split('\n').map(l => l.trim()).filter(Boolean).pop() || '';
+    const to = before.replace(/[*_>`]/g, '').trim().match(/^Для\s*[:—–-]\s*(.+)$/i)?.[1]?.trim();
+    const body = m[2].trim();
+    if (!to || !body) continue;
+    out.push({ id: createHash('sha1').update(body).digest('hex').slice(0, 12), to: to.slice(0, 120), text: body.slice(0, 8000) });
+  }
+  return out;
 }
 
 // Отпечаток вызова инструмента: по нему запрос разрешения сопоставляется с вызовом в транскрипте.
@@ -179,9 +202,33 @@ function pushChat(st, item) {
   if (st.chat.length > MAX_CHAT * 1.5) st.chat.splice(0, st.chat.length - MAX_CHAT);
 }
 
+// Очередь входящих сессии. Пока Claude занят или ждёт ответа на вопрос, сообщение (из VS Code, из
+// cockpit, уведомление фоновой задачи) не становится репликой, а ложится в очередь — в транскрипте это
+// queue-operation: enqueue (content есть не всегда), dequeue (голова очереди ушла отдельным ходом —
+// дальше будет обычная запись user) и remove (content + reason: absorbed_mid_turn — подклеено к
+// результату инструмента, записи user не будет). Без разбора очереди сообщение из cockpit пропадало
+// с экрана до конца хода, а подклеенное не появлялось в переписке вовсе.
+function applyQueueOp(st, o, ts) {
+  const q = st.queue;
+  if (o.operation === 'enqueue') { q.push({ content: typeof o.content === 'string' ? o.content : null, ts }); return; }
+  if (o.operation === 'dequeue') { q.shift(); return; }
+  if (o.operation !== 'remove') return;
+  let i = typeof o.content === 'string' ? q.findIndex(x => x.content === o.content) : -1;
+  if (i === -1) i = q.findIndex(x => x.content === null);
+  if (i === -1 && typeof o.content !== 'string') i = 0;
+  const [item] = i === -1 ? [] : q.splice(i, 1);
+  const content = typeof o.content === 'string' ? o.content : item?.content;
+  if (o.reason === 'absorbed_mid_turn' && content?.startsWith(COCKPIT_MARK)) {
+    const text = content.slice(COCKPIT_MARK.length);
+    pushChat(st, { kind: 'user', via: 'cockpit', ts, text: clip(text, MAX_TEXT), absorbed: true, sentAt: item?.ts || null });
+    st.lastPrompt = text;
+  }
+}
+
 function applyEntry(st, o) {
   const ts = o.timestamp ? Date.parse(o.timestamp) : null;
   switch (o.type) {
+    case 'queue-operation': applyQueueOp(st, o, ts); return;
     case 'custom-title': st.title = o.customTitle || st.title; return;
     case 'agent-name': st.agentName = o.agentName || st.agentName; return;
     case 'user': {
@@ -199,6 +246,8 @@ function applyEntry(st, o) {
       }
       const peer = peerMessage(o);
       if (peer) {
+        // Ход начался с сообщения из очереди — бывает и без записи dequeue.
+        if (peer.via === 'cockpit') { const i = st.queue.findIndex(x => x.content?.trim() === COCKPIT_MARK + peer.text); if (i !== -1) st.queue.splice(i, 1); }
         st.events.push({ ts, kind: 'prompt', text: `${peer.via === 'cockpit' ? '[cockpit] ' : '[сессия] '}${peer.text.slice(0, 280)}` });
         pushChat(st, { kind: 'user', via: peer.via, ts, text: clip(peer.text, MAX_TEXT) });
         if (peer.via === 'cockpit') st.lastPrompt = peer.text;
@@ -218,10 +267,18 @@ function applyEntry(st, o) {
       if (o.cwd) st.cwd = o.cwd;
       if (o.gitBranch) st.gitBranch = o.gitBranch;
       if (o.message?.model && o.message.model !== '<synthetic>') st.model = o.message.model;
+      // Ответ-ошибка API (сеть пропала, лимит, 5xx): ход оборвался, сессия встала. Любой нормальный
+      // ответ после неё значит, что работа пошла дальше.
+      st.apiError = o.isApiErrorMessage
+        ? { ts, kind: o.error || null, text: (o.message?.content || []).find(b => b?.type === 'text')?.text?.slice(0, 300) || 'API Error' }
+        : null;
       for (const b of o.message?.content || []) {
         if (b?.type === 'text' && b.text?.trim()) {
           st.lastAssistant = b.text;
           pushChat(st, { kind: 'assistant', ts, text: clip(b.text, MAX_TEXT) });
+          // Повтор того же текста освежает время: так сессия «поднимает» неотвеченный вопрос.
+          for (const q of managerBlocks(b.text)) { st.mq.delete(q.id); st.mq.set(q.id, { ...q, ts }); }
+          if (st.mq.size > 50) st.mq.delete(st.mq.keys().next().value);
         }
         if (b?.type !== 'tool_use') continue;
         st.toolCounts[b.name] = (st.toolCounts[b.name] || 0) + 1;
@@ -531,6 +588,75 @@ async function closeAnsweredElsewhere() {
       if (it.kind === 'tool' && it.key === r.key && it.result !== undefined) { close(r, 'answered-elsewhere'); break; }
     }
   }
+}
+
+// ---------- отложенные запросы ----------
+// Запрос, на который сейчас не ответить, можно отложить: сессия сразу получает ответ «отложено до
+// HH:MM, не жди» и освобождается, а в назначенное время cockpit присылает ей через сокет напоминание —
+// и она задаёт вопрос (или повторяет действие) заново. Таймеры живут в data/snoozes.json и переживают
+// перезапуск cockpit; пока cockpit выключен, напоминание ждёт и уходит при первом же тике.
+const SNOOZE_FILE = path.join(HERE, 'data', 'snoozes.json');
+const SNOOZE_MIN_MS = 60_000, SNOOZE_MAX_MS = 7 * 24 * 3600_000, SNOOZE_KEEP_MS = 3600_000;
+let snoozes = [];
+try { snoozes = JSON.parse(fs.readFileSync(SNOOZE_FILE, 'utf8')); } catch {}
+async function saveSnoozes() {
+  await fsp.mkdir(path.dirname(SNOOZE_FILE), { recursive: true });
+  await fsp.writeFile(SNOOZE_FILE + '.tmp', JSON.stringify(snoozes, null, 2));
+  await fsp.rename(SNOOZE_FILE + '.tmp', SNOOZE_FILE);
+}
+const clockMsk = ts => new Date(ts).toLocaleString('ru', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit',
+  ...(new Date(ts).toDateString() !== new Date().toDateString() ? { day: '2-digit', month: '2-digit' } : {}) });
+function requestSummary(r) {
+  return r.kind === 'question'
+    ? (r.input.questions || []).map(q => q.question).join(' / ')
+    : String(r.input.command || r.input.file_path || r.input.url || JSON.stringify(r.input)).slice(0, 1000);
+}
+
+async function snoozeRequest(r, dueAt) {
+  const until = clockMsk(dueAt);
+  const again = r.kind === 'question' ? 'задай этот же вопрос снова через AskUserQuestion' : 'повтори это же действие, если оно ещё нужно';
+  const msg = `Отложено в dev-cockpit до ${until} МСК: сейчас ответить не могу. Не повторяй запрос сам и не жди в цикле — `
+    + `в ${until} cockpit пришлёт напоминание, тогда ${again}. До тех пор делай только то, что от ответа не зависит; если такого нет — закончи ход.`;
+  if (r.kind === 'question') decide(r, { behavior: 'allow', answers: Object.fromEntries((r.input.questions || []).map(q => [q.question, msg])), snoozed: dueAt });
+  else decide(r, { behavior: 'deny', message: msg, snoozed: dueAt });
+  snoozes.push({ id: r.id, sessionId: r.sessionId, kind: r.kind, tool: r.tool, summary: requestSummary(r),
+    questions: r.kind === 'question' ? r.input.questions : undefined, createdAt: Date.now(), dueAt, status: 'waiting' });
+  await saveSnoozes();
+  hookLog({ event: 'request-snoozed', id: r.id, session: r.sessionId, until });
+}
+
+function snoozeReminder(z) {
+  if (z.kind !== 'question') return `Время отложенного действия вышло. Если оно ещё нужно — повтори его (${z.tool}): ${z.summary}`;
+  const qs = (z.questions || []).map(q => `- ${q.question}${(q.options || []).length ? ` (${q.options.map(o => o.label).join(' / ')})` : ''}`).join('\n');
+  return `Время отложенного вопроса вышло. Задай его снова через AskUserQuestion — те же вопросы и варианты, `
+    + `с поправкой на то, что изменилось за это время:\n${qs}`;
+}
+
+let snoozeTicking = false;
+async function snoozeTick() {
+  if (snoozeTicking) return;
+  snoozeTicking = true;
+  try {
+    const now = Date.now();
+    let changed = false;
+    const keep = snoozes.filter(z => z.status === 'waiting' || now - (z.doneAt || 0) < SNOOZE_KEEP_MS);
+    if (keep.length !== snoozes.length) { snoozes = keep; changed = true; }
+    const due = snoozes.filter(z => z.status === 'waiting' && z.dueAt <= now);
+    if (due.length) {
+      const agents = await liveAgents();
+      for (const z of due) {
+        const a = agents.find(x => x.sessionId === z.sessionId);
+        try {
+          if (!a) throw new Error('сессия закрыта');
+          await sendToSession(a, snoozeReminder(z));
+          z.status = 'sent';
+        } catch (e) { z.status = 'failed'; z.error = e.message; }
+        z.doneAt = Date.now(); changed = true;
+        hookLog({ event: `snooze-${z.status}`, id: z.id, session: z.sessionId, error: z.error });
+      }
+    }
+    if (changed) await saveSnoozes();
+  } finally { snoozeTicking = false; }
 }
 
 function requestsPayload() {
@@ -942,6 +1068,38 @@ const planIssue = i => ({
   createdAt: i.createdAt || null, updatedAt: i.updatedAt || null,
 });
 
+// Вопрос менеджеру — комментарием в задачу Трекера. Текст берём из разобранной переписки сессии, а не из
+// запроса: страница присылает только id вопроса. summonAuthor — призвать автора задачи (постановщика).
+async function commentManagerQuestion({ sessionId, id, key, summonAuthor }) {
+  const cfg = loadTrackerConfig();
+  if (!cfg) throw new Error('нет токена Трекера (.mcp.json → yandex-tracker)');
+  const p = await findTranscript(sessionId);
+  const q = p ? states.get(p)?.mq.get(id) : null;
+  if (!q) throw new Error('вопрос не найден — обнови страницу');
+  const headers = { authorization: `OAuth ${cfg.token}`, 'x-org-id': cfg.org, 'content-type': 'application/json' };
+  const body = { text: q.text };
+  if (summonAuthor) {
+    const r = await fetch(`https://api.tracker.yandex.net/v2/issues/${encodeURIComponent(key)}?fields=createdBy`, { headers, signal: AbortSignal.timeout(15_000) });
+    if (r.status === 404) throw new Error(`задача ${key} не найдена или нет доступа`);
+    if (!r.ok) throw new Error(`Трекер ${r.status}`);
+    const author = (await r.json()).createdBy;
+    if (author?.id) body.summonees = [author.id];
+  }
+  const res = await fetch(`https://api.tracker.yandex.net/v2/issues/${encodeURIComponent(key)}/comments`, {
+    method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 404) throw new Error(`задача ${key} не найдена или нет доступа`);
+  if (!res.ok) throw new Error(`Трекер ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const c = await res.json();
+  const m = metaOf(sessionId);
+  m.mqDone = m.mqDone && !Array.isArray(m.mqDone) ? m.mqDone : {};
+  m.mqDone[id] = Date.now();
+  (m.mqSent ||= {})[id] = { key, commentId: c.id ?? null, at: Date.now(), summoned: !!body.summonees };
+  await saveMeta();
+  hookLog({ event: 'mq-comment', session: sessionId, key, comment: c.id ?? null });
+  return { key, commentId: c.id ?? null, url: `https://tracker.yandex.ru/${key}` };
+}
+
 async function trackerSearch(body) {
   const cfg = loadTrackerConfig();
   if (!cfg) throw new Error('нет токена Трекера (.mcp.json → yandex-tracker)');
@@ -1059,11 +1217,99 @@ async function sessionSummary(a, cfg) {
   s.taskKey = key ? key[0] : null;
   Object.assign(s, await resolveProject(s, st, m, cfg));
   s.tasks = (await notesForSession(a.sessionId, s.taskKey)).map(n => taskBrief(n, a.sessionId));
+  s.stuck = stuckState(s, st);
+  // Неотправленные вопросы менеджерам. «✓ Отправил» в cockpit убирает вопрос (meta.mqDone: id → когда);
+  // если сессия потом повторит тот же текст, он вернётся.
+  const done = m.mqDone || {};
+  const all = st ? [...st.mq.values()].filter(q => (q.ts || 0) >= meta.mqSince)
+    .map(q => ({ ...q, key: s.taskKey || q.to.match(TASK_KEY_RE)?.[0] || q.text.match(TASK_KEY_RE)?.[0] || null })) : [];
+  s.managerQuestions = all.filter(q => !((done[q.id] || 0) >= (q.ts || 0))).slice(-10);
+  // История: отправленные (в Telegram — «✓ Отправил», или комментарием в задачу) и ответ менеджера, если передан в сессию.
+  s.managerSent = all.filter(q => (done[q.id] || 0) >= (q.ts || 0)).slice(-10)
+    .map(q => ({ ...q, doneAt: done[q.id], comment: m.mqSent?.[q.id] || null, answeredAt: m.mqAnswered?.[q.id] || null }));
   // Порядок репо: worktree задачи первым, vault (его трогает почти каждая сессия) — последним.
   const num = s.taskKey?.split('-')[1];
   const rank = r => (num && path.basename(r).endsWith(`-${num}`) ? 0 : r === VAULT ? 2 : 1);
   s.repos = (s.repos || []).sort((x, y) => rank(x) - rank(y));
   return s;
+}
+
+// Сессия, которая, похоже, встала: ход оборвался ошибкой API (часто — пропал интернет) или
+// «работает», но транскрипт молчит дольше SILENT_MS (длинная команда тоже так выглядит — поэтому «молчит»,
+// а не «зависла»).
+const SILENT_MS = 10 * 60_000;
+function stuckState(s, st) {
+  if (st?.apiError) return { kind: 'error', text: st.apiError.text, errorKind: st.apiError.kind, at: st.apiError.ts };
+  if (s.status === 'busy' && s.lastActivity && Date.now() - s.lastActivity > SILENT_MS) return { kind: 'silent', at: s.lastActivity };
+  return null;
+}
+
+// Проверка связи из cockpit: «статус» — коротко рассказать, где стоим; «продолжить» — работать дальше
+// с места обрыва. Обе — с пометкой [из dev-cockpit], то есть как реплика пользователя.
+const NUDGE_TEXT = {
+  status: 'Проверка связи. Коротко, в 2–3 строки: на чём ты остановилась, что сейчас с задачей и какой следующий шаг. Новое не начинай; если нужен мой ответ — задай вопрос через AskUserQuestion.',
+  continue: 'Похоже, работа прервалась (пропала сеть или ошибка API). Продолжай с того места, где остановилась. Если продолжать нечего или нужен мой ответ — коротко скажи, что сделано, и задай вопрос через AskUserQuestion.',
+};
+async function nudgeSessions(ids, mode) {
+  const text = NUDGE_TEXT[mode];
+  if (!text) throw new Error('неизвестный режим');
+  const agents = await liveAgents();
+  const out = [];
+  for (const id of ids) {
+    const a = agents.find(x => x.sessionId === id);
+    if (!a) { out.push({ id, ok: false, error: 'сессия закрыта' }); continue; }
+    if ([...requests.values()].some(r => r.sessionId === id && r.status === 'pending')) { out.push({ id, ok: false, error: 'ждёт ответа на запрос' }); continue; }
+    try { await sendToSession(a, text); out.push({ id, ok: true }); }
+    catch (e) { out.push({ id, ok: false, error: e.message }); }
+  }
+  hookLog({ event: 'nudge', mode, sent: out.filter(r => r.ok).length, failed: out.filter(r => !r.ok).length });
+  return out;
+}
+
+// После перезапуска VS Code восстанавливает вкладки Claude, но вкладку и процесс сессии поднимает,
+// только когда вкладку показали на экране. Ссылка расширения такую вкладку не находит (привязка
+// живёт 10 минут после активности сессии) и открывает дубль, поэтому не поднимаем, а показываем,
+// по каким вкладкам кликнуть. Список вкладок — из сохранённого состояния окон VS Code (state.vscdb
+// рабочих областей, тронутых за VSCODE_STATE_WINDOW_MS): вкладки Claude, чьих сессий нет среди живых
+// и которые не закрывали из cockpit.
+const VSCODE_STORAGE_DIR = path.join(os.homedir(), 'Library/Application Support/Code/User/workspaceStorage');
+const VSCODE_STATE_WINDOW_MS = 3 * 24 * 3600_000;
+async function vscodeClaudeTabs() {
+  const out = [];
+  for (const dir of await fsp.readdir(VSCODE_STORAGE_DIR).catch(() => [])) {
+    const db = path.join(VSCODE_STORAGE_DIR, dir, 'state.vscdb');
+    const stat = await fsp.stat(db).catch(() => null);
+    if (!stat || stat.mtimeMs < Date.now() - VSCODE_STATE_WINDOW_MS) continue;
+    let state;
+    try {
+      const { stdout } = await pexec('sqlite3', ['-readonly', db, "select value from ItemTable where key='memento/workbench.parts.editor'"], { timeout: 5000, maxBuffer: 16 << 20 });
+      state = JSON.parse(stdout)['editorpart.state'];
+    } catch { continue; }
+    const ws = JSON.parse(await fsp.readFile(path.join(VSCODE_STORAGE_DIR, dir, 'workspace.json'), 'utf8').catch(() => '{}'));
+    const workspace = decodeURIComponent(path.basename(ws.folder || ws.workspace || dir)).replace(/\.code-workspace$/, '');
+    // Группы — в порядке на экране: слева направо, сверху вниз.
+    const groups = [];
+    const walk = n => n?.type === 'leaf' ? groups.push(n.data) : (n?.data || []).forEach(walk);
+    walk(state?.serializedGrid?.root);
+    groups.forEach((g, gi) => (g.editors || []).forEach((e, ei) => {
+      let v; try { v = JSON.parse(e.value); } catch { return; }
+      if (v.providedId !== 'claudeVSCodePanel') return;
+      let sessionId = null; try { sessionId = JSON.parse(v.state || '{}').sessionID || null; } catch {}
+      out.push({ sessionId, title: v.title || 'Claude', workspace, group: gi + 1, groups: groups.length, index: ei + 1, savedAt: stat.mtimeMs });
+    }));
+  }
+  return out;
+}
+async function revivableSessions() {
+  const live = new Set((await liveAgents()).map(a => a.sessionId));
+  const closed = new Set();
+  for (const line of (await fsp.readFile(HOOK_LOG, 'utf8').catch(() => '')).split('\n')) {
+    if (!line.includes('"session-closed"')) continue;
+    try { closed.add(JSON.parse(line).session); } catch {}
+  }
+  return (await vscodeClaudeTabs())
+    .filter(t => t.sessionId && !live.has(t.sessionId) && !closed.has(t.sessionId))
+    .map(t => ({ ...t, taskKey: t.title.match(TASK_KEY_RE)?.[0] || null }));
 }
 
 // Задача закрыта в Трекере (резолюция или статус «Закрыт»/«Отменено»).
@@ -1118,10 +1364,30 @@ async function closeSession(sessionId) {
     delete env.ANTHROPIC_API_KEY;
     await pexec(CLAUDE_BIN, ['stop', a.id], { env, timeout: 30_000 });
   } else if (a.pid) {
-    process.kill(a.pid, 'SIGTERM');
+    const reg = await sessionRegistration(a).catch(() => ({}));
+    const tab = reg.entrypoint === 'claude-vscode' ? await closeVSCodeTab(sessionId) : null;
+    try { process.kill(a.pid, 'SIGTERM'); } catch (e) { if (e.code !== 'ESRCH') throw e; } // вкладку закрыли — процесс мог уйти сам
+    agentsCache.at = 0;
+    hookLog({ event: 'session-closed', session: sessionId, kind: a.kind, tab });
+    return;
   } else throw new Error('у сессии нет процесса');
   agentsCache.at = 0;
   hookLog({ event: 'session-closed', session: sessionId, kind: a.kind });
+}
+
+// Расширение Claude не умеет закрывать вкладки снаружи. Открываем сессию её же ссылкой — расширение
+// переключается на уже открытую вкладку — и жмём Cmd+W. Проверить, что закрылась именно она, нельзя,
+// поэтому только для сессий из VS Code и по одной за раз.
+async function closeVSCodeTab(sessionId) {
+  try {
+    await pexec('open', [`vscode://anthropic.claude-code/open?session=${encodeURIComponent(sessionId)}`], { timeout: 15_000 });
+    await new Promise(r => setTimeout(r, 1500));
+    await pexec('osascript', ['-e', 'tell application "Visual Studio Code" to activate', '-e', 'delay 0.3',
+      '-e', 'tell application "System Events" to tell process "Code" to keystroke "w" using command down'], { timeout: 10_000 });
+    return 'closed';
+  } catch (e) {
+    return 'failed: ' + e.message.slice(0, 200);
+  }
 }
 
 async function sessionsPayload() {
@@ -1136,6 +1402,7 @@ async function sessionsPayload() {
   const { pending } = requestsPayload();
   for (const s of sessions) {
     s.requests = pending.filter(r => r.sessionId === s.sessionId);
+    s.snoozes = snoozes.filter(z => z.sessionId === s.sessionId);
     // Режим из запроса свежее транскрипта: хук получает его в момент вопроса.
     if (s.requests[0]?.mode) s.permissionMode = s.requests[0].mode;
   }
@@ -1147,7 +1414,7 @@ async function sessionsPayload() {
     s.next = s.finished ? nextFromPlan(s, sessions) : null;
     s.closable = sessionClosable(s);
   }
-  return { at: Date.now(), sessions, projects, queues: cfg.queues || {}, pending, sync: syncStatus, planVersion };
+  return { at: Date.now(), sessions, projects, queues: cfg.queues || {}, pending, snoozes, sync: syncStatus, planVersion };
 }
 
 async function sessionDetail(id, since) {
@@ -1165,6 +1432,9 @@ async function sessionDetail(id, since) {
   // Инструменты дополняются результатом задним числом, поэтому при since отдаём ещё и хвост.
   s.chat = since ? chat.filter(c => c.seq > since - 60) : chat;
   s.chatSeq = st?.seq || 0;
+  // Сообщения из cockpit, которые ещё ждут в очереди сессии.
+  // У простаивающей сессии без запроса очередь пуста — что осталось, это несписанные записи транскрипта.
+  s.queued = s.status === 'idle' && !s.requests.length ? [] : (st?.queue || []).filter(x => x.content?.startsWith(COCKPIT_MARK)).map(x => ({ ts: x.ts, text: clip(x.content.slice(COCKPIT_MARK.length), MAX_TEXT) }));
   s.chatTruncated = (st?.chat[0]?.seq || 1) > 1;
   s.taskNotes = (await notesForSession(id, s.taskKey)).map(n => ({ ...n, file: path.relative(VAULT, n.file) }));
   s.trackerStatus = trackerStatuses([...new Set([s.taskKey, ...s.taskNotes.map(n => n.issue)].filter(Boolean))]);
@@ -1310,14 +1580,16 @@ async function moveToVSCode(a) {
   hookLog({ event: 'moved-to-vscode', session: a.sessionId, background: a.kind === 'background' });
 }
 
-// Скрины из Mini App: сохраняем файлами, в сессию уходят пути — Claude откроет их через Read.
+// Скрины из Mini App и вложения из поля ввода cockpit: сохраняем файлами, в сессию уходят пути —
+// Claude откроет их через Read. Хранятся UPLOADS_TTL_MS.
 const UPLOADS_DIR = path.join(HERE, 'data', 'uploads');
 const UPLOADS_TTL_MS = 7 * 86400e3;
-const IMAGE_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+const UPLOAD_MAX_BYTES = 25 << 20;
+const IMAGE_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
 
-async function saveImages(c) {
-  const images = Array.isArray(c.payload?.images) ? c.payload.images : [];
-  if (!images.length) return [];
+// files: [{ name?, mime, data (base64) }]; tag — чтобы различать вложения одной секунды.
+async function saveUploads(files, tag) {
+  if (!files.length) return [];
   await fsp.mkdir(UPLOADS_DIR, { recursive: true });
   for (const f of await fsp.readdir(UPLOADS_DIR)) {
     const file = path.join(UPLOADS_DIR, f);
@@ -1325,13 +1597,24 @@ async function saveImages(c) {
     if (st && Date.now() - st.mtimeMs > UPLOADS_TTL_MS) await fsp.rm(file, { force: true });
   }
   const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
-  return Promise.all(images.map(async (img, i) => {
-    const ext = IMAGE_EXT[img.mime];
-    if (!ext || typeof img.data !== 'string') throw new Error('скрин не похож на картинку');
-    const file = path.join(UPLOADS_DIR, `${stamp}-${String(c.id).slice(0, 8)}-${i + 1}.${ext}`);
-    await fsp.writeFile(file, Buffer.from(img.data, 'base64'));
+  return Promise.all(files.map(async (f, i) => {
+    if (typeof f?.data !== 'string') throw new Error('вложение без содержимого');
+    const buf = Buffer.from(f.data, 'base64');
+    if (buf.length > UPLOAD_MAX_BYTES) throw new Error(`${f.name || 'файл'} больше ${UPLOAD_MAX_BYTES >> 20} МБ`);
+    // Имя файла оставляем узнаваемым, но без путей и спецсимволов.
+    const base = path.basename(String(f.name || '')).replace(/[^\p{L}\p{N}._-]+/gu, '_').replace(/^\.+/, '').slice(-80);
+    const name = base && /\.[\p{L}\p{N}]{1,8}$/u.test(base) ? base
+      : `${base || 'file'}.${IMAGE_EXT[f.mime] || 'bin'}`;
+    const file = path.join(UPLOADS_DIR, `${stamp}-${String(tag).slice(0, 8)}-${i + 1}-${name}`);
+    await fsp.writeFile(file, buf);
     return file;
   }));
+}
+
+function saveImages(c) {
+  const images = Array.isArray(c.payload?.images) ? c.payload.images : [];
+  if (images.some(img => !IMAGE_EXT[img?.mime])) throw new Error('скрин не похож на картинку');
+  return saveUploads(images, c.id);
 }
 
 async function runCommand(c) {
@@ -1510,20 +1793,20 @@ async function runSync() {
 }
 const kickSync = () => { if (!syncRunning) scheduleSync(300); };
 
-// ---------- сутки: что сделано с 12:00 до 12:00 МСК ----------
+// ---------- сутки: что сделано с 03:00 до 03:00 МСК ----------
 // Задачи, по которым в эти сутки работали сессии: замеренное время (паузы длиннее DAY_IDLE_MS не
 // считаются), «Сделано» из ворклога заметки, коммиты и переходы статуса в Трекере. Только чтение.
 // Текущие сутки пересчитываются раз в час (или кнопкой ↻), прошедшие — один раз после их конца.
 const MSK_MS = 3 * 3600e3;
 const DAY_IDLE_MS = 15 * 60e3;
 const DAY_TTL_MS = 3600e3;
-const DAY_START_HOUR = 12;
+const DAY_START_HOUR = 3; // как в таймшите: ночная работа до трёх — ещё вчерашние сутки
 const SESSION_MAP = path.join(os.homedir(), '.claude', 'skills', 'timesheet', 'session-map.txt');
 const DONE_STATUS_RE = /test|review|ready|resolved|closed|done|complete/i;
 const dayCache = new Map(); // date -> { at, data }
 const dayInflight = new Map();
 
-// Сутки с 12:00 МСК даты date до 12:00 следующего дня; без даты — текущие.
+// Сутки с 03:00 МСК даты date до 03:00 следующего дня; без даты — текущие.
 function dayWindow(date) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) {
     const msk = new Date(Date.now() + MSK_MS - DAY_START_HOUR * 3600e3);
@@ -1744,9 +2027,9 @@ function send(res, code, body, type = 'application/json; charset=utf-8') {
   res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
 }
 
-async function readJson(req) {
+async function readJson(req, limit = 2_000_000) {
   let body = '';
-  for await (const chunk of req) { body += chunk; if (body.length > 2_000_000) throw new Error('body too large'); }
+  for await (const chunk of req) { body += chunk; if (body.length > limit) throw new Error('body too large'); }
   return body ? JSON.parse(body) : {};
 }
 
@@ -1782,6 +2065,21 @@ const server = http.createServer(async (req, res) => {
       return c ? send(res, 200, c) : send(res, 404, { error: 'session not found' });
     }
     if (url.pathname === '/api/requests') return send(res, 200, requestsPayload());
+    // Отчёт «что сделано» за период: data — скрипты prod-releases + task-audit, llm — фоновая сессия Claude.
+    if (url.pathname === '/api/report' && req.method === 'GET') {
+      const id = url.searchParams.get('id');
+      if (!id) return send(res, 200, { projects: Object.entries(REPORT_PROJECTS).map(([id, p]) => ({ id, label: p.label })) });
+      const j = reportJob(id);
+      return j ? send(res, 200, j) : send(res, 404, { error: 'задание не найдено (cockpit перезапускался?)' });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/report') {
+      if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
+      try {
+        const b = await readJson(req);
+        const job = startReport(b, { claudeBin: CLAUDE_BIN, cwd: TASK_CWD, onLog: hookLog });
+        return send(res, 200, job);
+      } catch (e) { return send(res, 400, { error: e.message }); }
+    }
     if (url.pathname === '/api/day' && req.method === 'GET') {
       return send(res, 200, await dayPayload(url.searchParams.get('date'), url.searchParams.has('fresh')));
     }
@@ -1817,20 +2115,65 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && url.pathname === '/api/requests/decision') {
       if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
+      const b = await readJson(req, 40 << 20);
+      const r = requests.get(b.id);
+      if (!r || r.status !== 'pending') return send(res, 409, { error: 'запрос уже закрыт' });
+      // Ответ текстом из поля ввода может нести вложения: пути дописываются к ответу или причине отказа.
+      const files = Array.isArray(b.files) ? b.files.slice(0, 10) : [];
+      let saved = [];
+      try { saved = await saveUploads(files, r.sessionId); } catch (e) { return send(res, 400, { error: e.message }); }
+      if (saved.length) {
+        const att = `\n\n${saved.length > 1 ? 'Вложения' : 'Вложение'} из cockpit — открой через Read:\n${saved.map(f => `- ${f}`).join('\n')}`;
+        if (b.behavior === 'deny') b.message = String(b.message || '') + att;
+        else if (b.answers) for (const k of Object.keys(b.answers)) b.answers[k] = String(b.answers[k]) + att;
+      }
+      return send(res, 200, { ok: true, files: saved.length, request: publicRequest(decide(r, b)) });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/requests/snooze') {
+      if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
       const b = await readJson(req);
       const r = requests.get(b.id);
       if (!r || r.status !== 'pending') return send(res, 409, { error: 'запрос уже закрыт' });
-      return send(res, 200, { ok: true, request: publicRequest(decide(r, b)) });
+      const dueAt = Number(b.dueAt);
+      if (!(dueAt - Date.now() >= SNOOZE_MIN_MS - 5000 && dueAt - Date.now() <= SNOOZE_MAX_MS)) return send(res, 400, { error: 'время — от минуты до недели вперёд' });
+      await snoozeRequest(r, dueAt);
+      return send(res, 200, { ok: true, until: clockMsk(dueAt) });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/snoozes') {
+      if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
+      const b = await readJson(req);
+      const z = snoozes.find(x => x.id === b.id);
+      if (!z) return send(res, 404, { error: 'отложенного запроса нет' });
+      if (b.action === 'cancel') snoozes = snoozes.filter(x => x !== z);
+      else if (b.action === 'now' && z.status === 'waiting') z.dueAt = Date.now();
+      else return send(res, 400, { error: 'неизвестное действие' });
+      await saveSnoozes();
+      if (b.action === 'now') await snoozeTick();
+      return send(res, 200, { ok: true, snooze: snoozes.find(x => x.id === b.id) || null });
+    }
+    if (url.pathname === '/api/revivable' && req.method === 'GET') return send(res, 200, { sessions: await revivableSessions() });
+    if (req.method === 'POST' && url.pathname === '/api/nudge') {
+      if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
+      const b = await readJson(req);
+      const ids = Array.isArray(b.sessionIds) ? b.sessionIds.map(String).slice(0, 50) : [];
+      if (!ids.length) return send(res, 400, { error: 'не выбраны сессии' });
+      return send(res, 200, { results: await nudgeSessions(ids, String(b.mode || '')) });
     }
     if (req.method === 'POST' && url.pathname === '/api/message') {
       if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
-      const b = await readJson(req);
+      const b = await readJson(req, 40 << 20);
       const text = String(b.text || '').trim();
-      if (!text || text.length > 10000) return send(res, 400, { error: 'пустой или слишком длинный текст' });
+      const files = Array.isArray(b.files) ? b.files.slice(0, 10) : [];
+      if ((!text && !files.length) || text.length > 10000) return send(res, 400, { error: 'пустой или слишком длинный текст' });
       const a = (await liveAgents()).find(x => x.sessionId === b.sessionId);
       if (!a) return send(res, 404, { error: 'session not found' });
-      await sendToSession(a, text);
-      return send(res, 200, { ok: true });
+      let saved;
+      try { saved = await saveUploads(files, a.sessionId); } catch (e) { return send(res, 400, { error: e.message }); }
+      const att = saved.length
+        ? `${text ? '\n\n' : ''}${saved.length > 1 ? 'Вложения' : 'Вложение'} из cockpit — открой через Read:\n${saved.map(f => `- ${f}`).join('\n')}`
+        : '';
+      await sendToSession(a, text + att);
+      return send(res, 200, { ok: true, files: saved.length });
     }
     if (req.method === 'POST' && url.pathname === '/api/open-task') {
       if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
@@ -1862,6 +2205,49 @@ const server = http.createServer(async (req, res) => {
       }
       await saveMeta();
       return send(res, 200, { ok: true, meta: m });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/manager-question/comment') {
+      if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
+      const b = await readJson(req);
+      const id = String(b.id || ''), key = String(b.key || '').trim().toUpperCase();
+      if (!/^[0-9a-f]{12}$/.test(id) || !b.sessionId) return send(res, 400, { error: 'неверный вопрос' });
+      if (!/^[A-Z][A-Z0-9]{1,15}-\d{1,6}$/.test(key)) return send(res, 400, { error: 'неверный ключ задачи' });
+      try { return send(res, 200, await commentManagerQuestion({ sessionId: String(b.sessionId), id, key, summonAuthor: !!b.summonAuthor })); }
+      catch (e) { return send(res, 502, { error: e.message }); }
+    }
+    if (req.method === 'POST' && url.pathname === '/api/manager-question/answer') {
+      // Ответ менеджера — в сессию, которая готовила вопрос: через её сокет, с цитатой начала вопроса.
+      if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
+      const b = await readJson(req);
+      const id = String(b.id || ''), answer = String(b.text || '').trim();
+      if (!/^[0-9a-f]{12}$/.test(id) || !b.sessionId) return send(res, 400, { error: 'неверный вопрос' });
+      if (!answer || answer.length > 10000) return send(res, 400, { error: 'пустой или слишком длинный ответ' });
+      const a = (await liveAgents()).find(x => x.sessionId === b.sessionId);
+      if (!a) return send(res, 404, { error: 'сессия завершилась' });
+      const p = await findTranscript(a.sessionId);
+      const q = p ? states.get(p)?.mq.get(id) : null;
+      if (!q) return send(res, 404, { error: 'вопрос не найден — обнови страницу' });
+      const first = q.text.split('\n').map(l => l.trim()).find(Boolean) || '';
+      await sendToSession(a, `Ответ на твой вопрос «Для: ${q.to}» (начало: «${first.slice(0, 160)}»):\n\n${answer}`);
+      const m = metaOf(a.sessionId);
+      m.mqDone = m.mqDone && !Array.isArray(m.mqDone) ? m.mqDone : {};
+      m.mqDone[id] ||= Date.now();
+      (m.mqAnswered ||= {})[id] = Date.now();
+      await saveMeta();
+      return send(res, 200, { ok: true });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/manager-question') {
+      if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
+      const b = await readJson(req);
+      const id = String(b.id || '');
+      if (!/^[0-9a-f]{12}$/.test(id) || !b.sessionId) return send(res, 400, { error: 'неверный вопрос' });
+      const m = metaOf(String(b.sessionId));
+      const done = m.mqDone && !Array.isArray(m.mqDone) ? m.mqDone : {};
+      if (b.done === false) { delete done[id]; if (m.mqSent) delete m.mqSent[id]; if (m.mqAnswered) delete m.mqAnswered[id]; }
+      else done[id] = Date.now();
+      m.mqDone = Object.fromEntries(Object.entries(done).sort((x, y) => x[1] - y[1]).slice(-200));
+      await saveMeta();
+      return send(res, 200, { ok: true });
     }
     if (req.method === 'POST' && url.pathname === '/api/autoname') {
       if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
@@ -1895,6 +2281,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+setInterval(() => snoozeTick().catch(e => hookLog({ event: 'snooze-error', error: e.message })), 20_000);
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`dev-cockpit: http://127.0.0.1:${PORT}`);
   scheduleSync(2_000);

@@ -17,8 +17,9 @@ import {
 
 const pexec = promisify(execFile);
 
-const FAST_MS = 3_000;      // ждут ответы, смотрят переписку или идут команды
-const POLL_MS = 10_000;     // покой
+const FAST_MS = 3_000;      // свежий запрос, на телефоне открыта переписка, идут команды
+const POLL_MS = 15_000;     // покой и запросы, которые ждут дольше FRESH_MS (лимит вызовов Vercel Hobby)
+const FRESH_MS = 120_000;   // столько после появления запроса синк частый — ответ с телефона доходит за секунды
 const FULL_MS = 300_000;    // снимок сессий и план — при изменении и не реже раза в 5 мин
 const IDLE_MS = 30_000;     // не привязан
 const RETRY_MS = 30_000;
@@ -130,6 +131,7 @@ export function createHubClient({ dataDir, url, deps }) {
   const nonces = new Map(Object.entries(readJson(NONCE_FILE) || {}));
   // Что уже отдано hub: чтобы не слать одно и то же каждые 3 с.
   let sessionsHash = '', sessionsAt = 0, planHash = '', planAt = 0;
+  const sessionSent = new Map(); // sessionId → хеш отправленной сессии: неизменённые уходят с keep, без конверта
   const sentPending = new Set();
   const transcriptHash = new Map();
   let watched = [];
@@ -178,7 +180,7 @@ export function createHubClient({ dataDir, url, deps }) {
     await fsp.rm(STATE_FILE, { force: true });
     note({ action: 'unpaired', reason, deviceId: state?.deviceId });
     state = null; keys = null; rawKey = null; token = null;
-    sentPending.clear(); transcriptHash.clear(); sessionsHash = ''; planHash = ''; watched = []; results.length = 0;
+    sentPending.clear(); transcriptHash.clear(); sessionSent.clear(); sessionsHash = ''; planHash = ''; watched = []; results.length = 0;
   }
 
   async function post(p, body, auth) {
@@ -290,11 +292,19 @@ export function createHubClient({ dataDir, url, deps }) {
     const body = { level: state.level };
 
     const sh = sha(sessions.map(s => ({ ...s, updatedAt: 0 })));
-    const sendSessions = sh !== sessionsHash || now - sessionsAt > FULL_MS;
+    const fullResend = now - sessionsAt > FULL_MS; // раз в 5 мин — всё заново: вдруг hub что-то потерял
+    const sendSessions = sh !== sessionsHash || fullResend;
+    const sessionHashes = new Map();
     if (sendSessions) {
-      body.sessions = await Promise.all(sessions.map(async ({ id, name, project, status, ...rest }) => ({
-        sessionId: id, name, project: project || null, status, body: await seal(keys, aadFor(dev, 'session', id), rest),
-      })));
+      // Конверт каждый раз новый (новый IV), поэтому неизменённую сессию шлём без тела, с keep: hub не
+      // переписывает строку, а Mini App не перекачивает её тело.
+      body.sessions = await Promise.all(sessions.map(async ({ id, name, project, status, ...rest }) => {
+        const h = sha({ name, project, status, ...rest, updatedAt: 0 });
+        sessionHashes.set(id, h);
+        const base = { sessionId: id, name, project: project || null, status };
+        if (!fullResend && sessionSent.get(id) === h) return { ...base, keep: true };
+        return { ...base, body: await seal(keys, aadFor(dev, 'session', id), rest) };
+      }));
     }
     const fresh = pending.filter(r => !sentPending.has(r.id));
     if (fresh.length) {
@@ -332,7 +342,12 @@ export function createHubClient({ dataDir, url, deps }) {
       throw e;
     }
     status.lastOk = Date.now(); status.lastError = null;
-    if (sendSessions) { sessionsHash = sh; sessionsAt = now; }
+    if (sendSessions) {
+      sessionsHash = sh;
+      if (fullResend) sessionsAt = now;
+      sessionSent.clear();
+      for (const [id, h] of sessionHashes) sessionSent.set(id, h);
+    }
     for (const r of fresh) sentPending.add(r.id);
     for (const c of closing) sentPending.delete(c.id);
     if (sendPlan) { planHash = ph; planAt = now; }
@@ -340,7 +355,10 @@ export function createHubClient({ dataDir, url, deps }) {
     for (const id of reply.watch || []) if (!watched.includes(id)) transcriptHash.delete(id);
     watched = reply.watch || [];
     for (const c of reply.commands || []) results.push(await execute(c));
-    return pending.length || (reply.commands || []).length || watched.length || results.length ? FAST_MS : POLL_MS;
+    // Часто — только пока это нужно: свежий запрос, открытая на телефоне переписка, команды и их итоги.
+    // Запрос может висеть часами (хук держит до суток), и опрос раз в 3 с всё это время съел бы квоту.
+    const freshPending = pending.some(r => now - (Number(r.createdAt) || now) < FRESH_MS);
+    return freshPending || (reply.commands || []).length || watched.length || results.length ? FAST_MS : POLL_MS;
   }
 
   /** Подписанная команда из Mini App → итог { cmdId, ok, error?, result? }. Всё, что не прошло, — в журнал. */

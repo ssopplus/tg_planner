@@ -150,3 +150,51 @@ test('синк: конверты зашифрованы, запрос уходи
   assert.ok(!fs.existsSync(path.join(t.dir, 'hub.json')));
   assert.ok(!fs.existsSync(path.join(t.dir, 'hub-secret.json')));
 });
+
+test('синк: неизменённая сессия уходит с keep, без конверта; изменённая — с конвертом', async () => {
+  const t = await setup();
+  const bodies = [];
+  globalThis.fetch = async (url, init) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ commands: [], watch: [] }), { status: 200 });
+  };
+  let sessions = [
+    { id: 's1', name: 'Один', project: 'P', status: 'busy', lastAssistant: 'a' },
+    { id: 's2', name: 'Два', project: 'P', status: 'idle', lastAssistant: 'b' },
+  ];
+  const c = createHubClient({
+    dataDir: t.dir,
+    url: 'https://hub.test',
+    deps: {
+      snapshot: async () => ({ sessions, pending: [], closed: [] }),
+      transcriptFor: async () => null, plan: () => null, request: () => undefined, decide: () => {}, runCommand: async () => ({ ok: true }), hookLog: () => {},
+    },
+  });
+  await c.start({ loop: false });
+  await c._tick();
+  assert.ok(bodies.at(-1).sessions.every(s => s.body && !s.keep));
+  sessions = [{ ...sessions[0], status: 'waiting' }, sessions[1]];
+  await c._tick();
+  const [s1, s2] = bodies.at(-1).sessions;
+  assert.ok(s1.body && !s1.keep);
+  assert.deepEqual(s2, { sessionId: 's2', name: 'Два', project: 'P', status: 'idle', keep: true });
+});
+
+test('частота синка: свежий запрос — часто, висящий давно — как в покое', async () => {
+  const t = await setup();
+  globalThis.fetch = async () => new Response(JSON.stringify({ commands: [], watch: [] }), { status: 200 });
+  const mk = createdAt => createHubClient({
+    dataDir: t.dir,
+    url: 'https://hub.test',
+    deps: {
+      snapshot: async () => ({ sessions: [], pending: [{ id: 'r1', sessionId: 's1', kind: 'permission', toolName: 'Bash', summary: 'ls', payload: {}, canAlways: false, createdAt }], closed: [] }),
+      transcriptFor: async () => null, plan: () => null, request: () => undefined, decide: () => {}, runCommand: async () => ({ ok: true }), hookLog: () => {},
+    },
+  });
+  const fresh = mk(Date.now());
+  await fresh.start({ loop: false });
+  assert.equal(await fresh._tick(), 3_000);
+  const old = mk(Date.now() - 10 * 60e3);
+  await old.start({ loop: false });
+  assert.equal(await old._tick(), 15_000);
+});

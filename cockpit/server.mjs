@@ -1451,7 +1451,8 @@ async function sessionDetail(id, since) {
 const SYNC_FILE = path.join(path.dirname(META_FILE), 'sync.json');
 const SYNC_FAST_MS = 3_000;    // есть ожидающие запросы или команды — ждём следующего шага
 const SYNC_CHECK_MS = 5_000;   // как часто смотреть, не пора ли синкаться
-const SYNC_POLL_MS = 10_000;   // покой: лёгкий опрос без снимка — за решениями и командами с телефона
+const SYNC_POLL_MS = 15_000;   // покой и давно ждущие запросы: лёгкий опрос за решениями и командами с телефона
+const SYNC_FRESH_MS = 120_000; // столько после появления запроса синк частый (лимит вызовов Vercel Hobby)
 const SYNC_FULL_MS = 300_000;  // снимок целиком — при изменении и не реже раза в 5 мин
 const SYNC_IDLE_MS = 60_000;   // синк выключен — проверяем, не появился ли sync.json
 const SYNC_RETRY_MS = 30_000;
@@ -1746,7 +1747,9 @@ async function syncTick() {
     const h = createHash('sha1').update(JSON.stringify(items)).digest('hex');
     if (transcriptHash.get(id) !== h) transcripts.push({ sessionId: id, items, h });
   }
-  if (!full && !sendPlan && !pending.length && !commandResults.length && !transcripts.length && now - syncLastSent < (watched.size ? SYNC_FAST_MS : SYNC_POLL_MS)) return SYNC_CHECK_MS;
+  // Запрос может висеть часами (хук держит до суток): часто синкаемся только первые минуты после его появления.
+  const freshPending = pending.some(r => now - (Number(r.createdAt) || now) < SYNC_FRESH_MS);
+  if (!full && !sendPlan && !freshPending && !commandResults.length && !transcripts.length && now - syncLastSent < (watched.size ? SYNC_FAST_MS : SYNC_POLL_MS)) return SYNC_CHECK_MS;
   const results = commandResults.splice(0);
   const body = {
     idleSec: await machineIdleSec(),
@@ -1785,7 +1788,7 @@ async function syncTick() {
     if (r?.status === 'pending' && decision) decide(r, { ...decision, via: 'mini-app' });
   }
   for (const c of commands) commandResults.push(await runCommand(c));
-  return decisions.length || pending.length || commands.length || watched.size ? SYNC_FAST_MS : SYNC_CHECK_MS;
+  return decisions.length || freshPending || commands.length || watched.size ? SYNC_FAST_MS : SYNC_CHECK_MS;
 }
 
 // Один цикл на процесс; kickSync() — внеочередной прогон, когда пришёл новый запрос.

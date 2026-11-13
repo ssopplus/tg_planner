@@ -17,6 +17,7 @@ import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { REPORT_PROJECTS, startReport, reportJob } from './report.mjs';
+import { createHubClient } from './hub-client.mjs';
 
 const pexec = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1693,10 +1694,8 @@ function loadSyncConfig() {
   } catch { return null; }
 }
 
-async function syncTick() {
-  const cfg = loadSyncConfig();
-  syncStatus.enabled = !!cfg;
-  if (!cfg) return SYNC_IDLE_MS;
+// Снимок для телефона — общий у синка tg-planer (sync.json) и cockpit-hub (hub-client.mjs).
+async function syncParts() {
   const { sessions } = await sessionsPayload();
   const { pending, recent } = requestsPayload();
   const byId = new Map(sessions.map(s => [s.sessionId, s]));
@@ -1713,6 +1712,23 @@ async function syncTick() {
     closable: !!s.closable,
     updatedAt: new Date(s.lastActivity || Date.now()).toISOString(),
   })));
+  const pendingOut = pending.map(r => {
+    const s = byId.get(r.sessionId);
+    return {
+      id: r.id, sessionId: r.sessionId, sessionName: s?.title || s?.claudeName || r.sessionId.slice(0, 8),
+      project: s?.project || null, kind: r.kind, toolName: r.tool, summary: mask(shortArg(r.tool, r.input)),
+      payload: r.kind === 'question' ? { questions: r.input.questions || [] } : maskDeep(r.input),
+      canAlways: Array.isArray(r.suggestions) && r.suggestions.length > 0, createdAt: r.createdAt,
+    };
+  });
+  return { snapshot, pending: pendingOut, closed: recent.map(r => ({ id: r.id, status: r.status })) };
+}
+
+async function syncTick() {
+  const cfg = loadSyncConfig();
+  syncStatus.enabled = !!cfg;
+  if (!cfg) return SYNC_IDLE_MS;
+  const { snapshot, pending, closed } = await syncParts();
   // Снимок — только когда изменился (и раз в 5 мин); между ними лёгкий опрос раз в 10 с, чтобы
   // решения и команды с телефона доходили быстро. При ожидающих запросах — каждые 3 с.
   const hash = createHash('sha1').update(JSON.stringify(snapshot.map(s => ({ ...s, updatedAt: 0 })))).digest('hex');
@@ -1738,16 +1754,8 @@ async function syncTick() {
     ...(sendPlan ? { plan: planSnapshot } : {}),
     commandResults: results,
     transcripts: transcripts.map(({ sessionId, items }) => ({ sessionId, items })),
-    pending: pending.map(r => {
-      const s = byId.get(r.sessionId);
-      return {
-        id: r.id, sessionId: r.sessionId, sessionName: s?.title || s?.claudeName || r.sessionId.slice(0, 8),
-        project: s?.project || null, kind: r.kind, toolName: r.tool, summary: mask(shortArg(r.tool, r.input)),
-        payload: r.kind === 'question' ? { questions: r.input.questions || [] } : maskDeep(r.input),
-        canAlways: Array.isArray(r.suggestions) && r.suggestions.length > 0, createdAt: r.createdAt,
-      };
-    }),
-    closed: recent.map(r => ({ id: r.id, status: r.status })),
+    pending,
+    closed,
   };
   let reply;
   try {
@@ -1791,7 +1799,26 @@ async function runSync() {
     syncStatus.lastError = e.message;
   } finally { syncRunning = false; scheduleSync(next); }
 }
-const kickSync = () => { if (!syncRunning) scheduleSync(300); };
+const kickSync = () => { if (!syncRunning) scheduleSync(300); hub.kick(); };
+
+// ---------- cockpit-hub: телефон через бота команды, сквозное шифрование ----------
+const hub = createHubClient({
+  dataDir: path.dirname(META_FILE),
+  // Личный cockpit без config.json: адрес hub команды — здесь (env перебивает).
+  url: process.env.COCKPIT_HUB_URL || 'https://cockpit-hub-eight.vercel.app',
+  deps: {
+    snapshot: async () => {
+      const { snapshot, pending, closed } = await syncParts();
+      return { sessions: snapshot, pending, closed };
+    },
+    transcriptFor,
+    plan: () => { ensurePlanSnapshot(); return planSnapshot; },
+    request: id => requests.get(id),
+    decide,
+    runCommand,
+    hookLog,
+  },
+});
 
 // ---------- сутки: что сделано с 03:00 до 03:00 МСК ----------
 // Задачи, по которым в эти сутки работали сессии: замеренное время (паузы длиннее DAY_IDLE_MS не
@@ -2040,6 +2067,26 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, await fsp.readFile(path.join(HERE, 'index.html')), 'text/html; charset=utf-8');
     }
     if (url.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
+    if (url.pathname === '/vendor/qrcode.js') {
+      return send(res, 200, await fsp.readFile(path.join(HERE, 'vendor', 'qrcode.js')), 'text/javascript; charset=utf-8');
+    }
+    if (url.pathname.startsWith('/api/hub')) {
+      // Здесь ключ устройства (QR): только со своего адреса — против DNS-rebinding со сторонних сайтов.
+      if (!/^(127\.0\.0\.1|localhost):\d+$/.test(req.headers.host || '')) return send(res, 403, { error: 'host' });
+      if (req.method === 'POST' && !String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
+      const b = req.method === 'POST' ? await readJson(req) : {};
+      try {
+        if (req.method === 'GET' && url.pathname === '/api/hub') return send(res, 200, hub.status());
+        if (req.method === 'GET' && url.pathname === '/api/hub/key-qr') return send(res, 200, { qr: hub.keyQr() });
+        if (req.method === 'POST' && url.pathname === '/api/hub/pair') return send(res, 200, { pairing: await hub.startPairing(b.name) });
+        if (req.method === 'POST' && url.pathname === '/api/hub/pair/confirm') return send(res, 200, { pairing: await hub.confirmPairing(b.accept === true) });
+        if (req.method === 'POST' && url.pathname === '/api/hub/pair/cancel') { hub.cancelPairing(); return send(res, 200, { ok: true }); }
+        if (req.method === 'POST' && url.pathname === '/api/hub/unpair') { await hub.unpair(); return send(res, 200, { ok: true }); }
+        if (req.method === 'POST' && url.pathname === '/api/hub/level') { await hub.setLevel(b.level); return send(res, 200, { ok: true }); }
+        if (req.method === 'POST' && url.pathname === '/api/hub/stoplist') return send(res, 200, { stoplist: await hub.setStoplist(b) });
+      } catch (e) { return send(res, 400, { error: e.message }); }
+      return send(res, 404, { error: 'not found' });
+    }
     if (url.pathname === '/api/sessions') return send(res, 200, await sessionsPayload());
     if (url.pathname === '/api/session') {
       const s = await sessionDetail(url.searchParams.get('id'), Number(url.searchParams.get('since') || 0));
@@ -2285,4 +2332,5 @@ setInterval(() => snoozeTick().catch(e => hookLog({ event: 'snooze-error', error
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`dev-cockpit: http://127.0.0.1:${PORT}`);
   scheduleSync(2_000);
+  hub.start().catch(e => console.error('[hub]', e.message));
 });

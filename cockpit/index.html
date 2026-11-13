@@ -7,6 +7,7 @@
 <link rel="icon" id="favicon" type="image/svg+xml">
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="/vendor/qrcode.js"></script>
 <style>
 :root {
   --bg: #f4f5f7; --panel: #ffffff; --panel2: #fafbfc; --line: #e2e5ea; --text: #1b1f24; --muted: #69717d;
@@ -256,6 +257,13 @@ details.tool > summary .ta { font-family: ui-monospace, Menlo, monospace; overfl
 .props a, .crumbs a { color: var(--accent); }
 .btnrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .hint { color: var(--muted); font-size: 12px; margin-top: 8px; }
+.inbox.access { grid-template-columns: minmax(0, 760px); }
+.access .qr { background: #fff; padding: 8px; border-radius: 8px; width: 260px; height: 260px; }
+.access .qr svg { width: 100%; height: 100%; }
+.access .acc-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.access input[type=text] { border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; background: var(--panel); min-width: 0; }
+.access .warn { color: var(--wait); }
+.access .err { color: #d33; }
 .task { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
 details.issue { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; margin-bottom: 10px; }
 details.issue > summary { cursor: pointer; line-height: 1.45; }
@@ -511,6 +519,7 @@ button.pf.on { background: var(--accent-soft); border-color: var(--accent); colo
     <a href="#/managers" data-view="managers" title="Вопросы и тексты менеджерам, которые сессии подготовили для пересылки в Telegram">Менеджерам <span id="mqBadge"></span></a>
     <a href="#/plan" data-view="plan">План</a>
     <a href="#/rules" data-view="rules">Правила <span id="rulesBadge"></span></a>
+    <a href="#/access" data-view="access" title="Телефон через бота команды: привязка, уровень доступа, стоп-список">Доступ <span id="accessBadge"></span></a>
     <a href="#/day" data-view="day" title="Что сделано за сутки с 03:00 до 03:00 МСК">Сутки</a>
     <a href="#/report" data-view="report" title="Отчёт «что сделано» по проекту за период — текстом для Telegram">Отчёт</a>
   </nav>
@@ -787,6 +796,10 @@ function render(force) {
   if (Date.now() - rulesAt > (r.view === 'rules' ? 15_000 : 120_000)) loadRules();
   $('#rulesBadge').innerHTML = rulesData?.suggestions.length ? `<span class="badge">${rulesData.suggestions.length}</span>` : '';
   if (r.view === 'rules') return renderRules();
+  if (r.view !== 'access') delete $('#app').dataset.accessHtml;
+  if (Date.now() - hubAt > (r.view === 'access' ? 2_000 : 60_000)) loadHub();
+  $('#accessBadge').innerHTML = hubData?.pairing?.status === 'claimed' ? '<span class="badge">!</span>' : hubData?.device && hubData.lastError ? '<span class="badge">✕</span>' : '';
+  if (r.view === 'access') return renderAccess();
   if (r.view === 'day') return renderDay(r.id);
   if (r.view === 'report') return renderReport();
   if (r.view !== 'managers') lastMqHtml = '';
@@ -1146,7 +1159,7 @@ async function decideRequest(id, kind) {
   poll();
 }
 // Пока пользователь печатает в форме запроса, экран не перерисовываем — иначе пропадёт фокус.
-const typingInRequest = () => !!document.activeElement?.closest?.('.req, .mqcard, .mqrow') && (document.activeElement.type === 'text' || ['SELECT', 'TEXTAREA'].includes(document.activeElement.tagName));
+const typingInRequest = () => !!document.activeElement?.closest?.('.req, .mqcard, .mqrow, .acc-form') && (document.activeElement.type === 'text' || ['SELECT', 'TEXTAREA'].includes(document.activeElement.tagName));
 
 // ---------- доска ----------
 // Строка задач сессии: статус в Трекере и план из заметки start-task («☑ 8/9», в подсказке — что
@@ -1481,6 +1494,114 @@ function renderRules() {
   if (app.dataset.rulesHtml === html) return;
   app.dataset.rulesHtml = html; const scroll = app.scrollTop; app.innerHTML = html; app.scrollTop = scroll;
 }
+
+// ---------- доступ: телефон через cockpit-hub ----------
+// Привязка телефона к этой машине (QR с ключом — в Telegram Mini App бота команды), уровень доступа,
+// стоп-список для удалённого «разрешить» и журнал удалённых действий. Ключ живёт в Keychain и в
+// телефоне; сервер hub видит только зашифрованное (docs/hub-protocol.md).
+let hubData = null, hubAt = 0, hubLoading = false, hubKeyQr = null, hubMsg = null;
+const HUB_LEVELS = [['observe', 'Наблюдение', 'только статусы и уведомления'], ['answers', 'Ответы', 'разрешить один раз / отклонить / ответить на вопрос, порядок плана'], ['control', 'Управление', '+ написать в сессию, запустить задачу, закрыть сессию']];
+async function loadHub() {
+  if (hubLoading) return;
+  hubLoading = true; hubAt = Date.now();
+  try { hubData = await (await fetch('/api/hub')).json(); } catch {} finally { hubLoading = false; }
+  if (route().view === 'access') renderAccess();
+}
+async function hubPost(p, body) {
+  hubMsg = null;
+  const r = await fetch(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { hubMsg = { err: true, text: j.error || `ошибка ${r.status}` }; renderAccess(); throw new Error(hubMsg.text); }
+  await loadHub();
+  return j;
+}
+function qrSvg(text) {
+  if (typeof qrcode !== 'function') return '<div class="err">генератор QR не загрузился</div>';
+  const q = qrcode(0, 'M'); q.addData(text); q.make();
+  return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+}
+const PAIR_STATUS = { expired: 'Код истёк.', rejected: 'Привязка отклонена.', 'bad-proof': 'Заявка не прошла проверку ключа — отклонена. Возможно, кто-то подменил QR.', confirmed: 'Уже подтверждено.' };
+
+function renderAccess() {
+  const d = hubData, app = $('#app');
+  if (!d) { app.innerHTML = '<div class="inbox rules access"><div class="muted">Загружаю…</div></div>'; return; }
+  const p = d.pairing, dev = d.device;
+  let top;
+  if (!d.url) {
+    top = `<div class="hint">Адрес hub не задан: добавьте в config.json <code>"hub": { "url": "https://…" }</code> (адрес даст администратор бота) и перезапустите cockpit.</div>`;
+  } else if (p && p.status === 'waiting') {
+    top = `<div class="acc-row"><div class="qr">${qrSvg(p.qr)}</div>
+      <div><b>Отсканируйте QR в Telegram</b><div class="hint">Бот команды → «Cockpit» → вкладка «Машины» → «Сканировать QR». В Telegram Desktop — вставьте текст QR.<br>Код ${esc(p.code)}, действует до ${new Date(p.expiresAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}.<br>В QR — ключ этой машины: не показывайте его никому, кроме своего телефона.</div>
+      <div class="acc-row"><button class="ghost" data-hub-copy="${esc(p.qr)}">Скопировать текст QR</button><button class="ghost" data-hub="cancel">Отмена</button></div>
+      ${p.error ? `<div class="err">${esc(p.error)}</div>` : ''}</div></div>`;
+  } else if (p && p.status === 'claimed') {
+    const who = p.user?.username ? '@' + p.user.username : p.user?.name || 'неизвестный';
+    top = `<div class="rrow"><div><b>Привязать машину «${esc(p.name)}» к ${esc(who)}?</b><div class="hint">Ключ в заявке проверен. Если это не вы — нажмите «Это не я»: устройство будет отозвано.</div></div>
+      <div class="btns"><button class="primary" data-hub="confirm">Привязать</button><button class="ghost" data-hub="reject">Это не я</button></div></div>`;
+  } else if (!dev) {
+    top = `${p ? `<div class="${p.status === 'bad-proof' ? 'err' : 'muted'}">${esc(PAIR_STATUS[p.status] || p.status)}</div>` : ''}
+      <div class="acc-row acc-form"><input type="text" id="hubName" placeholder="Имя машины (по умолчанию — имя хоста)" size="34"><button class="primary" data-hub="pair">Привязать телефон</button></div>
+      <div class="hint">Hub: ${esc(d.url)}. Нужен доступ к боту команды — приглашение от администратора.</div>`;
+  } else {
+    const who = dev.user?.username ? '@' + dev.user.username : dev.user?.name || '';
+    top = `<div class="rrow"><div><b>${esc(dev.name)}</b> → ${esc(who)} <span class="muted">· ключ ${esc(dev.kid.slice(0, 8))} · ${esc(d.keychain)}</span>
+        <div class="hint">${d.lastError ? `<span class="err">Синк: ${esc(d.lastError)}</span>` : d.lastOk ? `Синк ${ago(d.lastOk)} назад` : 'Синка ещё не было'} · hub ${esc(d.url)}</div></div>
+      <div class="btns"><button class="ghost" data-hub="key-qr">${hubKeyQr ? 'Скрыть QR' : 'QR для второго телефона'}</button><button class="ghost" data-hub="unpair">Отвязать</button></div></div>
+      ${hubKeyQr ? `<div class="acc-row"><div class="qr">${qrSvg(hubKeyQr)}</div><div class="hint warn">Этот QR — ключ машины без срока действия. Покажите его только своему второму телефону и скройте.</div></div>` : ''}
+      <h2>Что можно с телефона</h2>
+      ${HUB_LEVELS.map(([v, t, h]) => `<label class="acc-row"><input type="radio" name="hubLevel" value="${v}" ${dev.level === v ? 'checked' : ''}> <b>${t}</b> <span class="muted">— ${h}</span></label>`).join('')}
+      <div class="hint">«Разрешать всегда», смена режима сессии и эти настройки с телефона не меняются никогда.</div>`;
+  }
+  const sl = d.stoplist || { enabled: true, rules: [] };
+  const html = `<div class="inbox rules access"><div>
+    <h2>Телефон</h2>${top}
+    ${hubMsg ? `<div class="${hubMsg.err ? 'err' : 'muted'}">${esc(hubMsg.text)}</div>` : ''}
+    <h2>Стоп-список · ${sl.rules.filter(r => !r.off).length}</h2>
+    <label class="acc-row"><input type="checkbox" id="slEnabled" ${sl.enabled ? 'checked' : ''}> Удалённое «разрешить» для этих команд отклоняется — ответ только на машине</label>
+    ${sl.rules.map((r, i) => `<div class="rrow"><div><label><input type="checkbox" data-sl-toggle="${i}" ${r.off ? '' : 'checked'}> <span class="lbl">${esc(r.name)}</span></label>
+      <span class="muted">инструмент /${esc(r.tool)}/</span></div><div class="btns"><button class="ghost" data-sl-remove="${i}">Удалить</button></div>
+      <div class="ex">/${esc(r.pattern)}/${esc(r.flags || '')}</div></div>`).join('')}
+    <div class="acc-row acc-form"><input type="text" id="slName" placeholder="Название" size="14"><input type="text" id="slTool" placeholder="Инструмент (regex)" value="^Bash$" size="14"><input type="text" id="slPattern" placeholder="Шаблон команды (regex)" size="26"><button data-sl-add>Добавить</button></div>
+    <h2>Журнал · ${d.journal.length}</h2>
+    ${d.journal.map(j => `<div class="rrow"><div><span class="muted">${ago(j.at)} назад</span> ${esc(hubJournalText(j))}</div><div></div></div>`).join('') || '<div class="muted">С запуска cockpit удалённых действий не было.</div>'}
+  </div></div>`;
+  if (app.dataset.accessHtml === html) return;
+  app.dataset.accessHtml = html; const scroll = app.scrollTop; app.innerHTML = html; app.scrollTop = scroll;
+}
+function hubJournalText(j) {
+  if (j.action === 'command') return `${j.ok ? '✓' : '✗'} ${j.kind}${j.target ? ` → ${j.target}` : ''}${j.reason ? ` — ${j.reason}` : ''}`;
+  return { 'pair-start': 'начата привязка', 'pair-claimed': `заявка от ${j.user || '?'}`, paired: `привязано к ${j.user || '?'}`, 'pair-rejected': 'привязка отклонена', 'pair-bad-proof': 'заявка с неверным ключом отклонена', unpaired: `отвязано (${j.reason})`, level: `уровень: ${j.level}`, stoplist: `стоп-список: ${j.rules} правил${j.enabled ? '' : ', выключен'}`, 'revoke-failed': `отзыв на hub не прошёл: ${j.error}` }[j.action] || j.action;
+}
+async function saveStoplist(mut) {
+  const sl = structuredClone(hubData?.stoplist || { enabled: true, rules: [] });
+  mut(sl);
+  await hubPost('/api/hub/stoplist', sl).catch(() => {});
+}
+document.addEventListener('click', async e => {
+  const h = e.target.closest('[data-hub]')?.dataset.hub;
+  const copy = e.target.closest('[data-hub-copy]')?.dataset.hubCopy;
+  if (copy) { await navigator.clipboard.writeText(copy); hubMsg = { text: 'Текст QR скопирован — вставьте в Mini App и очистите буфер.' }; return renderAccess(); }
+  if (e.target.closest('[data-sl-remove]')) { const i = +e.target.closest('[data-sl-remove]').dataset.slRemove; return saveStoplist(sl => sl.rules.splice(i, 1)); }
+  if (e.target.closest('[data-sl-add]')) {
+    const rule = { name: $('#slName').value.trim() || 'правило', tool: $('#slTool').value.trim() || '^Bash$', pattern: $('#slPattern').value.trim() };
+    if (!rule.pattern) return;
+    return saveStoplist(sl => sl.rules.push(rule));
+  }
+  if (!h) return;
+  try {
+    if (h === 'pair') await hubPost('/api/hub/pair', { name: $('#hubName')?.value.trim() || undefined });
+    if (h === 'cancel') await hubPost('/api/hub/pair/cancel');
+    if (h === 'confirm') await hubPost('/api/hub/pair/confirm', { accept: true });
+    if (h === 'reject') await hubPost('/api/hub/pair/confirm', { accept: false });
+    if (h === 'unpair' && confirm('Отвязать машину? Телефон перестанет видеть её сессии, токен на hub будет отозван, ключ удалится из Keychain.')) { hubKeyQr = null; await hubPost('/api/hub/unpair'); }
+    if (h === 'key-qr') { hubKeyQr = hubKeyQr ? null : (await (await fetch('/api/hub/key-qr')).json()).qr; renderAccess(); }
+  } catch {}
+});
+document.addEventListener('change', e => {
+  if (e.target.name === 'hubLevel') hubPost('/api/hub/level', { level: e.target.value }).catch(() => {});
+  if (e.target.id === 'slEnabled') saveStoplist(sl => { sl.enabled = e.target.checked; });
+  if (e.target.dataset?.slToggle !== undefined) { const i = +e.target.dataset.slToggle; saveStoplist(sl => { if (e.target.checked) delete sl.rules[i].off; else sl.rules[i].off = true; }); }
+});
 
 // ---------- план ----------
 // Задачи проекта из Трекера (открытые в его очередях) и план — очерёдность, которую выставляю я.

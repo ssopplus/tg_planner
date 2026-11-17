@@ -923,7 +923,8 @@ function parseTaskNote(file, text) {
 function openBlockers(n) {
   if (n.hasBlockers) return n.blockers.filter(b => !b.done).map(b => b.text);
   const last = n.log.at(-1)?.blockers?.trim();
-  return last && !/^(нет|—|-|нету|пусто)\.?$/i.test(last) ? [last.split('\n')[0]] : [];
+  // «нет», «нет — ждём релиза», «нет. Задача завершена» — блокеров нет (\b с кириллицей не работает).
+  return last && !/^(нет|нету|пусто|отсутствуют|—|-)(?![а-яё])/i.test(last) ? [last.split('\n')[0]] : [];
 }
 
 // Запись в заметку задачи — только раздел «## Блокеры»: cockpit добавляет «ждём ответа постановщика»,

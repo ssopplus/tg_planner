@@ -906,11 +906,67 @@ function parseTaskNote(file, text) {
     }
     log.push({ date: m[1], session: m[2], ...parts });
   }
+  // «## Блокеры» — чек-лист того, во что задача упёрлась снаружи (вопрос постановщику, доступ, чужой
+  // релиз). Открытый пункт — блокер; снятый отмечается [x]. В прогресс плана не входит.
+  const blockers = [...section('Блокеры').matchAll(/^\s*- \[([ xX])\] (.+)$/gm)].map(m => ({
+    done: m[1] !== ' ', text: m[2].replace(/\s*<!--[\s\S]*?-->\s*/g, ' ').trim(), mark: m[2].match(/<!--\s*(mq:[0-9a-f]{12})\s*-->/)?.[1] || null,
+  }));
   return {
     file, issue: field('issue'), branch: field('branch'), mr: field('mr'),
     title: text.match(/^# (.+)$/m)?.[1].trim() || path.basename(file, '.md'), todo, log,
+    blockers, hasBlockers: /^## Блокеры\s*$/m.test(text),
   };
 }
+
+// Открытые блокеры заметки. Старые заметки без раздела — строка «Блокеры:» последней записи ворклога,
+// если там не «нет».
+function openBlockers(n) {
+  if (n.hasBlockers) return n.blockers.filter(b => !b.done).map(b => b.text);
+  const last = n.log.at(-1)?.blockers?.trim();
+  return last && !/^(нет|—|-|нету|пусто)\.?$/i.test(last) ? [last.split('\n')[0]] : [];
+}
+
+// Запись в заметку задачи — только раздел «## Блокеры»: cockpit добавляет «ждём ответа постановщика»,
+// когда вопрос ушёл, и отмечает его, когда ответ передан в сессию. Пункт помечен <!-- mq:<id> -->.
+async function noteForIssue(key) {
+  notesScannedAt = 0;
+  return (await taskNotes()).find(n => n.issue === key) || null;
+}
+async function editNote(file, fn) {
+  const before = await fsp.readFile(file, 'utf8');
+  const after = fn(before);
+  if (after == null || after === before) return false;
+  await fsp.writeFile(file, after);
+  notesScannedAt = 0;
+  return true;
+}
+async function addNoteBlocker(key, text, mark) {
+  const n = key && await noteForIssue(key);
+  if (!n) return false;
+  const line = `- [ ] ${text.replace(/\s+/g, ' ').trim()} <!-- ${mark} -->`;
+  return editNote(n.file, t => {
+    if (t.includes(`<!-- ${mark} -->`)) return null;
+    if (/^## Блокеры\s*$/m.test(t)) {
+      return t.replace(/^(## Блокеры[ \t]*\n)([\s\S]*?)(?=^## |(?![\s\S]))/m, (all, h, body) => {
+        const b = body.replace(/\s+$/, '');
+        return `${h}${b ? b + '\n' : ''}${line}\n\n`;
+      });
+    }
+    return /^## Ворклог/m.test(t) ? t.replace(/^## Ворклог/m, `## Блокеры\n${line}\n\n## Ворклог`) : `${t.replace(/\s*$/, '')}\n\n## Блокеры\n${line}\n`;
+  });
+}
+async function setNoteBlocker(key, mark, how) {
+  const n = key && await noteForIssue(key);
+  if (!n) return false;
+  // Снять пункт можно и отмеченный (вопрос вернули в неотправленные), отметить — только открытый.
+  const re = new RegExp(`^(\\s*- )\\[${how === 'remove' ? '[ xX]' : ' '}\\] (.*?)\\s*<!-- ${mark} -->[ \\t]*\\n?`, 'm');
+  return editNote(n.file, t => {
+    if (!re.test(t)) return null;
+    if (how === 'remove') return t.replace(re, '');
+    return t.replace(re, (all, pre, body) => `${pre}[x] ${body} — ${how} <!-- ${mark} -->\n`);
+  });
+}
+const ddmm = ts => new Date(ts).toLocaleDateString('ru', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Moscow' });
 
 async function taskNotes() {
   if (Date.now() - notesScannedAt > NOTES_SCAN_MS) {
@@ -948,6 +1004,9 @@ function taskBrief(n, sessionId) {
     issue: n.issue, title: n.title, done: n.todo.filter(t => t.done).length, total: n.todo.length,
     left: (mine || n.log.at(-1))?.left || null, own: !!mine,
     next: n.todo.find(t => !t.done)?.text.slice(0, 200) || null,
+    blockers: openBlockers(n).slice(0, 10).map(b => b.slice(0, 300)),
+    // Весь чек-лист — для всплывающего плана в карточке запроса.
+    todo: n.todo.slice(0, 40).map(t => ({ done: t.done, text: t.text.slice(0, 200) })),
   };
 }
 
@@ -1095,10 +1154,76 @@ async function commentManagerQuestion({ sessionId, id, key, summonAuthor }) {
   const m = metaOf(sessionId);
   m.mqDone = m.mqDone && !Array.isArray(m.mqDone) ? m.mqDone : {};
   m.mqDone[id] = Date.now();
-  (m.mqSent ||= {})[id] = { key, commentId: c.id ?? null, at: Date.now(), summoned: !!body.summonees };
+  (m.mqSent ||= {})[id] = { key, commentId: c.id ?? null, at: Date.now(), summoned: !!body.summonees, via: 'comment' };
+  m.mqSent[id].blocker = await markQuestionBlocker(key, id, q, 'comment').catch(() => false);
   await saveMeta();
   hookLog({ event: 'mq-comment', session: sessionId, key, comment: c.id ?? null });
-  return { key, commentId: c.id ?? null, url: `https://tracker.yandex.ru/${key}` };
+  return { key, commentId: c.id ?? null, url: `https://tracker.yandex.ru/${key}`, blocker: m.mqSent[id].blocker };
+}
+
+// Вопрос ушёл — блокер «ждём ответа постановщика» в заметке задачи.
+function markQuestionBlocker(key, id, q, via) {
+  const first = q.text.split('\n').map(l => l.trim()).find(Boolean) || '';
+  const who = q.to.replace(/\(.*$/, '').split(/[,;]/)[0].trim() || q.to;
+  return addNoteBlocker(key, `Ждём ответа постановщика (${who}, ${via === 'comment' ? 'комментарий в задаче' : 'Telegram'}): «${first.slice(0, 120)}» — с ${ddmm(Date.now())}`, `mq:${id}`);
+}
+
+// ---------- ответы постановщиков ----------
+// По каждому отправленному вопросу (meta.mqSent) без переданного ответа читаем комментарии задачи:
+// ответ — первый комментарий не от меня после отправки. Канал отправки не важен — менеджер часто
+// отвечает в задаче, даже если спрашивали в Telegram. Только чтение; ответ ложится в meta.mqReply,
+// в сессию его передаю я кнопкой. Фоном раз в 10 минут и по «🩺 Проверить».
+const MQ_CHECK_MS = 10 * 60_000;
+const MQ_CHECK_MAX_AGE_MS = 30 * 86400e3;
+let mqCheck = { at: 0, running: null, checked: 0, found: 0, error: null };
+let trackerMe = null;
+const trackerTs = s => Date.parse(String(s || '').replace(/([+-]\d\d)(\d\d)$/, '$1:$2'));
+async function checkManagerReplies() {
+  if (mqCheck.running) return mqCheck.running;
+  mqCheck.running = (async () => {
+    const cfg = loadTrackerConfig();
+    if (!cfg) throw new Error('нет токена Трекера');
+    const headers = { authorization: `OAuth ${cfg.token}`, 'x-org-id': cfg.org };
+    const get = async u => {
+      const r = await fetch(`https://api.tracker.yandex.net/v2/${u}`, { headers, signal: AbortSignal.timeout(15_000) });
+      if (!r.ok) throw new Error(`Трекер ${r.status}`);
+      return r.json();
+    };
+    if (!trackerMe) { const me = await get('myself'); trackerMe = new Set([me.uid, me.trackerUid, me.login].filter(Boolean).map(String)); }
+    const open = new Map(); // key -> [{ sid, id, sent }]
+    for (const [sid, m] of Object.entries(meta.sessions)) {
+      for (const [id, sent] of Object.entries(m.mqSent || {})) {
+        if (!sent?.key || m.mqAnswered?.[id] || m.mqReply?.[id] || Date.now() - sent.at > MQ_CHECK_MAX_AGE_MS) continue;
+        if (!open.has(sent.key)) open.set(sent.key, []);
+        open.get(sent.key).push({ sid, id, sent });
+      }
+    }
+    let found = 0, checked = 0;
+    for (const [key, items] of open) {
+      let comments;
+      try { comments = await get(`issues/${encodeURIComponent(key)}/comments?perPage=100`); }
+      catch (e) { hookLog({ event: 'mq-check-error', key, error: e.message }); continue; }
+      checked++;
+      // Мой и комментарий, которым ушёл вопрос, — не ответ.
+      const mine = new Set(trackerMe);
+      for (const c of comments) if (items.some(x => x.sent.commentId === c.id) && c.createdBy?.id) mine.add(String(c.createdBy.id));
+      for (const { sid, id, sent } of items) {
+        const c = comments.find(c => trackerTs(c.createdAt) > sent.at && c.id !== sent.commentId && !mine.has(String(c.createdBy?.id)));
+        if (!c) continue;
+        (metaOf(sid).mqReply ||= {})[id] = {
+          key, commentId: c.id, author: c.createdBy?.display || 'кто-то', at: trackerTs(c.createdAt),
+          text: String(c.text || '').slice(0, 4000), foundAt: Date.now(),
+        };
+        found++;
+      }
+    }
+    if (found) await saveMeta();
+    if (found) hookLog({ event: 'mq-replies', found });
+    mqCheck = { ...mqCheck, at: Date.now(), checked, found, error: null };
+    return mqCheck;
+  })().catch(e => { mqCheck = { ...mqCheck, at: Date.now(), error: e.message }; return mqCheck; })
+    .finally(() => { mqCheck.running = null; });
+  return mqCheck.running;
 }
 
 async function trackerSearch(body) {
@@ -1227,7 +1352,11 @@ async function sessionSummary(a, cfg) {
   s.managerQuestions = all.filter(q => !((done[q.id] || 0) >= (q.ts || 0))).slice(-10);
   // История: отправленные (в Telegram — «✓ Отправил», или комментарием в задачу) и ответ менеджера, если передан в сессию.
   s.managerSent = all.filter(q => (done[q.id] || 0) >= (q.ts || 0)).slice(-10)
-    .map(q => ({ ...q, doneAt: done[q.id], comment: m.mqSent?.[q.id] || null, answeredAt: m.mqAnswered?.[q.id] || null }));
+    .map(q => ({ ...q, doneAt: done[q.id], comment: m.mqSent?.[q.id]?.commentId != null || m.mqSent?.[q.id]?.via === 'comment' ? m.mqSent[q.id] : null,
+      sent: m.mqSent?.[q.id] || null, answeredAt: m.mqAnswered?.[q.id] || null, reply: m.mqReply?.[q.id] || null }));
+  // Ответ постановщика нашёлся в Трекере, но в сессию ещё не передан — подсветка на карточке.
+  s.mqReplies = s.managerSent.filter(q => q.reply && !q.answeredAt);
+  s.blockers = s.tasks.flatMap(t => (t.blockers || []).map(text => ({ issue: t.issue, text })));
   // Порядок репо: worktree задачи первым, vault (его трогает почти каждая сессия) — последним.
   const num = s.taskKey?.split('-')[1];
   const rank = r => (num && path.basename(r).endsWith(`-${num}`) ? 0 : r === VAULT ? 2 : 1);
@@ -1511,6 +1640,7 @@ function taskSnapshot(s, notes) {
       issue: n.issue, title: n.issue ? n.title.replace(`${n.issue} — `, '') : n.title, status: status(n.issue),
       todo: n.todo.slice(0, 40).map(t => ({ done: t.done, text: cut(t.text, 300) })),
       log: e ? { date: e.date, own: e.session === sid, done: cut(e.done, 1500), left: cut(e.left, 1000), blockers: cut(e.blockers, 500) } : null,
+      blockers: openBlockers(n).slice(0, 10).map(b => cut(b, 300)),
     };
   });
   if (s.taskKey && !out.some(t => t.issue === s.taskKey) && status(s.taskKey)) {
@@ -2283,8 +2413,14 @@ const server = http.createServer(async (req, res) => {
       m.mqDone = m.mqDone && !Array.isArray(m.mqDone) ? m.mqDone : {};
       m.mqDone[id] ||= Date.now();
       (m.mqAnswered ||= {})[id] = Date.now();
+      // Ответ получен — блокер в заметке снят.
+      if (m.mqSent?.[id]?.key) await setNoteBlocker(m.mqSent[id].key, `mq:${id}`, `ответ получен ${ddmm(Date.now())}`).catch(() => {});
       await saveMeta();
       return send(res, 200, { ok: true });
+    }
+    if (req.method === 'POST' && url.pathname === '/api/manager-question/check') {
+      // «🩺 Проверить»: ответы постановщиков в Трекере — сейчас, не дожидаясь фонового прохода.
+      return send(res, 200, await checkManagerReplies());
     }
     if (req.method === 'POST' && url.pathname === '/api/manager-question') {
       if (!String(req.headers['content-type']).startsWith('application/json')) return send(res, 415, { error: 'json only' });
@@ -2293,8 +2429,23 @@ const server = http.createServer(async (req, res) => {
       if (!/^[0-9a-f]{12}$/.test(id) || !b.sessionId) return send(res, 400, { error: 'неверный вопрос' });
       const m = metaOf(String(b.sessionId));
       const done = m.mqDone && !Array.isArray(m.mqDone) ? m.mqDone : {};
-      if (b.done === false) { delete done[id]; if (m.mqSent) delete m.mqSent[id]; if (m.mqAnswered) delete m.mqAnswered[id]; }
-      else done[id] = Date.now();
+      if (b.done === false) {
+        // «Вернуть в неотправленные» — и блокер из заметки убираем: вопрос не уходил.
+        const key = m.mqSent?.[id]?.key;
+        if (key) await setNoteBlocker(key, `mq:${id}`, 'remove').catch(() => {});
+        delete done[id];
+        for (const k of ['mqSent', 'mqAnswered', 'mqReply']) if (m[k]) delete m[k][id];
+      } else {
+        done[id] = Date.now();
+        // «✓ Отправил» (в Telegram): запоминаем задачу — по ней ищем ответ в Трекере — и ставим блокер.
+        const key = typeof b.key === 'string' && new RegExp(`^${TASK_KEY_RE.source}$`).test(b.key) ? b.key : null;
+        if (key && !m.mqSent?.[id]) {
+          (m.mqSent ||= {})[id] = { key, commentId: null, at: Date.now(), summoned: false, via: 'telegram' };
+          const p = await findTranscript(String(b.sessionId));
+          const q = p ? states.get(p)?.mq.get(id) : null;
+          if (q) m.mqSent[id].blocker = await markQuestionBlocker(key, id, q, 'telegram').catch(() => false);
+        }
+      }
       m.mqDone = Object.fromEntries(Object.entries(done).sort((x, y) => x[1] - y[1]).slice(-200));
       await saveMeta();
       return send(res, 200, { ok: true });
@@ -2332,6 +2483,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 setInterval(() => snoozeTick().catch(e => hookLog({ event: 'snooze-error', error: e.message })), 20_000);
+setInterval(() => checkManagerReplies(), MQ_CHECK_MS);
+setTimeout(() => checkManagerReplies(), 60_000);
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`dev-cockpit: http://127.0.0.1:${PORT}`);
   scheduleSync(2_000);

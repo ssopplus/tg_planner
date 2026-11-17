@@ -355,6 +355,16 @@ pre.diff .m { color: var(--muted); font-weight: 600; }
 #ctxPop .cm .who { color: var(--muted); font-size: 11.5px; margin-bottom: 2px; }
 #ctxPop .cm.user .who { color: var(--accent); }
 #ctxPop .cm p { margin: 4px 0; }
+#ctxPop .pi { padding: 1px 0 1px 2px; line-height: 1.45; }
+#ctxPop .pi.done { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 50%, transparent); }
+#ctxPop .blk, .why.blocked { color: #d4483b; }
+#ctxPop .blk { margin: 2px 0 4px; }
+#ctxPop .pleft { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
+.why.blocked, .why.reply { font-size: 12.5px; margin-top: 4px; line-height: 1.4; }
+.why.reply { color: var(--accent); }
+.why.reply button { padding: 1px 8px; font-size: 12px; margin-left: 4px; }
+.mqcard.reply { border-left: 3px solid var(--accent); }
+.mqrow .replied { color: var(--accent); }
 .req .q { font-weight: 600; margin: 6px 0 4px; }
 .req .fold { margin-left: auto; padding: 2px 8px; font-size: 12px; }
 .req .rsum { display: none; color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -576,18 +586,26 @@ async function loadRevivable() {
   try { revivable = (await (await fetch('/api/revivable')).json()).sessions || []; } catch { revivable = []; }
   render();
 }
+let mqCheckInfo = null;
 async function openNudge() {
   $('#nudgePanel')?.remove();
-  await loadRevivable();
+  // Ответы постановщиков в Трекере — проверяем вместе со связью; ждём не дольше 8 с.
+  const check = post('/api/manager-question/check', {}).then(r => { mqCheckInfo = r; return poll(); }).catch(e => { mqCheckInfo = { error: e.message }; });
+  await Promise.all([loadRevivable(), Promise.race([check, new Promise(r => setTimeout(r, 8000))])]);
   const groups = nudgeGroups();
   const live = new Set(sessions.map(s => s.sessionId));
   const rv = revivable.filter(r => !live.has(r.sessionId));
   const revHtml = rv.length ? `<h4>Вкладки VS Code без сессии · ${rv.length}</h4>${rv.map(r =>
     `<label><span class="t">${esc(r.title)}</span><span class="r">${esc(tabPlace(r))}${new Set(rv.map(x => x.workspace)).size > 1 ? ` · ${esc(r.workspace)}` : ''}</span></label>`).join('')}
     <div class="np-foot"><span class="muted">После перезапуска VS Code сессия подключается, когда её вкладку показали: кликни по каждой. Порядок вкладок — на момент последнего сохранения окна VS Code.</span></div>` : '';
-  const body = (groups.length || rv.length) ? revHtml + (groups.length ? groups.map(([title, list, on, why]) => `<h4>${esc(title)} · ${list.length}</h4>${list.map(s =>
+  const replies = sessions.flatMap(s => (s.mqReplies || []).map(q => ({ s, q })));
+  const repHtml = `${replies.length ? `<h4>Есть ответ постановщика · ${replies.length}</h4>${replies.map(({ s, q }) =>
+    `<label><span class="t">${esc(s.title)}</span><span class="r" title="${esc(q.reply.text)}">${esc(q.reply.author || '')}${q.reply.key ? ` · ${esc(q.reply.key)}` : ''}: ${esc(plain(q.reply.text).slice(0, 80))}</span>
+      <button class="ghost" data-mq-pass="${esc(s.sessionId)}|${q.id}">↩ Передать</button></label>`).join('')}` : ''}
+    ${mqCheckInfo ? `<div class="np-foot"><span class="muted">Ответы в Трекере: ${mqCheckInfo.error ? `ошибка — ${esc(mqCheckInfo.error)}` : `проверено вопросов ${mqCheckInfo.checked ?? 0}, новых ответов ${mqCheckInfo.found ?? 0}${mqCheckInfo.at ? ` · ${hhmm(mqCheckInfo.at)}` : ''}`}</span></div>` : ''}`;
+  const body = repHtml + ((groups.length || rv.length) ? revHtml + (groups.length ? groups.map(([title, list, on, why]) => `<h4>${esc(title)} · ${list.length}</h4>${list.map(s =>
     `<label><input type="checkbox" data-np value="${esc(s.sessionId)}" ${on ? 'checked' : ''}><span class="t">${esc(s.title)}</span><span class="r">${esc(why(s))}</span></label>`).join('')}`).join('')
-    : '') : '<div class="muted">Оборвавшихся, простаивающих и не поднявшихся сессий нет.</div>';
+    : '') : '<div class="muted">Оборвавшихся, простаивающих и не поднявшихся сессий нет.</div>');
   document.body.insertAdjacentHTML('beforeend', `<div id="nudgePanel"><div class="np-head"><b>Проверка связи</b><button class="ghost" data-np-close>✕</button></div>${body}
     ${groups.length ? `<div class="np-foot"><button data-np-mode="status">Спросить статус</button><button data-np-mode="continue">Продолжить работу</button>
     <span class="muted">Уйдёт в выбранные сессии репликой «[из dev-cockpit]». «Статус» — коротко рассказать, где стоим; «Продолжить» — работать дальше с места обрыва.</span></div>` : ''}</div>`);
@@ -758,7 +776,7 @@ function render(force) {
   const r = route();
   if (r.view !== 'day') delete $('#app').dataset.dayHtml;
   document.querySelectorAll('nav a').forEach(a => a.classList.toggle('on', a.dataset.view === r.view));
-  const inboxN = sessions.filter(s => laneOf(s) === 'waiting' || toReview(s)).length;
+  const inboxN = sessions.filter(s => laneOf(s) === 'waiting' || toReview(s) || s.mqReplies?.length).length;
   if (pending.length && notifyOn) for (const r of pending) if (!notified.has(r.id)) { notified.add(r.id); new Notification(`${r.kind === 'question' ? 'Вопрос' : 'Разрешение'}: ${sessions.find(x => x.sessionId === r.sessionId)?.title || ''}`, { body: reqSummary(r).slice(0, 200), tag: r.id }); }
   const waitN = sessions.filter(s => s.status === 'waiting').length;
   $('#inboxBadge').innerHTML = inboxN ? `<span class="badge">${inboxN}</span>` : '';
@@ -770,7 +788,8 @@ function render(force) {
   const unnamed = sessions.filter(s => s.nameSource === 'derived').length;
   const namingN = sessions.filter(s => s.naming).length;
   const liveIds = new Set(sessions.map(s => s.sessionId));
-  const stuckN = sessions.filter(s => s.stuck).length + revivable.filter(r => !liveIds.has(r.sessionId)).length;
+  const stuckN = sessions.filter(s => s.stuck).length + revivable.filter(r => !liveIds.has(r.sessionId)).length
+    + sessions.reduce((n, s) => n + (s.mqReplies?.length || 0), 0);
   $('#nudgeBtn').textContent = `🩺 Проверить${stuckN ? ` (${stuckN})` : ''}`;
   $('#nudgeBtn').classList.toggle('warn', !!stuckN);
   $('#autoname').innerHTML = namingN ? `<span class="spin"></span> ${namingN}` : `✨ Имена${unnamed ? ` (${unnamed})` : ''}`;
@@ -984,17 +1003,41 @@ async function showCtx(anchor) {
     if (ctxFor === id) { el.innerHTML = html; el.scrollTop = el.scrollHeight; placeCtx(el, anchor); }
   } catch (e) { if (ctxFor === id) el.innerHTML = `<div class="muted">Не удалось загрузить: ${esc(e.message)}</div>`; }
 }
+// План задачи сессии во всплывающем окне — из заметки (данные уже пришли с доской).
+function planPopHtml(s) {
+  return (s.tasks || []).filter(t => t.total || t.blockers?.length).map(t => {
+    const st = t.issue && s.trackerStatus?.[t.issue];
+    return `<div class="cm">
+      <div class="who">${t.issue ? `<b>${esc(t.issue)}</b> · ` : ''}${esc(t.title.replace(`${t.issue} — `, ''))}${st ? ` · ${esc(st.display)}` : ''}${t.total ? ` · ${t.done}/${t.total}` : ''}</div>
+      ${(t.blockers || []).map(b => `<div class="blk">⛔ ${esc(b)}</div>`).join('')}
+      ${(t.todo || []).map(x => `<div class="pi${x.done ? ' done' : ''}">${x.done ? '☑' : '☐'} ${esc(plain(x.text))}</div>`).join('')}
+      ${t.left ? `<div class="pleft"><b>Осталось:</b> ${esc(t.left)}</div>` : ''}</div>`;
+  }).join('') || '<div class="muted">Плана нет</div>';
+}
+function showPlan(anchor) {
+  const id = 'plan:' + anchor.dataset.plan, el = ctxPop();
+  clearTimeout(ctxHideTimer);
+  if (ctxFor === id && el.style.display === 'block') return;
+  ctxFor = id;
+  const s = sessions.find(x => x.sessionId === anchor.dataset.plan);
+  el.innerHTML = s ? planPopHtml(s) : '<div class="muted">Сессия закрыта</div>';
+  el.style.display = 'block'; el.scrollTop = 0; placeCtx(el, anchor);
+}
 function hideCtxSoon() {
   clearTimeout(ctxHideTimer);
   ctxHideTimer = setTimeout(() => { ctxPop().style.display = 'none'; ctxFor = null; }, 250);
 }
 document.addEventListener('mouseover', e => {
+  const p = e.target.closest?.('[data-plan]');
+  if (p) return showPlan(p);
   const b = e.target.closest?.('[data-ctx]');
   if (b) return showCtx(b);
   if (e.target.closest?.('#ctxPop')) return clearTimeout(ctxHideTimer);
   if (ctxFor) hideCtxSoon();
 });
 document.addEventListener('click', e => {
+  const p = e.target.closest?.('[data-plan]');
+  if (p) { e.stopPropagation(); return ctxFor === 'plan:' + p.dataset.plan ? hideCtxSoon() : showPlan(p); }
   const b = e.target.closest?.('[data-ctx]');
   if (b) { e.stopPropagation(); return ctxFor === b.dataset.ctx ? hideCtxSoon() : showCtx(b); }
   const t = e.target.closest?.('[data-ctx-toggle]');
@@ -1105,6 +1148,7 @@ function requestHtml(r, opts = {}) {
     ${opts.withSession && s ? `<a href="#/session/${esc(r.sessionId)}">${esc(s.title)}</a> <span class="chip">${esc(s.project)}</span>` : ''}
     <span class="time">${ago(r.createdAt)} назад</span>${modeChip(r.mode)}
     ${opts.withSession ? `<span class="ctxbtn" data-ctx="${esc(r.sessionId)}" title="Последние сообщения сессии">💬</span>` : ''}
+    ${opts.withSession && s?.tasks?.some(t => t.total || t.blockers?.length) ? `<span class="ctxbtn" data-plan="${esc(r.sessionId)}" title="План задачи из заметки">☑${(t => t ? ` ${t.done}/${t.total}` : '')(s.tasks.find(t => t.total))}</span>` : ''}
     <button class="ghost fold" data-fold="${r.id}" title="Свернуть карточку, чтобы видеть переписку; ответить можно, развернув обратно">${reqFolded.has(r.id) ? '▸ Развернуть' : '▾ Свернуть'}</button></div>
     ${opts.withSession && s?.lastAssistant ? `<div class="ctx${ctxOpen.has(r.id) ? ' open' : ''}" data-ctx-toggle="${r.id}" title="Последняя реплика Claude перед запросом — клик разворачивает">${esc(s.lastAssistant)}</div>` : ''}`;
   if (r.kind === 'question') {
@@ -1198,6 +1242,24 @@ function summaryHtml(s) {
   return keys.map(k => `<div class="tsum" title="${esc(`${k}: ${s.trackerStatus[k].summary}`)}">${keys.length > 1 ? `<span class="tkey">${esc(k)}</span> ` : ''}<span class="txt">${esc(s.trackerStatus[k].summary)}</span><button class="ghost peek" data-peek="${esc(k)}" title="Описание задачи из Трекера">описание</button></div>`).join('');
 }
 
+// Блокеры из заметки задачи (## Блокеры) и ответы постановщика, найденные в Трекере.
+const replyText = q => `Ответ постановщика${q.reply.key ? ` в ${q.reply.key}` : ''} (${q.reply.author || 'автор'}, комментарий в Трекере):\n\n${q.reply.text}`;
+function flagsHtml(s) {
+  const rp = (s.mqReplies || []).map(q => `<div class="why reply" title="${esc(q.reply.text)}">💬 ответ ${esc(q.reply.author || 'постановщика')}${q.reply.key ? ` в ${esc(q.reply.key)}` : ''}: ${esc(plain(q.reply.text).slice(0, 110))}
+    <button class="ghost" data-mq-pass="${esc(s.sessionId)}|${q.id}" title="Передать ответ в сессию — она продолжит работу">↩ Передать</button></div>`).join('');
+  const b = s.blockers || [];
+  const bl = b.length ? `<div class="why blocked" title="${esc(b.map(x => `${x.issue ? x.issue + ': ' : ''}${x.text}`).join('\n'))}">⛔ ${esc(plain(b[0].text).slice(0, 120))}${b.length > 1 ? ` <b>+${b.length - 1}</b>` : ''}</div>` : '';
+  return rp + bl;
+}
+async function mqPass(sid, id, btn) {
+  const q = mqFind(sid, id);
+  if (!q?.reply) return toast('Ответ не найден — обнови страницу');
+  if (btn) btn.disabled = true;
+  try { await post('/api/manager-question/answer', { sessionId: sid, id, text: replyText(q) }); toast('Ответ передан в сессию'); }
+  catch (err) { toast('Не передал: ' + err.message); if (btn) btn.disabled = false; return; }
+  lastMqHtml = ''; poll();
+}
+
 function cardHtml(s, lane) {
   const repos = (s.repos || []).filter(r => !r.endsWith('/Документация')).slice(0, 3).map(r => `<span class="chip">${esc(r.split('/').pop())}</span>`).join('');
   const rq = s.requests?.[0];
@@ -1210,6 +1272,7 @@ function cardHtml(s, lane) {
     ${taskLine(s)}
     ${summaryHtml(s)}
     ${why}
+    ${flagsHtml(s)}
     ${nextCloseHtml(s)}
     <div class="prompt">${esc(plain(s.lastPrompt).slice(0, 240))}</div>
     <div class="foot">${s.managerQuestions?.length ? `<a class="chip mqchip" href="#/managers" title="Вопросы менеджерам из этой сессии — переслать">✉ ${s.managerQuestions.length}</a>` : ''}${modeChip(s.permissionMode)}${s.taskKey && !s.title.includes(s.taskKey) && !s.trackerStatus?.[s.taskKey] ? `<span class="chip key">${esc(s.taskKey)}</span>` : ''}${groupBy === 'none' ? `<span class="chip">${esc(s.project)}</span>` : ''}${s.filesCount ? `<span class="chip">✎ ${s.filesCount}</span>` : ''}${repos}</div>
@@ -1262,7 +1325,8 @@ function mqHistoryHtml(list) {
     <div class="line">✓ <b>Для: ${esc(mqWho(q.to))}</b> <span class="t" title="${esc(q.text)}">${esc(mqFirstLine(q))}</span></div>
     <div class="meta"><a href="#/session/${esc(s.sessionId)}">${esc(s.title)}</a> · ${q.doneAt ? ago(q.doneAt) + ' назад' : ''} ·
       ${q.comment ? `комментарием в <a href="https://tracker.yandex.ru/${esc(q.comment.key)}" target="_blank" rel="noopener">${esc(q.comment.key)}</a>${q.comment.summoned ? ' (автор призван)' : ''}` : 'в Telegram'}
-      ${q.answeredAt ? ` · <span class="ok">ответ передан ${ago(q.answeredAt)} назад</span>` : ''}
+      ${q.sent?.blocker ? ' · ⛔ в заметке' : ''}
+      ${q.answeredAt ? ` · <span class="ok">ответ передан ${ago(q.answeredAt)} назад</span>` : q.reply ? ` · <span class="replied">💬 ответ ${esc(q.reply.author || '')} ${q.reply.at ? ago(q.reply.at) + ' назад' : ''}</span> <button class="allow" data-mq-pass="${esc(s.sessionId)}|${q.id}">↩ Передать</button>` : ''}
       <span class="spacer"></span>${mqAnswerBtn(q)}<button class="ghost" data-mq-undo="${esc(s.sessionId)}|${q.id}" title="Вернуть в неотправленные">↩ Вернуть</button></div>
     ${mqAnswerForm(s, q)}</div>`).join('')}</details>`;
 }
@@ -1290,7 +1354,7 @@ function renderManagers() {
   $('#app').innerHTML = html;
 }
 async function mqDone(sid, id) {
-  try { await post('/api/manager-question', { sessionId: sid, id, done: true }); toast('Отмечено: отправлено'); }
+  try { await post('/api/manager-question', { sessionId: sid, id, done: true, key: mqFind(sid, id)?.key || undefined }); toast('Отмечено: отправлено'); }
   catch (e) { toast('Не отметил: ' + e.message); }
   poll();
 }
@@ -1340,10 +1404,18 @@ function renderInbox() {
   const waiting = list.filter(s => laneOf(s) === 'waiting').sort(byActivity);
   const review = list.filter(toReview).sort(byActivity);
   const busy = list.filter(s => laneOf(s) === 'busy').sort(byActivity);
+  const replies = list.flatMap(s => (s.mqReplies || []).map(q => ({ s, q }))).sort((a, b) => (b.q.reply.foundAt || 0) - (a.q.reply.foundAt || 0));
+  const replyCard = ({ s, q }) => `<div class="mqcard reply">
+    <div class="rh">💬 <b>${esc(q.reply.author || 'Постановщик')}</b> ответил${q.reply.key ? ` в <a href="https://tracker.yandex.ru/${esc(q.reply.key)}" target="_blank" rel="noopener">${esc(q.reply.key)}</a>` : ''}
+      <a href="#/session/${esc(s.sessionId)}">${esc(s.title)}</a><span class="time">${q.reply.at ? ago(q.reply.at) + ' назад' : ''}</span></div>
+    <div class="muted" style="font-size:12px" title="${esc(q.text)}">на вопрос: ${esc(mqFirstLine(q))}</div>
+    <pre>${esc(q.reply.text)}</pre>
+    <div class="acts"><button class="allow" data-mq-pass="${esc(s.sessionId)}|${q.id}">↩ Передать в сессию</button>
+      <span class="muted" style="font-size:12px">блокер в заметке отметится «ответ получен»</span></div></div>`;
   const row = (s, lane) => `<div class="irow" data-open="${s.sessionId}">
     <span class="dot ${lane}"></span>
     <div><div class="t">${esc(s.title)} <span class="chip">${esc(s.project)}</span> ${modeChip(s.permissionMode)}</div>
-      ${taskLine(s)}${summaryHtml(s)}${planHtml(s)}${nextCloseHtml(s)}
+      ${taskLine(s)}${summaryHtml(s)}${planHtml(s)}${flagsHtml(s)}${nextCloseHtml(s)}
       <div class="ex">${lane === 'waiting' ? `<b style="color:var(--wait)">⏳ ${esc(s.waitingFor || 'ждёт ответа')}.</b> ` : ''}${esc(plain(s.lastAssistant || s.lastPrompt).slice(0, 400))}</div></div>
     <div class="side"><span class="time">${ago(s.lastActivity)}</span>${lane === 'review' ? `<button class="ghost" data-seen="${s.sessionId}">✓ просмотрено</button>` : ''}</div>
   </div>`;
@@ -1354,8 +1426,9 @@ function renderInbox() {
       <h2>Работают сейчас · ${busy.length}</h2>${busy.map(s => row(s, 'busy')).join('') || '<div class="muted">—</div>'}
       <h2>Закончили, не смотрел · ${review.length} ${review.length ? '<button class="ghost" id="seenAll">отметить все</button>' : ''}</h2>${review.map(s => row(s, 'review')).join('') || '<div class="muted">Всё просмотрено</div>'}
     </div>
-    <div class="icol act${pending.length || waiting.length ? ' has' : ''}">
+    <div class="icol act${pending.length || waiting.length || replies.length ? ' has' : ''}">
       ${pending.length ? `<h2>Запросы разрешений и вопросы · ${pending.length}</h2>${pending.map(r => requestHtml(r, { withSession: true })).join('')}` : ''}
+      ${replies.length ? `<h2>Пришли ответы постановщиков · ${replies.length}</h2>${replies.map(replyCard).join('')}` : ''}
       <h2>Ждут моего ответа · ${waiting.length}</h2>${waiting.map(s => row(s, 'waiting')).join('') || '<div class="muted">Никто не ждёт 🎉</div>'}
       ${snoozes.length ? `<h2>Отложено · ${snoozes.filter(z => z.status === 'waiting').length}</h2>${snoozesHtml([...snoozes].sort((a, b) => a.dueAt - b.dueAt), true)}` : ''}
     </div>
@@ -2379,6 +2452,8 @@ document.addEventListener('click', async e => {
     catch (err) { toast('Не передал: ' + err.message); mqa.disabled = false; return; }
     lastMqHtml = ''; poll(); return;
   }
+  const mqp = e.target.closest('[data-mq-pass]');
+  if (mqp) { e.stopPropagation(); e.preventDefault(); const [sid, id] = mqp.dataset.mqPass.split('|'); await mqPass(sid, id, mqp); if ($('#nudgePanel')) openNudge(); return; }
   const mqu = e.target.closest('[data-mq-undo]');
   if (mqu) {
     const [sid, id] = mqu.dataset.mqUndo.split('|');
@@ -2396,7 +2471,7 @@ document.addEventListener('click', async e => {
   const mqdg = e.target.closest('[data-mq-done-group]');
   if (mqdg) {
     mqdg.disabled = true;
-    for (const [sid, id] of mqdg.dataset.mqDoneGroup.split(',').map(p => p.split('|'))) await post('/api/manager-question', { sessionId: sid, id, done: true }).catch(() => {});
+    for (const [sid, id] of mqdg.dataset.mqDoneGroup.split(',').map(p => p.split('|'))) await post('/api/manager-question', { sessionId: sid, id, done: true, key: mqFind(sid, id)?.key || undefined }).catch(() => {});
     toast('Отмечено: отправлено'); poll(); return;
   }
   const mqd = e.target.closest('[data-mq-done]');

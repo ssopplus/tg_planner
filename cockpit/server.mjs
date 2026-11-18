@@ -912,7 +912,8 @@ function parseTaskNote(file, text) {
     done: m[1] !== ' ', text: m[2].replace(/\s*<!--[\s\S]*?-->\s*/g, ' ').trim(), mark: m[2].match(/<!--\s*(mq:[0-9a-f]{12})\s*-->/)?.[1] || null,
   }));
   return {
-    file, issue: field('issue'), branch: field('branch'), mr: field('mr'),
+    // «issue: -» в шапке плана без задачи — не ключ.
+    file, issue: (k => k && new RegExp(`^${TASK_KEY_RE.source}$`).test(k) ? k : null)(field('issue')), branch: field('branch'), mr: field('mr'),
     title: text.match(/^# (.+)$/m)?.[1].trim() || path.basename(file, '.md'), todo, log,
     blockers, hasBlockers: /^## Блокеры\s*$/m.test(text),
   };
@@ -1036,6 +1037,8 @@ let trackerInflight = null;
 function trackerStatuses(keys) {
   const cfg = loadTrackerConfig();
   const out = {};
+  // Один не-ключ в пакете (например «-» из шапки плана) — и Трекер отвечает 400 на весь запрос.
+  keys = keys.filter(k => typeof k === 'string' && new RegExp(`^${TASK_KEY_RE.source}$`).test(k));
   if (!cfg || !keys.length) return out;
   const stale = keys.filter(k => !(Date.now() - (trackerCache.get(k)?.at || 0) < TRACKER_TTL_MS));
   if (stale.length && !trackerInflight) {

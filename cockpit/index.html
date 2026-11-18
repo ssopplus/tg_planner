@@ -340,6 +340,8 @@ pre.diff .m { color: var(--muted); font-weight: 600; }
 .req { background: var(--panel); border: 1px solid color-mix(in srgb, var(--wait) 55%, var(--line)); border-left: 3px solid var(--wait); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
 .req .rh { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
 .req .rh b { font-size: 13.5px; }
+.req .rplan { margin: -2px 0 6px; cursor: help; align-items: center; color: var(--muted); }
+.req .rplan .rblk { color: #d4483b; }
 /* Сессия в шапке запроса: не системный фиолетовый «посещённой» ссылки, а акцент, как ключи задач. */
 .req .rh a, .req .rh a:visited { color: var(--accent); font-weight: 600; text-decoration: none; }
 .req .rh a:hover { text-decoration: underline; }
@@ -1013,6 +1015,15 @@ async function showCtx(anchor) {
     if (ctxFor === id) { el.innerHTML = html; el.scrollTop = el.scrollHeight; placeCtx(el, anchor); }
   } catch (e) { if (ctxFor === id) el.innerHTML = `<div class="muted">Не удалось загрузить: ${esc(e.message)}</div>`; }
 }
+// Вторая строка карточки запроса: задача, статус в Трекере, полоса плана, число блокеров.
+// Отдельной строкой, чтобы не перескакивала между строками заголовка; наведение — весь план.
+function reqPlanLine(s) {
+  const items = (s.tasks || []).filter(t => t.total || t.blockers?.length).map(t => {
+    const st = t.issue && s.trackerStatus?.[t.issue];
+    return `<span class="titem">${t.issue ? `<span class="tkey">${esc(t.issue)}</span>` : ''}${st ? `<span class="tst t-${esc(st.type || 'new')}">${esc(st.display)}</span>` : ''}${t.total ? `<span class="tprog"><span class="tbar${t.done === t.total ? ' full' : ''}"><i style="width:${Math.round(100 * t.done / t.total)}%"></i></span>${t.done}/${t.total}</span>` : ''}${t.blockers?.length ? `<span class="rblk">⛔ ${t.blockers.length}</span>` : ''}</span>`;
+  }).join('');
+  return items ? `<div class="tline rplan" data-plan="${esc(s.sessionId)}" title="">☑ ${items}</div>` : '';
+}
 // План задачи сессии во всплывающем окне — из заметки (данные уже пришли с доской).
 function planPopHtml(s) {
   return (s.tasks || []).filter(t => t.total || t.blockers?.length).map(t => {
@@ -1158,8 +1169,8 @@ function requestHtml(r, opts = {}) {
     ${opts.withSession && s ? `<a href="#/session/${esc(r.sessionId)}">${esc(s.title)}</a> <span class="chip">${esc(s.project)}</span>` : ''}
     <span class="time">${ago(r.createdAt)} назад</span>${modeChip(r.mode)}
     ${opts.withSession ? `<span class="ctxbtn" data-ctx="${esc(r.sessionId)}" title="Последние сообщения сессии">💬</span>` : ''}
-    ${opts.withSession && s?.tasks?.some(t => t.total || t.blockers?.length) ? `<span class="ctxbtn" data-plan="${esc(r.sessionId)}" title="План задачи из заметки">☑${(t => t ? ` ${t.done}/${t.total}` : '')(s.tasks.find(t => t.total))}</span>` : ''}
     <button class="ghost fold" data-fold="${r.id}" title="Свернуть карточку, чтобы видеть переписку; ответить можно, развернув обратно">${reqFolded.has(r.id) ? '▸ Развернуть' : '▾ Свернуть'}</button></div>
+    ${opts.withSession && s ? reqPlanLine(s) : ''}
     ${opts.withSession && s?.lastAssistant ? `<div class="ctx${ctxOpen.has(r.id) ? ' open' : ''}" data-ctx-toggle="${r.id}" title="Последняя реплика Claude перед запросом — клик разворачивает">${esc(s.lastAssistant)}</div>` : ''}`;
   if (r.kind === 'question') {
     const qs = (r.input.questions || []).map((q, qi) => {

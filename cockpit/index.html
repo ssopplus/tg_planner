@@ -137,6 +137,7 @@ header input[type=search] { width: 240px; }
 #nudgePanel .np-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 #nudgePanel .np-head b { flex: 1; }
 #nudgePanel h4 { margin: 12px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+#nudgePanel h4 label { padding: 0; font-weight: 600; }
 #nudgePanel label { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; cursor: pointer; }
 #nudgePanel label .t { font-weight: 500; }
 #nudgePanel label .r { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
@@ -603,8 +604,9 @@ async function openNudge() {
     `<label><span class="t">${esc(s.title)}</span><span class="r" title="${esc(q.reply.text)}">${esc(q.reply.author || '')}${q.reply.key ? ` · ${esc(q.reply.key)}` : ''}: ${esc(plain(q.reply.text).slice(0, 80))}</span>
       <button class="ghost" data-mq-pass="${esc(s.sessionId)}|${q.id}">↩ Передать</button></label>`).join('')}` : ''}
     ${mqCheckInfo ? `<div class="np-foot"><span class="muted">Ответы в Трекере: ${mqCheckInfo.error ? `ошибка — ${esc(mqCheckInfo.error)}` : `проверено вопросов ${mqCheckInfo.checked ?? 0}, новых ответов ${mqCheckInfo.found ?? 0}${mqCheckInfo.at ? ` · ${hhmm(mqCheckInfo.at)}` : ''}`}</span></div>` : ''}`;
-  const body = repHtml + ((groups.length || rv.length) ? revHtml + (groups.length ? groups.map(([title, list, on, why]) => `<h4>${esc(title)} · ${list.length}</h4>${list.map(s =>
-    `<label><input type="checkbox" data-np value="${esc(s.sessionId)}" ${on ? 'checked' : ''}><span class="t">${esc(s.title)}</span><span class="r">${esc(why(s))}</span></label>`).join('')}`).join('')
+  const body = repHtml + ((groups.length || rv.length) ? revHtml + (groups.length ? groups.map(([title, list, on, why], gi) => `<div class="np-group">
+    <h4><label title="Выбрать или снять всю группу"><input type="checkbox" data-np-all ${on ? 'checked' : ''}>${esc(title)} · ${list.length}</label></h4>${list.map(s =>
+    `<label><input type="checkbox" data-np value="${esc(s.sessionId)}" ${on ? 'checked' : ''}><span class="t">${esc(s.title)}</span><span class="r">${esc(why(s))}</span></label>`).join('')}</div>`).join('')
     : '') : '<div class="muted">Оборвавшихся, простаивающих и не поднявшихся сессий нет.</div>');
   document.body.insertAdjacentHTML('beforeend', `<div id="nudgePanel"><div class="np-head"><b>Проверка связи</b><button class="ghost" data-np-close>✕</button></div>${body}
     ${groups.length ? `<div class="np-foot"><button data-np-mode="status">Спросить статус</button><button data-np-mode="continue">Продолжить работу</button>
@@ -623,6 +625,14 @@ document.addEventListener('click', async e => {
     toast(`Отправлено: ${results.length - bad.length}${bad.length ? ` · не ушло: ${bad.map(r => `${sessions.find(s => s.sessionId === r.id)?.title || r.id.slice(0, 8)} (${r.error})`).join(', ')}` : ''}`);
     $('#nudgePanel')?.remove(); poll();
   } catch (err) { toast('Не вышло: ' + err.message); m.disabled = false; }
+});
+// Галочка в заголовке группы выбирает или снимает всю группу; частичный выбор — «—».
+document.addEventListener('change', e => {
+  const g = e.target.closest?.('#nudgePanel .np-group'); if (!g) return;
+  const items = [...g.querySelectorAll('[data-np]')], all = g.querySelector('[data-np-all]');
+  if (e.target.matches('[data-np-all]')) items.forEach(x => { x.checked = all.checked; });
+  const n = items.filter(x => x.checked).length;
+  all.checked = n === items.length; all.indeterminate = n > 0 && n < items.length;
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#nudgePanel')?.remove(); });
 

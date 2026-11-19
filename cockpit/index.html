@@ -592,9 +592,12 @@ async function loadRevivable() {
   try { revivable = (await (await fetch('/api/revivable')).json()).sessions || []; } catch { revivable = []; }
   render();
 }
-let mqCheckInfo = null;
+let mqCheckInfo = null, nudgeOpening = 0;
 async function openNudge() {
-  $('#nudgePanel')?.remove();
+  // Открытие ждёт Трекер до 8 с: повторный клик в это время не должен дать вторую панель под первой —
+  // иначе «Продолжить» соберёт галочки и из невидимой панели.
+  const my = ++nudgeOpening;
+  document.querySelectorAll('#nudgePanel').forEach(p => p.remove());
   // Ответы постановщиков в Трекере — проверяем вместе со связью; ждём не дольше 8 с.
   const check = post('/api/manager-question/check', {}).then(r => { mqCheckInfo = r; return poll(); }).catch(e => { mqCheckInfo = { error: e.message }; });
   await Promise.all([loadRevivable(), Promise.race([check, new Promise(r => setTimeout(r, 8000))])]);
@@ -613,15 +616,18 @@ async function openNudge() {
     <h4><label title="Выбрать или снять всю группу"><input type="checkbox" data-np-all ${on ? 'checked' : ''}>${esc(title)} · ${list.length}</label></h4>${list.map(s =>
     `<label><input type="checkbox" data-np value="${esc(s.sessionId)}" ${on ? 'checked' : ''}><span class="t">${esc(s.title)}</span><span class="r">${esc(why(s))}</span></label>`).join('')}</div>`).join('')
     : '') : '<div class="muted">Оборвавшихся, простаивающих и не поднявшихся сессий нет.</div>');
+  if (my !== nudgeOpening) return; // пока ждали, панель открыли заново или закрыли
+  document.querySelectorAll('#nudgePanel').forEach(p => p.remove());
   document.body.insertAdjacentHTML('beforeend', `<div id="nudgePanel"><div class="np-head"><b>Проверка связи</b><button class="ghost" data-np-close>✕</button></div>${body}
     ${groups.length ? `<div class="np-foot"><button data-np-mode="status">Спросить статус</button><button data-np-mode="continue">Продолжить работу</button>
     <span class="muted">Уйдёт в выбранные сессии репликой «[из dev-cockpit]». «Статус» — коротко рассказать, где стоим; «Продолжить» — работать дальше с места обрыва.</span></div>` : ''}</div>`);
 }
 document.addEventListener('click', async e => {
-  if (e.target.id === 'nudgeBtn') return $('#nudgePanel') ? $('#nudgePanel').remove() : openNudge();
-  if (e.target.closest('[data-np-close]')) return $('#nudgePanel')?.remove();
+  if (e.target.id === 'nudgeBtn') { if ($('#nudgePanel')) { nudgeOpening++; return $('#nudgePanel').remove(); } return openNudge(); }
+  if (e.target.closest('[data-np-close]')) { nudgeOpening++; return $('#nudgePanel')?.remove(); }
   const m = e.target.closest('[data-np-mode]'); if (!m) return;
-  const ids = [...document.querySelectorAll('#nudgePanel [data-np]:checked')].map(x => x.value);
+  // Только галочки этой панели — не всего документа.
+  const ids = [...new Set([...m.closest('#nudgePanel').querySelectorAll('[data-np]:checked')].map(x => x.value))];
   if (!ids.length) return toast('Не выбрано ни одной сессии');
   m.disabled = true;
   try {
@@ -639,7 +645,7 @@ document.addEventListener('change', e => {
   const n = items.filter(x => x.checked).length;
   all.checked = n === items.length; all.indeterminate = n > 0 && n < items.length;
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#nudgePanel')?.remove(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { nudgeOpening++; document.querySelectorAll('#nudgePanel').forEach(p => p.remove()); } });
 
 // Иконка вкладки: циферблат-«приборка»; красная точка — какая-то сессия ждёт ответа.
 let faviconWait = null;

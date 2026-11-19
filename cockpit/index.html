@@ -404,6 +404,15 @@ button.deny { color: var(--del); }
 .mqghead { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .mqghead h2 { margin: 0; flex: 1; font-size: 15px; }
 .mqcard { background: var(--panel); border: 1px solid color-mix(in srgb, var(--mq) 55%, var(--line)); border-left: 3px solid var(--mq); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.mqbar { margin-top: 8px; border: 1px solid color-mix(in srgb, var(--mq) 55%, var(--line)); border-left: 3px solid var(--mq); border-radius: 8px; background: var(--mq-soft); }
+.mqbar > summary { cursor: pointer; list-style: none; padding: 6px 10px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.mqbar > summary::-webkit-details-marker { display: none; }
+.mqbar .mqtitle { color: var(--mq); font-weight: 600; }
+.mqbar .mqhint { color: var(--muted); font-size: 12px; text-decoration: underline dotted; }
+.mqbar .mqpeeks { flex-basis: 100%; display: flex; flex-direction: column; min-width: 0; }
+.mqbar .mqpeek { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mqbar .mqbody { max-height: 45vh; overflow: auto; padding: 0 10px 2px; }
+.mqbar .mqcard { background: var(--panel); }
 .mqcard .rh { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
 .mqcard .rh b { color: var(--mq); }
 .mqcard pre { white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 13px; background: var(--mq-soft); border-radius: 6px; padding: 8px 10px; margin: 0 0 8px; max-height: 260px; overflow: auto; }
@@ -1360,6 +1369,25 @@ function mqHistoryHtml(list) {
       <span class="spacer"></span>${mqAnswerBtn(q)}<button class="ghost" data-mq-undo="${esc(s.sessionId)}|${q.id}" title="Вернуть в неотправленные">↩ Вернуть</button></div>
     ${mqAnswerForm(s, q)}</div>`).join('')}</details>`;
 }
+// На странице сессии вопросы менеджерам — свёрнутой плашкой: подсвечена, видны первые строки,
+// по клику раскрываются карточки с кнопками. Иначе длинные тексты выталкивают переписку за экран.
+const mqBarOpen = new Set();
+function mqBarHtml(s) {
+  const qs = [...(s.managerQuestions || [])].reverse();
+  if (!qs.length) return '';
+  const open = mqBarOpen.has(s.sessionId) || qs.some(q => mqCommentOpen.has(q.id) || mqAnswerOpen.has(q.id));
+  const peek = qs.slice(0, 3).map(q => `<span class="mqpeek"><b>${esc(mqWho(q.to))}:</b> ${esc(mqFirstLine(q))}</span>`).join('');
+  return `<details class="mqbar" data-mqbar="${esc(s.sessionId)}" ${open ? 'open' : ''}>
+    <summary><span class="mqtitle">✉ Вопросы менеджерам · ${qs.length}</span><span class="mqhint">${open ? 'свернуть' : 'подробнее'}</span>${open ? '' : `<span class="mqpeeks">${peek}${qs.length > 3 ? `<span class="mqpeek muted">ещё ${qs.length - 3}…</span>` : ''}</span>`}</summary>
+    <div class="mqbody">${qs.map(q => mqCardHtml(s, q, false)).join('')}</div></details>`;
+}
+document.addEventListener('toggle', e => {
+  const id = e.target.dataset?.mqbar; if (!id) return;
+  if (e.target.open) mqBarOpen.add(id); else mqBarOpen.delete(id);
+  const h = e.target.querySelector('.mqhint'); if (h) h.textContent = e.target.open ? 'свернуть' : 'подробнее';
+  e.target.querySelector('.mqpeeks')?.style.setProperty('display', e.target.open ? 'none' : '');
+}, true);
+
 function renderManagers() {
   const list = filtered();
   const items = mqAll(list);
@@ -2073,7 +2101,7 @@ function updateSessionHead() {
   updateQueueBar();
   const s = sessView.data; const lane = laneOf(s);
   if (sessView.editing || typingInRequest()) return;
-  $('#sessHead').innerHTML = `
+  const html = `
     <div class="crumbs"><a href="#/board">Доска</a> / <span>${esc(s.project)}</span></div>
     <div class="titlerow">
       <h2 id="titleEdit" title="Нажми, чтобы переименовать">${esc(s.title)}</h2>
@@ -2087,8 +2115,15 @@ function updateSessionHead() {
     ${s.next ? nextCloseHtml({ ...s, closable: false }) : ''}
     ${(s.requests || []).length ? `<div style="margin-top:8px">${s.requests.map(r => requestHtml(r)).join('')}</div>`
       : s.status === 'waiting' ? `<div class="waitbar">⏳ Сессия ждёт: ${esc(s.waitingFor || 'ответа')}. Ответить можно в окне сессии (VS Code / терминал).</div>` : ''}
-    ${(s.managerQuestions || []).length ? `<div style="margin-top:8px">${[...s.managerQuestions].reverse().map(q => mqCardHtml(s, q, false)).join('')}</div>` : ''}
+    ${mqBarHtml(s)}
     ${snoozesHtml(s.snoozes)}`;
+  // Опрос перерисовывает шапку каждые несколько секунд: без изменений не трогаем DOM, иначе раскрытая
+  // плашка вопросов менеджерам и текст в ней прыгают наверх.
+  const head = $('#sessHead');
+  if (head.dataset.html === html) return;
+  const body = head.querySelector('.mqbody'), top = body?.scrollTop || 0;
+  head.innerHTML = html; head.dataset.html = html;
+  const nb = head.querySelector('.mqbody'); if (nb) nb.scrollTop = top;
 }
 
 // Реплика соседней сессии подтверждением не считается, а ответ на AskUserQuestion — да:

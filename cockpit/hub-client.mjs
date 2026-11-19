@@ -31,7 +31,7 @@ export const LEVELS = ['observe', 'answers', 'control'];
 const LEVEL_KINDS = {
   observe: [],
   answers: ['decision', 'plan-set'],
-  control: ['decision', 'plan-set', 'message', 'start-task', 'close-session', 'to-vscode'],
+  control: ['decision', 'plan-set', 'message', 'start-task', 'close-session', 'to-vscode', 'new-task', 'new-session'],
 };
 
 // ---------- стоп-список ----------

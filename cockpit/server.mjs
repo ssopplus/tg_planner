@@ -1293,9 +1293,9 @@ async function refreshPlanSnapshot() {
       const d = await planPayload(name, 'mine');
       const issues = d.issues.filter(i => d.plan.includes(i.key) || !i.resolved).map(slimIssue);
       for (const i of issues) if (d.notes[i.key]) notes[i.key] = d.notes[i.key];
-      projects.push({ project: name, plan: d.plan, issues, total: d.total, error: d.error || null });
+      projects.push({ project: name, plan: d.plan, issues, total: d.total, error: d.error || null, queues: d.queues });
     }
-    planSnapshot = { version, projects, notes };
+    planSnapshot = { version, projects, notes, cwds: launchCwds() };
     planSnapshotVersion = version;
   } catch (e) {
     console.error('[plan-snapshot]', e.message);
@@ -1753,6 +1753,71 @@ function saveImages(c) {
   return saveUploads(images, c.id);
 }
 
+
+// ---------- задачи и сессии с телефона ----------
+async function startTaskFromPhone(key, where) {
+  if (!/^[A-Z][A-Z0-9]{1,15}-\d{1,6}$/.test(key)) throw new Error('неверный ключ задачи');
+  if (where === 'vscode') return (await openTaskInVSCode(key)).note;
+  const env = { ...process.env };
+  delete env.ANTHROPIC_API_KEY; // иначе фоновая сессия уйдёт в оплату по API, а не по подписке
+  const { stdout, stderr } = await pexec(CLAUDE_BIN, ['--bg', '--name', key, `/start-task ${key}`], { cwd: TASK_CWD, env, timeout: 60_000 });
+  hookLog({ event: 'task-started', issue: key, output: (stdout || stderr).trim().slice(0, 300) });
+  return (stdout || stderr).trim().slice(0, 500) || 'фоновая сессия запущена';
+}
+
+// Каталоги для новой сессии: рабочая папка (CLAUDE.md, .mcp.json, vault) и git-репозитории из корней
+// проектов. Телефон присылает путь — принимаем только путь из этого же списка.
+const PROJECT_ROOTS = (process.env.COCKPIT_PROJECT_ROOTS || ['Vodohod/Projects', 'Личное/project'].map(r => path.join(path.dirname(VAULT), r)).join(':')).split(':').filter(Boolean);
+function launchCwds() {
+  const repos = loadProjectsConfig().repos || {};
+  const out = [{ path: TASK_CWD, name: path.basename(TASK_CWD) || TASK_CWD, project: 'Рабочая папка' }];
+  for (const root of PROJECT_ROOTS) {
+    let names = [];
+    try { names = fs.readdirSync(root, { withFileTypes: true }).filter(e => e.isDirectory() && !e.name.startsWith('.')).map(e => e.name); } catch {}
+    for (const name of names.sort()) {
+      const dir = path.join(root, name);
+      if (!fs.existsSync(path.join(dir, '.git')) || out.some(x => x.path === dir)) continue;
+      out.push({ path: dir, name, project: repos[name] || repos[name.replace(/-[^-]+$/, '')] || name });
+    }
+  }
+  return out.slice(0, 80);
+}
+
+// Фоновая сессия со своим заданием в выбранном каталоге. Имя — из начала задания, если не задано.
+async function launchSession(cwd, prompt, name) {
+  const dir = launchCwds().find(x => x.path === cwd);
+  if (!dir) throw new Error('каталог не из списка машины');
+  const text = String(prompt || '').trim();
+  if (!text || text.length > 8000) throw new Error('пустое или слишком длинное задание');
+  const title = (String(name || '').trim() || text.split('\n')[0]).replace(/\s+/g, ' ').slice(0, 60);
+  const env = { ...process.env };
+  delete env.ANTHROPIC_API_KEY;
+  hookLog({ event: 'session-launch', cwd: dir.path, name: title });
+  const { stdout, stderr } = await pexec(CLAUDE_BIN, ['--bg', '--name', title, text], { cwd: dir.path, env, timeout: 60_000 });
+  return (stdout || stderr).trim().slice(0, 300) || `фоновая сессия «${title}» запущена в ${dir.name}`;
+}
+
+// Новая задача в Трекере моим токеном (hub его не видит). Очередь — только из projects.json, исполнитель — я.
+async function createIssue({ queue, summary, description }) {
+  const cfg = loadTrackerConfig();
+  if (!cfg) throw new Error('нет токена Трекера (.mcp.json → yandex-tracker)');
+  const q = String(queue || '');
+  if (!Object.keys(loadProjectsConfig().queues || {}).includes(q)) throw new Error('очередь не из настроек машины');
+  const title = String(summary || '').replace(/\s+/g, ' ').trim();
+  if (!title || title.length > 255) throw new Error('название пустое или длиннее 255 символов');
+  const headers = { authorization: `OAuth ${cfg.token}`, 'x-org-id': cfg.org, 'content-type': 'application/json' };
+  const me = await fetch('https://api.tracker.yandex.net/v2/myself', { headers, signal: AbortSignal.timeout(15_000) }).then(r => (r.ok ? r.json() : null)).catch(() => null);
+  const res = await fetch('https://api.tracker.yandex.net/v2/issues', {
+    method: 'POST', headers, signal: AbortSignal.timeout(20_000),
+    body: JSON.stringify({ queue: q, summary: title, ...(description ? { description: String(description).slice(0, 20000) } : {}), ...(me?.login ? { assignee: me.login } : {}) }),
+  });
+  if (!res.ok) throw new Error(`Трекер ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const i = await res.json();
+  hookLog({ event: 'issue-created', issue: i.key, queue: q });
+  planVersion = Date.now(); // новая задача — в план телефона со следующим синком
+  return i.key;
+}
+
 async function runCommand(c) {
   try {
     if (c.kind === 'message') {
@@ -1782,17 +1847,16 @@ async function runCommand(c) {
       return { id: c.id, ok: true, output: `в плане ${keys.length}` };
     }
     if (c.kind === 'start-task') {
-      const key = String(c.payload?.issueKey || '');
-      if (!/^[A-Z][A-Z0-9]{1,15}-\d{1,6}$/.test(key)) throw new Error('неверный ключ задачи');
-      if (c.payload?.where === 'vscode') {
-        const r = await openTaskInVSCode(key);
-        return { id: c.id, ok: true, output: r.note };
-      }
-      const env = { ...process.env };
-      delete env.ANTHROPIC_API_KEY; // иначе фоновая сессия уйдёт в оплату по API, а не по подписке
-      const { stdout, stderr } = await pexec(CLAUDE_BIN, ['--bg', '--name', key, `/start-task ${key}`], { cwd: TASK_CWD, env, timeout: 60_000 });
-      hookLog({ event: 'task-started', issue: key, output: (stdout || stderr).trim().slice(0, 300) });
-      return { id: c.id, ok: true, output: (stdout || stderr).trim().slice(0, 500) };
+      return { id: c.id, ok: true, output: await startTaskFromPhone(String(c.payload?.issueKey || ''), c.payload?.where) };
+    }
+    if (c.kind === 'new-task') {
+      const key = await createIssue(c.payload || {});
+      const where = ['background', 'vscode'].includes(c.payload?.start) ? c.payload.start : null;
+      const started = where ? await startTaskFromPhone(key, where).then(o => ` · ${o}`, e => ` · сессию не запустил: ${e.message}`) : '';
+      return { id: c.id, ok: true, output: `создана ${key}${started}` };
+    }
+    if (c.kind === 'new-session') {
+      return { id: c.id, ok: true, output: await launchSession(c.payload?.cwd, c.payload?.prompt, c.payload?.name) };
     }
     throw new Error(`неизвестная команда ${c.kind}`);
   } catch (e) {

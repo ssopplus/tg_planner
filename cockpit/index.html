@@ -281,6 +281,9 @@ details.issue .idesc { max-height: 60vh; overflow: auto; border-top: 1px solid v
 .todo li { display: flex; gap: 6px; padding: 1px 0; }
 .todo li.done { color: var(--muted); }
 .todo li .m { flex: none; width: 14px; }
+.todo.blk li.open { color: #d4483b; }
+.todo.blk li.done { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 50%, transparent); }
+.sub .blkn { color: #d4483b; font-weight: 600; }
 .wl { border-left: 3px solid var(--line); padding: 2px 0 2px 8px; margin: 6px 0; font-size: 12.5px; }
 .wl.mine { border-color: var(--accent); }
 .wl summary { cursor: pointer; color: var(--muted); }
@@ -2335,6 +2338,17 @@ document.addEventListener('click', e => {
   openPeek(b.dataset.peek);
 }, true);
 
+// Блокеры задачи: раздел «## Блокеры» заметки — открытые сверху, снятые приглушены.
+// В старых заметках без раздела — строка «Блокеры:» последней записи ворклога.
+function blockersTabHtml(n) {
+  const items = n.hasBlockers ? (n.blockers || [])
+    : (b => b && !/^(нет|нету|пусто|отсутствуют|—|-)(?![а-яё])/i.test(b) ? [{ done: false, text: b.split('\n')[0], fromLog: true }] : [])(n.log.at(-1)?.blockers?.trim());
+  if (!items.length) return '';
+  const open = items.filter(b => !b.done).length;
+  const list = [...items.filter(b => !b.done), ...items.filter(b => b.done)];
+  return `<div class="sub">Блокеры · ${open ? `<span class="blkn">открыто ${open}</span>` : 'все сняты'}${items.some(b => b.fromLog) ? ' <span class="muted">(из ворклога)</span>' : ''}</div>
+    <ul class="todo blk">${list.map(b => `<li class="${b.done ? 'done' : 'open'}"><span class="m">${b.done ? '✓' : '⛔'}</span><div class="md">${md(b.text)}${b.mark ? ' <span class="muted" title="Пункт ведёт cockpit: вопрос постановщику">· cockpit</span>' : ''}</div></li>`).join('')}</ul>`;
+}
 function taskTabHtml(s) {
   const notes = s.taskNotes || [];
   const keys = [...new Set([s.taskKey, ...notes.map(n => n.issue)].filter(Boolean))];
@@ -2358,6 +2372,7 @@ function taskTabHtml(s) {
       <div class="muted" style="font-size:11.5px"><code>${esc(n.file)}</code>${n.branch ? ` · ${esc(n.branch)}` : ''}${mrs.map((u, i) => ` · <a href="${esc(u)}" target="_blank" rel="noopener">MR${mrs.length > 1 ? ' ' + (i + 1) : ''}</a>`).join('')}</div>
       ${n.todo.length ? `<div class="bar"><i style="width:${pct}%"></i></div><div class="sub">Что нужно сделать · ${done}/${n.todo.length}</div>
       <ul class="todo">${n.todo.map(t => `<li class="${t.done ? 'done' : ''}"><span class="m">${t.done ? "✓" : "○"}</span><div class="md">${md(t.text)}</div></li>`).join('')}</ul>` : ''}
+      ${blockersTabHtml(n)}
       ${log ? `<div class="sub">Ворклог</div>${log}` : ''}
     </div>`;
   }).join('');

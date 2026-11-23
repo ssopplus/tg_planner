@@ -318,6 +318,9 @@ export function createHubClient({ dataDir, url, deps }) {
     }
     const closing = closed.filter(c => sentPending.has(c.id));
     if (closing.length) body.closed = closing;
+    // Сверка: о закрытии запроса, отправленного до перезапуска cockpit, sentPending не помнит — с полной
+    // пересылкой отдаём hub список всех открытых, остальное он закроет сам (docs/hub-protocol.md, openIds).
+    if (fullResend) body.openIds = pending.map(r => r.id);
     const plan = deps.plan();
     const ph = plan ? sha(plan) : '';
     const sendPlan = !!plan && (ph !== planHash || now - planAt > FULL_MS);

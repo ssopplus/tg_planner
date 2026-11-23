@@ -2006,7 +2006,7 @@ const kickSync = () => { if (!syncRunning) scheduleSync(300); hub.kick(); };
 const hub = createHubClient({
   dataDir: path.dirname(META_FILE),
   // Личный cockpit без config.json: адрес hub команды — здесь (env перебивает).
-  url: process.env.COCKPIT_HUB_URL || 'https://cockpit-hub-eight.vercel.app',
+  url: process.env.COCKPIT_HUB_URL || 'https://cockpit-hub.vpv-dev.workers.dev',
   deps: {
     snapshot: async () => {
       const { snapshot, pending, closed } = await syncParts();

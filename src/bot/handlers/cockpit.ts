@@ -1,4 +1,4 @@
-import { Context } from 'grammy'
+import { Context } from 'grammy/web'
 import { BotContext } from '../middleware/user'
 import { applyDecision, getRequest, questionsOf } from '@/lib/cockpit/requests'
 import { CALLBACK_PREFIX, dropNotice } from '@/lib/cockpit/notify'

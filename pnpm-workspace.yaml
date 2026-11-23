@@ -1,0 +1,2 @@
+patchedDependencies:
+  postgres@3.4.8: patches/postgres@3.4.8.patch

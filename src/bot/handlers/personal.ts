@@ -1,4 +1,4 @@
-import { Context, InlineKeyboard } from 'grammy'
+import { Context, InlineKeyboard } from 'grammy/web'
 import { and, asc, eq, isNotNull, isNull, lte, notInArray } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { boards, tasks } from '@/lib/db/schema'

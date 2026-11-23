@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tg-planner",
+  "main": "cf-worker.mjs",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+  "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "tg-planner" }],
+  // Один триггер в минуту, раскладка по задачам — JOBS в cf-worker.mjs (вместо cron-job.org).
+  "triggers": { "crons": ["* * * * *"] },
+  "observability": { "enabled": true }
+  // Секреты — wrangler secret bulk; список — CLAUDE.md, раздел «Env переменные», плюс APP_URL (origin Worker).
+}

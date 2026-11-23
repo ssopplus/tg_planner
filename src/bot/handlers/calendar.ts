@@ -1,4 +1,4 @@
-import { Context } from 'grammy'
+import { Context } from 'grammy/web'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { calendarEvents } from '@/lib/db/schema'

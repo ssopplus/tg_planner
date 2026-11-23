@@ -14,7 +14,7 @@
  * Ключи направлений в них сокращены до номера (`4` вместо `INTCOORD-4`) —
  * в callback_data всего 64 байта.
  */
-import { Context, InlineKeyboard } from 'grammy'
+import { Context, InlineKeyboard } from 'grammy/web'
 import { and, desc, eq, isNotNull } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { coordinationPolls } from '@/lib/db/schema'

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { Context, InlineKeyboard } from 'grammy'
+import { Context, InlineKeyboard } from 'grammy/web'
 import { BotContext } from '../middleware/user'
 import { miniAppUrl } from '@/lib/telegram/mini-app-url'
 import { applyGrade, countDueCards, nextDueCard } from '@/lib/reading/repo'

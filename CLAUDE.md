@@ -19,7 +19,7 @@
 - **Повторения:** rrule (RFC 5545)
 - **Mini App UI:** Tailwind CSS v4 + lucide-react + cva + @dnd-kit
 - **Пакетный менеджер:** pnpm
-- **Деплой:** Vercel + Cron Jobs
+- **Деплой:** Cloudflare Workers через OpenNext (`pnpm cf:deploy`, с 24.11.2026; до этого Vercel — упёрлись в лимиты Hobby). Ловушки Workers — в [docs/cloudflare-workers.md](docs/cloudflare-workers.md)
 
 ## Структура проекта
 
@@ -86,7 +86,7 @@ docs/plans/                   # Планы разработки (ADR workflow)
 - **grammy** — TypeScript-first Telegram Bot API, нативные webhooks
 - **LLM-абстракция** — интерфейс `LLMProvider`, сменяемые провайдеры (`src/lib/ai/provider.ts`)
 - **Pending store** — in-memory Map с TTL 5 мин для распарсенных задач до подтверждения
-- **Cron — внешний триггер** ([cron-job.org](https://cron-job.org)), потому что free Vercel ограничен 1 запуском/сутки. Эндпоинты живут в `/api/cron/*`, проверяют `Authorization: Bearer ${CRON_SECRET}`. Расписание и URL — см. [docs/cron-setup.md](docs/cron-setup.md). `vercel.json` не содержит секции `crons`.
+- **Cron — один триггер Cloudflare раз в минуту** (`wrangler.jsonc`), раскладка по задачам — `JOBS` в [cf-worker.mjs](cf-worker.mjs) (до 24.11.2026 — cron-job.org). Эндпоинты живут в `/api/cron/*`, проверяют `Authorization: Bearer ${CRON_SECRET}`; воркер вызывает их сам с этим секретом.
 - **Миграции БД — только через GitHub Actions** (`.github/workflows/db-migrate.yml`). На прод вручную не накатывать. См. [docs/migrations.md](docs/migrations.md).
 - **Две половины** — рабочая (Трекер) и жизненная (доски) не пересекаются: у рабочих задач часы, статусы очереди и комментарии, у личных — доска, срок-день и текст заметки. Разделение по полям: `external_source` у рабочих, `board_id` у личных
 - **Колонки доски — сроки, а не статусы** (Сегодня · На неделе · Потом · Без даты). Перенос карточки проставляет дату; логика в [src/lib/boards/due-dates.ts](src/lib/boards/due-dates.ts)

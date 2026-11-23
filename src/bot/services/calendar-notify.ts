@@ -1,4 +1,4 @@
-import { InlineKeyboard } from 'grammy'
+import { InlineKeyboard } from 'grammy/web'
 import { bot } from '@/bot'
 import { formatSlot, partstatLabel } from '@/lib/calendar/format'
 import type { MeetingNotice } from '@/lib/calendar/sync'

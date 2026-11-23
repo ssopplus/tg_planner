@@ -1,4 +1,4 @@
-import { InlineKeyboard } from 'grammy'
+import { InlineKeyboard } from 'grammy/web'
 import { bot } from '@/bot'
 import { miniAppUrl } from '@/lib/telegram/mini-app-url'
 import { formatDate, type TaskChange } from '@/lib/tracker/changes'

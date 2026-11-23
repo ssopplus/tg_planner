@@ -13,7 +13,7 @@
  * Записывать умеет только в INTCOORD: списание рабочих задач остаётся ручным,
  * как и в скилле /timesheet.
  */
-import { InlineKeyboard } from 'grammy'
+import { InlineKeyboard } from 'grammy/web'
 import { and, eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { coordinationPolls, users } from '@/lib/db/schema'

@@ -51,3 +51,8 @@ next-env.d.ts
 
 # dev-cockpit: локальные имена и проекты сессий
 /cockpit/data/
+
+# Cloudflare (OpenNext, wrangler)
+/.open-next/
+/.wrangler/
+/.dev.vars*

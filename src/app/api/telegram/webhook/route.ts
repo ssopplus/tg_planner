@@ -1,4 +1,4 @@
-import { webhookCallback } from 'grammy'
+import { webhookCallback } from 'grammy/web'
 import { bot } from '@/bot'
 
 /**

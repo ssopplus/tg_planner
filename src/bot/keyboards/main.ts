@@ -1,4 +1,4 @@
-import { Keyboard } from 'grammy'
+import { Keyboard } from 'grammy/web'
 
 /**
  * Постоянная клавиатура под полем ввода.

@@ -1,4 +1,4 @@
-import { InlineKeyboard } from 'grammy'
+import { InlineKeyboard } from 'grammy/web'
 import { and, count, desc, eq, gt } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { readingCards, readingSessions } from '@/lib/db/schema'

@@ -1,4 +1,4 @@
-import { Context } from 'grammy'
+import { Context } from 'grammy/web'
 import { db } from '@/lib/db'
 import { tasks, projects, reminders, subtasks } from '@/lib/db/schema'
 import { and, eq } from 'drizzle-orm'

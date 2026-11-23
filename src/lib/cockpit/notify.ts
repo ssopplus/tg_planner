@@ -1,4 +1,4 @@
-import { Api, InlineKeyboard } from 'grammy'
+import { Api, InlineKeyboard } from 'grammy/web'
 import { and, eq, isNotNull, isNull, lt, ne } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { cockpitRequests } from '@/lib/db/schema'

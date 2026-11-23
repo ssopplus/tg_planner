@@ -1,4 +1,4 @@
-import { Context, InlineKeyboard } from 'grammy'
+import { Context, InlineKeyboard } from 'grammy/web'
 import { and, asc, eq, gte, lt, ne } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { calendarEvents } from '@/lib/db/schema'

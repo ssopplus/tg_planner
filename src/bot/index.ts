@@ -1,4 +1,4 @@
-import { Bot } from 'grammy'
+import { Bot } from 'grammy/web'
 import { handleStart } from './handlers/start'
 import { handleHelp } from './handlers/help'
 import { handleApp } from './handlers/app'

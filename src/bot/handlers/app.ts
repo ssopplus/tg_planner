@@ -1,4 +1,4 @@
-import { Context } from 'grammy'
+import { Context } from 'grammy/web'
 import { miniAppKeyboard } from '../keyboards/task'
 
 /**

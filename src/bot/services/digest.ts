@@ -6,7 +6,7 @@ import { escapeMarkdown } from './markdown'
 import { formatMinutes, readWorklogDay, todayInTz } from '@/lib/worklog/service'
 import { miniAppUrl } from '@/lib/telegram/mini-app-url'
 import { startOfToday } from '@/lib/calendar/format'
-import { InlineKeyboard } from 'grammy'
+import { InlineKeyboard } from 'grammy/web'
 import { digestLine } from './calendar-notify'
 import { cockpitDigestLines } from '@/lib/cockpit/digest'
 

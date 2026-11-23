@@ -1,4 +1,4 @@
-import { InlineKeyboard } from 'grammy'
+import { InlineKeyboard } from 'grammy/web'
 
 /** Кнопки подтверждения после AI-парсинга (одна задача) */
 export function confirmKeyboard(pendingId: string): InlineKeyboard {

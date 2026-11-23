@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { InputFile } from 'grammy'
+import { InputFile } from 'grammy/web'
 import { bot } from '@/bot'
 import { authorizeMiniApp } from '@/lib/telegram/auth'
 import { buildAnkiTsv, buildBackup } from '@/lib/reading/backup'

@@ -1,4 +1,4 @@
-import { Context, NextFunction } from 'grammy'
+import { Context, NextFunction } from 'grammy/web'
 import { db } from '@/lib/db'
 import { users } from '@/lib/db/schema'
 import { eq } from 'drizzle-orm'

@@ -1684,7 +1684,9 @@ function renderAccess() {
     top = `<div class="rrow"><div><b>${esc(dev.name)}</b> → ${esc(who)} <span class="muted">· ключ ${esc(dev.kid.slice(0, 8))} · ${esc(d.keychain)}</span>
         <div class="hint">${d.lastError ? `<span class="err">Синк: ${esc(d.lastError)}</span>` : d.lastOk ? `Синк ${ago(d.lastOk)} назад` : 'Синка ещё не было'} · hub ${esc(d.url)}</div></div>
       <div class="btns"><button class="ghost" data-hub="key-qr">${hubKeyQr ? 'Скрыть QR' : 'QR для второго телефона'}</button><button class="ghost" data-hub="unpair">Отвязать</button></div></div>
-      ${hubKeyQr ? `<div class="acc-row"><div class="qr">${qrSvg(hubKeyQr)}</div><div class="hint warn">Этот QR — ключ машины без срока действия. Покажите его только своему второму телефону и скройте.</div></div>` : ''}
+      ${hubKeyQr ? `<div class="acc-row"><div class="qr">${qrSvg(hubKeyQr)}</div><div><div class="hint warn">Этот QR — ключ машины без срока действия. Покажите его только своему второму телефону и скройте.</div>
+        <div class="hint">В Telegram Desktop QR не сканируется: скопируйте текст и вставьте его в Mini App → «Машины».</div>
+        <div class="acc-row"><button class="ghost" data-hub-copy="${esc(hubKeyQr)}">Скопировать текст QR</button></div></div></div>` : ''}
       <h2>Что можно с телефона</h2>
       ${HUB_LEVELS.map(([v, t, h]) => `<label class="acc-row"><input type="radio" name="hubLevel" value="${v}" ${dev.level === v ? 'checked' : ''}> <b>${t}</b> <span class="muted">— ${h}</span></label>`).join('')}
       <div class="hint">«Разрешать всегда», смена режима сессии и эти настройки с телефона не меняются никогда.</div>`;

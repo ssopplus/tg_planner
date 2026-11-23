@@ -3,7 +3,9 @@
   "name": "tg-planner",
   "main": "cf-worker.mjs",
   "compatibility_date": "2026-10-01",
-  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // no_handle_cross_request_promise_resolution: на free-тарифе Cloudflare рвёт запросы по CPU (10 мс), и начатая
+  // в оборванном запросе загрузка модуля Next больше не завершается — соседние запросы падали с 500.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public", "no_handle_cross_request_promise_resolution"],
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
   "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "tg-planner" }],
   // Один триггер в минуту, раскладка по задачам — JOBS в cf-worker.mjs (вместо cron-job.org).
